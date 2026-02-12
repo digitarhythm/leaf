@@ -99,6 +99,8 @@ export async function upload_file(filename, content, folderId, fileId = null) {
     const token = get_access_token();
     if (!token) throw new Error("No access token");
 
+    console.log(`[Drive] Uploading file: "${filename}" (fileId: ${fileId}) to folder: "${folderId}"`);
+
     const metadata = {
         name: filename,
         mimeType: FILE_MIME_TYPE,
@@ -116,10 +118,10 @@ export async function upload_file(filename, content, folderId, fileId = null) {
     const contentBytes = encoder.encode(content);
     
     let method = 'POST';
-    let path = '/upload/drive/v3/files?uploadType=multipart';
+    let path = '/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime';
     if (fileId) {
         method = 'PATCH';
-        path = `/upload/drive/v3/files/${fileId}?uploadType=multipart`;
+        path = `/upload/drive/v3/files/${fileId}?uploadType=multipart&fields=id,name,modifiedTime`;
     }
 
     const metadataPart = `Content-Type: application/json\r\n\r\n${JSON.stringify(metadata)}`;
@@ -159,6 +161,10 @@ export async function list_files(folderId) {
     return await response.json();
 }
 
+export function parse_date(dateStr) {
+    return Date.parse(dateStr);
+}
+
 export async function download_file(fileId) {
     const token = get_access_token();
     if (!token) throw new Error("No access token");
@@ -179,4 +185,11 @@ export async function download_file(fileId) {
     }
     
     return text;
+}
+
+export async function get_file_metadata(fileId) {
+    const headers = await getHeaders();
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,modifiedTime`, { headers });
+    if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
+    return await response.json();
 }
