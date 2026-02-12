@@ -10,6 +10,9 @@ pub struct JSSheet {
     pub content: String,
     pub is_modified: bool,
     pub drive_id: Option<String>,
+    pub temp_content: Option<String>,
+    pub temp_timestamp: Option<u64>,
+    pub last_sync_timestamp: Option<u64>,
 }
 
 #[wasm_bindgen(module = "/db.js")]

@@ -1,6 +1,6 @@
 // editor_interop.js
-// --- VERSION: 10000 (CLEAN FIX) ---
-console.log("%c[Leaf-SYSTEM] NEW SCRIPT LOADED - VERSION 10000", "color: white; background: green; font-size: 20px;");
+// --- ver1.5 ---
+console.log("%c[Leaf-SYSTEM] NEW SCRIPT LOADED - ver1.5", "color: white; background: #008888; font-size: 16px;");
 
 let editor;
 let commandCallback;
@@ -15,6 +15,14 @@ export function set_window_title(title) {
 
 export function init_editor(elementId, callback) {
     console.log("[Leaf-SYSTEM] init_editor called");
+    
+    // 既にエディタが初期化されている場合は、コールバックだけ更新して終了
+    if (editor) {
+        console.log("[Leaf-SYSTEM] Editor already exists, updating callback.");
+        commandCallback = callback;
+        return;
+    }
+
     if (!window.ace) {
         console.error("Ace editor not loaded");
         return;
@@ -45,7 +53,6 @@ export function init_editor(elementId, callback) {
         if (commandCallback) commandCallback("change");
     });
 
-    // 安定化リサイズ
     let count = 0;
     const interval = setInterval(() => {
         editor.resize();
@@ -69,6 +76,7 @@ function setupCommands() {
         bindKey: {win: "Ctrl-T", mac: "Command-T"},
         exec: function(editor) { if (commandCallback) commandCallback("new_sheet"); }
     });
+    // 標準のfindコマンドはAceに組み込まれているため、ここでは定義不要です
 }
 
 function setupGlobalKeys() {
@@ -78,6 +86,11 @@ function setupGlobalKeys() {
         if ((e.metaKey || e.ctrlKey) && e.key === 'w') { e.preventDefault(); if (commandCallback) commandCallback("close"); }
         if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); if (commandCallback) commandCallback("save"); }
         if ((e.metaKey || e.ctrlKey) && e.key === 't') { e.preventDefault(); if (commandCallback) commandCallback("new_sheet"); }
+        if ((e.metaKey || e.ctrlKey) && e.key === 'f') { 
+            // Ace本体の組み込みコマンドを直接実行（無限ループを回避）
+            e.preventDefault(); 
+            editor.execCommand("find");
+        }
     }, {passive: false});
 }
 
@@ -93,28 +106,40 @@ export function set_vim_mode(enabled) {
             editor.setKeyboardHandler(m.handler);
             container.classList.add("leaf-vim-enabled");
             
-            if (!editor._vim_polling_v10) {
-                console.log("[Leaf-SYSTEM] Starting mode observer...");
+            if (!editor._vim_v1_4_setup) {
+                console.log("[Leaf-SYSTEM] Starting ver1.4 mode observer...");
+                
                 setInterval(() => {
                     const h = editor.getKeyboardHandler();
-                    if (h && h.state) {
-                        const isInsert = h.state.insertMode;
-                        if (isInsert && !container.classList.contains("leaf-insert-mode")) {
+                    if (!h) return;
+
+                    // あらゆる可能性から挿入モードを判定
+                    const isInsert = 
+                        (h.state && h.state.insertMode) || 
+                        (h.$vimModeHandler && h.$vimModeHandler.state && h.$vimModeHandler.state.insertMode) ||
+                        (editor.state && editor.state.cm && editor.state.cm.state.vim && editor.state.cm.state.vim.insertMode);
+
+                    if (isInsert) {
+                        if (!container.classList.contains("leaf-insert-mode")) {
                             console.log("[Leaf-SYSTEM] Mode -> INSERT");
+                            container.classList.remove("leaf-normal-mode");
                             container.classList.add("leaf-insert-mode");
-                        } else if (!isInsert && container.classList.contains("leaf-insert-mode")) {
+                        }
+                    } else {
+                        if (container.classList.contains("leaf-insert-mode")) {
                             console.log("[Leaf-SYSTEM] Mode -> NORMAL");
                             container.classList.remove("leaf-insert-mode");
+                            container.classList.add("leaf-normal-mode");
                         }
                     }
                 }, 100);
-                editor._vim_polling_v10 = true;
+                editor._vim_v1_4_setup = true;
             }
             editor.focus();
         });
     } else {
         editor.setKeyboardHandler(null);
-        container.classList.remove("leaf-vim-enabled", "leaf-insert-mode");
+        container.classList.remove("leaf-vim-enabled", "leaf-normal-mode", "leaf-insert-mode");
         editor.focus();
     }
 }

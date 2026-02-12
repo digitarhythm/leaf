@@ -19,4 +19,9 @@ extern "C" {
 
     #[wasm_bindgen(catch)]
     pub async fn download_file(file_id: &str) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(catch)]
+    pub async fn get_file_metadata(file_id: &str) -> Result<JsValue, JsValue>;
+
+    pub fn parse_date(date_str: &str) -> f64;
 }

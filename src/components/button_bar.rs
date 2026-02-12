@@ -41,6 +41,13 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
             >
                 { if props.vim_mode { "vim: ON" } else { "vim: OFF" } }
             </button>
+            <div class="flex-1"></div>
+            <span 
+                class="text-green-500 opacity-30 font-bold px-4 text-2xl select-none"
+                style="font-family: 'Petit Formal Script', cursive;"
+            >
+                {"Leaf"}
+            </span>
         </div>
     }
 }
