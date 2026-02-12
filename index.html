@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Leaf</title>
+    
+    <link data-trunk rel="rust" data-target-name="leaf" />
+    <link data-trunk rel="css" href="tailwind.css" />
+    
+    <link data-trunk rel="copy-file" href="manifest.json" />
+    <link rel="manifest" href="manifest.json" />
+    
+    <link data-trunk rel="copy-file" href="editor_interop.js" />
+    <link data-trunk rel="copy-file" href="auth.js" />
+    <link data-trunk rel="copy-file" href="db.js" />
+    <link data-trunk rel="copy-file" href="drive.js" />
+    
+    <link data-trunk rel="copy-file" href="icon-192.png" />
+    <link data-trunk rel="copy-file" href="icon-512.png" />
+
+    <style>
+      html, body { height: 100%; margin: 0; background-color: #111827; overflow: hidden; }
+      #root { height: 100%; }
+      /* --- カーソルスタイル修正：究極のシンプル版 --- */
+      
+      /* 標準カーソルを「白いブロック」に設定（デフォルト） */
+      .ace_editor .ace_cursor {
+        background-color: rgba(255, 255, 255, 0.5) !important;
+        border-left: none !important;
+        width: 0.6em !important;
+        opacity: 1 !important;
+      }
+
+      /* Vim専用の追加ブロック要素も「白いブロック」にする */
+      .ace_editor .ace_cursor-vimmode {
+        background-color: rgba(255, 255, 255, 0.5) !important;
+        border: none !important;
+        width: 0.6em !important;
+      }
+
+      /* 【挿入モード時のみ】標準カーソルを「白い縦棒」に戻す */
+      .ace_editor.leaf-insert-mode .ace_cursor {
+        border-left: 2px solid #fff !important;
+        background-color: transparent !important;
+        width: 2px !important;
+      }
+
+      /* 挿入モード時はVim用ブロック要素を隠す */
+      .ace_editor.leaf-insert-mode .ace_cursor-vimmode {
+        opacity: 0 !important;
+      }
+      /* --- */
+    </style>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-twilight.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js"></script>
+    
+    <script>
+      ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

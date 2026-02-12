@@ -1,0 +1,4 @@
+[[hooks]]
+stage = "build"
+command = "npx"
+command_arguments = ["@tailwindcss/cli", "-i", "input.css", "-o", "tailwind.css"]
