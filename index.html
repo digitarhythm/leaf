@@ -53,7 +53,7 @@
       .ace_editor.leaf-insert-mode .ace_cursor-vimmode {
         opacity: 0 !important;
       }
-      /* --- 検索ダイアログの中央配置 --- */
+      /* --- 検索ダイアログのカスタマイズ --- */
       .ace_search {
         position: fixed !important;
         top: 50% !important;
@@ -63,15 +63,95 @@
         background-color: #1f2937 !important; /* gray-800 */
         border: 1px solid #374151 !important; /* gray-700 */
         box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
-        border-radius: 0.5rem !important;
-        padding: 1rem !important;
+        border-radius: 0.5rem !important; /* rounded-lg */
+        padding: 1.25rem !important;
         width: auto !important;
         height: auto !important;
+        color: #e5e7eb !important; /* gray-200 */
+        font-family: inherit !important;
       }
       .ace_search_form, .ace_replace_form {
-        margin-bottom: 0.5rem !important;
+        margin-bottom: 0.75rem !important;
+        display: flex !important;
+        align-items: center !important;
       }
-      /* Markdown Preview Styles */
+      .ace_search_field {
+        background-color: #030712 !important; /* gray-950 */
+        border: 1px solid #374151 !important; /* gray-700 */
+        color: #ffffff !important;
+        border-radius: 0.375rem !important; /* rounded-md */
+        padding: 0.4rem 0.75rem !important;
+        margin-right: 0.5rem !important;
+        outline: none !important;
+      }
+      .ace_search_field:focus {
+        border-color: #3b82f6 !important; /* blue-500 */
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+      }
+      .ace_searchbtn {
+        background-color: #374151 !important; /* gray-700 */
+        border: 1px solid #4b5563 !important; /* gray-600 */
+        color: #d1d5db !important; /* gray-300 */
+        border-radius: 0.375rem !important;
+        padding: 0.25rem 0.75rem !important;
+        margin-left: 0.25rem !important;
+        cursor: pointer !important;
+        transition: all 0.2s !important;
+        font-size: 12px !important;
+        height: 28px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+      }
+      .ace_searchbtn:hover {
+        background-color: #4b5563 !important; /* gray-600 */
+        color: #ffffff !important;
+      }
+      .ace_searchbtn.prev, .ace_searchbtn.next {
+        font-weight: bold !important;
+      }
+      .ace_search_options {
+        margin-top: 0.5rem !important;
+        padding-top: 0.5rem !important;
+        border-top: 1px solid #374151 !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 0.5rem !important;
+      }
+      .ace_search_option {
+        background-color: #374151 !important;
+        border: 1px solid #4b5563 !important;
+        color: #9ca3af !important;
+        border-radius: 0.25rem !important;
+        padding: 0.1rem 0.5rem !important;
+        font-size: 10px !important;
+        cursor: pointer !important;
+      }
+      .ace_search_option.checked {
+        background-color: #2563eb !important; /* blue-600 */
+        border-color: #3b82f6 !important;
+        color: #ffffff !important;
+      }
+      .ace_searchbtn_close {
+        position: absolute !important;
+        top: 0.5rem !important;
+        right: 0.5rem !important;
+        color: #9ca3af !important;
+        cursor: pointer !important;
+        font-size: 18px !important;
+        opacity: 0.6 !important;
+      }
+      .ace_searchbtn_close:hover {
+        opacity: 1 !important;
+        color: #ffffff !important;
+      }
+      /* --- */
+      /* --- 未保存状態の行番号スタイル --- */
+      .leaf-unsaved-gutter .ace_gutter-cell {
+        color: #fb923c !important; /* orange-400 */
+        font-weight: bold !important;
+      }
+      /* --- */
       .markdown-body {
         color: #e5e7eb;
         line-height: 1.6;

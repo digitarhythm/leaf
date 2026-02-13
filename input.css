@@ -8,7 +8,7 @@
 
 /* 未保存状態の行番号の色 */
 .leaf-unsaved-gutter .ace_gutter-cell {
-  color: #ef4444 !important; /* Tailwind red-500 */
+  color: #fb923c !important; /* orange-400 */
   transition: color 0.3s ease;
 }
 

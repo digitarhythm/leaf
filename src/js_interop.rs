@@ -15,4 +15,5 @@ extern "C" {
     pub fn change_font_size(delta: i32);
     pub fn render_markdown(text: &str) -> String;
     pub fn init_mermaid(element: &web_sys::Element);
+    pub fn set_preview_active(active: bool);
 }
