@@ -221,26 +221,54 @@ export async function upload_file(filename, content, folderId, fileId = null) {
     return await response.json();
 }
 
-export async function list_files(folderId) {
+export async function list_files(folderId, signal = null) {
     const headers = await getHeaders();
     const query = `'${folderId}' in parents and mimeType != '${FOLDER_MIME_TYPE}' and trashed=false`;
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name)`, { headers });
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name, modifiedTime)`, { 
+        headers,
+        signal 
+    });
     if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
     return await response.json();
+}
+
+export async function delete_file(fileId) {
+    const token = get_access_token();
+    if (!token) throw new Error("No access token");
+
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+        method: 'DELETE',
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+
+    if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
+    if (!response.ok && response.status !== 404) {
+        const err = await response.text();
+        console.error("[Drive] Delete failed:", response.status, err);
+        throw new Error(`Delete failed: ${response.status}`);
+    }
+
+    console.log("[Drive] File deleted successfully.");
+    return true;
 }
 
 export function parse_date(dateStr) {
     return Date.parse(dateStr);
 }
 
-export async function download_file(fileId, range = null) {
+export async function download_file(fileId, range = null, signal = null) {
     const token = get_access_token();
     if (!token) throw new Error("No access token");
     
     const headers = { 'Authorization': `Bearer ${token}` };
     if (range) headers['Range'] = `bytes=${range}`;
 
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { 
+        headers,
+        signal
+    });
     if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
     if (!response.ok && response.status !== 206) throw new Error(`Download failed: ${response.status}`);
 
