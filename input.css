@@ -5,3 +5,27 @@
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   }
 }
+
+/* 未保存状態の行番号の色 */
+.leaf-unsaved-gutter .ace_gutter-cell {
+  color: #ef4444 !important; /* Tailwind red-500 */
+  transition: color 0.3s ease;
+}
+
+@keyframes dialog-fade-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes dialog-fade-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.95); }
+}
+
+.animate-dialog-in {
+  animation: dialog-fade-in 0.2s ease-out forwards;
+}
+
+.animate-dialog-out {
+  animation: dialog-fade-out 0.2s ease-in forwards;
+}

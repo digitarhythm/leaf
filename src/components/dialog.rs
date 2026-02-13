@@ -12,23 +12,40 @@ pub struct CustomDialogProps {
     pub message: String,
     pub options: Vec<DialogOption>,
     pub on_confirm: Callback<usize>,
+    #[prop_or_default]
+    pub on_start_processing: Callback<()>,
 }
 
 #[function_component(CustomDialog)]
 pub fn custom_dialog(props: &CustomDialogProps) -> Html {
     let selected_option = use_state(|| 0usize);
+    let is_fading_out = use_state(|| false);
 
     let on_confirm = {
         let on_confirm = props.on_confirm.clone();
+        let on_start = props.on_start_processing.clone();
         let selected = selected_option.clone();
+        let is_fading_out = is_fading_out.clone();
         Callback::from(move |_| {
-            on_confirm.emit(*selected);
+            is_fading_out.set(true);
+            on_start.emit(());
+            let on_confirm = on_confirm.clone();
+            let selected_val = *selected;
+            gloo::timers::callback::Timeout::new(200, move || {
+                on_confirm.emit(selected_val);
+            }).forget();
         })
     };
 
     html! {
-        <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+        <div class={classes!(
+            "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/60", "backdrop-blur-sm", "p-4",
+            if *is_fading_out { "opacity-0 transition-opacity duration-200" } else { "" }
+        )}>
+            <div class={classes!(
+                "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-md", "overflow-hidden",
+                if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
+            )}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-xl font-bold text-white">{ &props.title }</h3>
                 </div>
@@ -60,7 +77,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                     </div>
                 </div>
 
-                <div class="px-6 py-4 bg-gray-900/50 flex justify-end">
+                <div class="px-6 py-2 bg-gray-900/50 flex justify-end">
                     <button 
                         onclick={on_confirm}
                         class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md transition-colors shadow-lg shadow-blue-900/20"

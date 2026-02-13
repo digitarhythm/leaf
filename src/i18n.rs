@@ -1,0 +1,291 @@
+use web_sys::window;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Language {
+    En,
+    Ja,
+    Zh,
+    Ko,
+    Es,
+    De,
+    Fr,
+    It,
+    Nl,
+}
+
+impl Language {
+    pub fn detect() -> Self {
+        let lang = window()
+            .and_then(|w| w.navigator().language())
+            .unwrap_or_else(|| "en".to_string())
+            .to_lowercase();
+
+        if lang.starts_with("ja") { Language::Ja }
+        else if lang.starts_with("zh") { Language::Zh }
+        else if lang.starts_with("ko") { Language::Ko }
+        else if lang.starts_with("es") { Language::Es }
+        else if lang.starts_with("de") { Language::De }
+        else if lang.starts_with("fr") { Language::Fr }
+        else if lang.starts_with("it") { Language::It }
+        else if lang.starts_with("nl") { Language::Nl }
+        else { Language::En }
+    }
+}
+
+pub fn t(key: &str, lang: Language) -> String {
+    match key {
+        // --- App / Login ---
+        "signin_with_google" => match lang {
+            Language::Ja => "Googleでログイン",
+            Language::Zh => "通过 Google 登录",
+            Language::Ko => "Google 계정으로 로그인",
+            Language::Es => "Iniciar sesión con Google",
+            Language::De => "Mit Google anmelden",
+            Language::Fr => "Se connecter avec Google",
+            Language::It => "Accedi con Google",
+            Language::Nl => "Inloggen met Google",
+            _ => "Sign in with Google",
+        }.to_string(),
+        "login_required" => match lang {
+            Language::Ja => "ファイルにアクセスするにはログインが必要です。",
+            Language::Zh => "登录以访问您的文件。",
+            Language::Ko => "파일에 액세스하려면 로그인이 필요합니다.",
+            Language::Es => "Inicie sesión para acceder a sus archivos.",
+            Language::De => "Bitte melden Sie sich an, um auf Ihre Dateien zuzugreifen.",
+            Language::Fr => "Veuillez vous connecter pour accéder à vos fichiers.",
+            Language::It => "Accedi per accedere ai tuoi file.",
+            Language::Nl => "Log in om toegang te krijgen tot uw bestanden.",
+            _ => "Please sign in to access your files.",
+        }.to_string(),
+        "synchronizing" => match lang {
+            Language::Ja => "同期中...",
+            Language::Zh => "正在同步...",
+            Language::Ko => "동기화 중...",
+            Language::Es => "Sincronizando...",
+            Language::De => "Synchronisierung...",
+            Language::Fr => "Synchronisation...",
+            Language::It => "Sincronizzazione in corso...",
+            Language::Nl => "Synchroniseren...",
+            _ => "Synchronizing...",
+        }.to_string(),
+        "saving" => match lang {
+            Language::Ja => "保存中...",
+            Language::Zh => "正在保存...",
+            Language::Ko => "저장 중...",
+            Language::Es => "Guardando...",
+            Language::De => "Speichern...",
+            Language::Fr => "Enregistrement...",
+            Language::It => "Salvataggio in corso...",
+            Language::Nl => "Opslaan...",
+            _ => "Saving...",
+        }.to_string(),
+
+        // --- Conflict Dialog ---
+        "conflict_detected" => match lang {
+            Language::Ja => "データの競合を検知",
+            Language::Zh => "检测到冲突",
+            Language::Ko => "충돌 감지",
+            Language::Es => "Conflicto detectado",
+            Language::De => "Konflikt erkannt",
+            Language::Fr => "Conflit détecté",
+            Language::It => "Conflitto rilevato",
+            Language::Nl => "Conflict gedetecteerd",
+            _ => "Conflict Detected",
+        }.to_string(),
+        "file_not_found" => match lang {
+            Language::Ja => "ファイルが見つかりません",
+            Language::Zh => "未找到文件",
+            Language::Ko => "파일을 찾을 수 없습니다",
+            Language::Es => "Archivo no encontrado",
+            Language::De => "Datei nicht gefunden",
+            Language::Fr => "Fichier non trouvé",
+            Language::It => "File non trovato",
+            Language::Nl => "Bestand niet gevonden",
+            _ => "File Not Found",
+        }.to_string(),
+        "conflict_message" => match lang {
+            Language::Ja => "Googleドライブ上により新しいバージョンが見つかりました。実行するアクションを選択してください。",
+            Language::Zh => "Google 云端硬盘上发现了更新版本。请选择一个操作。",
+            Language::Ko => "Google 드라이브에서 최신 버전이 발견되었습니다. 작업을 선택하십시오.",
+            Language::Es => "Se encontró una versión más reciente en Google Drive. Seleccione una acción.",
+            Language::De => "Auf Google Drive wurde eine neuere Version gefunden. Wählen Sie eine Aktion aus.",
+            Language::Fr => "Une version plus récente a été trouvée sur Google Drive. Sélectionnez une action.",
+            Language::It => "È stata trovata una versione più recente su Google Drive. Seleziona un'azione.",
+            Language::Nl => "Er is een nieuwere versie gevonden op Google Drive. Selecteer een actie.",
+            _ => "A newer version was found on Google Drive. Select an action.",
+        }.to_string(),
+        "missing_file_message" => match lang {
+            Language::Ja => "Googleドライブ上にファイルが見つかりませんでした。アクションを選択してください。",
+            Language::Zh => "Google 云端硬盘上未找到该文件。请选择一个操作。",
+            Language::Ko => "Google 드라이브에서 파일을 찾을 수 없습니다. 작업을 선택하십시오.",
+            Language::Es => "No se encontró el archivo en Google Drive. Seleccione una acción.",
+            Language::De => "Die Datei wurde auf Google Drive nicht gefunden. Wählen Sie eine Aktion aus.",
+            Language::Fr => "Le fichier n'a pas été trouvé sur Google Drive. Sélectionnez une action.",
+            Language::It => "Il file non è stato trovato su Google Drive. Seleziona un'azione.",
+            Language::Nl => "Bestand niet gevonden op Google Drive. Selecteer een actie.",
+            _ => "File was not found on Google Drive. Select an action.",
+        }.to_string(),
+        "opt_load_drive" => match lang {
+            Language::Ja => "Googleドライブのデータを読み込む",
+            Language::Zh => "加载云端硬盘数据",
+            Language::Ko => "드라이브 데이터 로드",
+            Language::Es => "Cargar datos de Drive",
+            Language::De => "Drive-Daten laden",
+            Language::Fr => "Charger les données Drive",
+            Language::It => "Carica i dati di Drive",
+            Language::Nl => "Drive-gegevens laden",
+            _ => "Load Drive data",
+        }.to_string(),
+        "opt_overwrite_drive" => match lang {
+            Language::Ja => "ローカルのデータをGoogleドライブへ上書き保存",
+            Language::Zh => "将本地数据覆盖到云端硬盘",
+            Language::Ko => "로컬 데이터로 드라이브 덮어쓰기",
+            Language::Es => "Sobrescribir Drive con datos locales",
+            Language::De => "Drive mit lokalen Daten überschreiben",
+            Language::Fr => "Écraser Drive avec les données locales",
+            Language::It => "Sovrascrivi Drive con i dati locali",
+            Language::Nl => "Drive overschrijven met lokale gegevens",
+            _ => "Overwrite Drive with local data",
+        }.to_string(),
+        "opt_reupload" => match lang {
+            Language::Ja => "ローカルのデータをGoogleドライブへ再アップロード",
+            Language::Zh => "将本地数据重新上传到云端硬盘",
+            Language::Ko => "로컬 데이터를 Google 드라이브에 다시 업로드",
+            Language::Es => "Volver a cargar los datos locales en Google Drive",
+            Language::De => "Lokale Daten erneut auf Google Drive hochladen",
+            Language::Fr => "Recupler les données locales vers Google Drive",
+            Language::It => "Ricarica i dati locali su Google Drive",
+            Language::Nl => "Lokale gegevens opnieuw uploaden naar Google Drive",
+            _ => "Re-upload local data to Google Drive",
+        }.to_string(),
+        "opt_save_new" => match lang {
+            Language::Ja => "ローカルのデータをGoogleドライブへ新規ファイルとして保存",
+            Language::Zh => "将本地数据另存为新文件",
+            Language::Ko => "로컬 데이터를 새 파일로 저장",
+            Language::Es => "Guardar datos locales como archivo nuevo",
+            Language::De => "Lokale Daten als neue Datei speichern",
+            Language::Fr => "Enregistrer les données locales comme nouveau fichier",
+            Language::It => "Salva i dati locali come nuovo file",
+            Language::Nl => "Lokale gegevens opslaan als nieuw bestand",
+            _ => "Save local data as new file",
+        }.to_string(),
+        "opt_delete_local" => match lang {
+            Language::Ja => "このシートをローカルから削除",
+            Language::Zh => "从本地删除此工作表",
+            Language::Ko => "로컬에서 이 시트 삭제",
+            Language::Es => "Eliminar esta hoja de local",
+            Language::De => "Dieses Blatt lokal löschen",
+            Language::Fr => "Supprimer cette feuille du local",
+            Language::It => "Elimina questo foglio dal locale",
+            Language::Nl => "Dit blad lokaal verwijderen",
+            _ => "Delete this sheet from local",
+        }.to_string(),
+
+        // --- File Open Dialog ---
+        "file_selection" => match lang {
+            Language::Ja => "ファイル選択",
+            Language::Zh => "选择文件",
+            Language::Ko => "파일 선택",
+            Language::Es => "Selección de archivos",
+            Language::De => "Dateiauswahl",
+            Language::Fr => "Sélection de fichier",
+            Language::It => "Selezione file",
+            Language::Nl => "Bestandsselectie",
+            _ => "File selection",
+        }.to_string(),
+        "refresh_categories" => match lang {
+            Language::Ja => "カテゴリー一覧を更新",
+            Language::Zh => "刷新类别",
+            Language::Ko => "카테고리 새로고침",
+            Language::Es => "Actualizar categorías",
+            Language::De => "Kategorien aktualisieren",
+            Language::Fr => "Actualiser les catégories",
+            Language::It => "Aggiorna categorie",
+            Language::Nl => "Categorieën vernieuwen",
+            _ => "Refresh categories",
+        }.to_string(),
+        "guide_keys" => match lang {
+            Language::Ja => "↑↓: 移動, Enter: 決定, Esc: 閉じる, Tab: エリア切り替え",
+            Language::Zh => "↑↓: 移动, Enter: 选择, Esc: 关闭, Tab: 切换区域",
+            Language::Ko => "↑↓: 이동, Enter: 선택, Esc: 닫기, Tab: 영역 전환",
+            Language::Es => "↑↓: Mover, Enter: Seleccionar, Esc: Cerrar, Tab: Cambiar área",
+            Language::De => "↑↓: Bewegen, Enter: Auswählen, Esc: Schließen, Tab: Bereich wechseln",
+            Language::Fr => "↑↓: Déplacer, Enter: Sélectionner, Esc: Fermer, Tab: Changer de zone",
+            Language::It => "↑↓: Sposta, Enter: Seleziona, Esc: Chiudi, Tab: Cambia area",
+            Language::Nl => "↑↓: Verplaatsen, Enter: Selecteren, Esc: Sluiten, Tab: Gebied wisselen",
+            _ => "↑↓: Move, Enter: Select, Esc: Close, Tab: Switch Area",
+        }.to_string(),
+        "cancel" => match lang {
+            Language::Ja => "キャンセル",
+            Language::Zh => "取消",
+            Language::Ko => "취소",
+            Language::Es => "Cancelar",
+            Language::De => "Abbrechen",
+            Language::Fr => "Annuler",
+            Language::It => "Annulla",
+            Language::Nl => "Annuleren",
+            _ => "Cancel",
+        }.to_string(),
+
+        // --- Button Bar ---
+        "new_sheet" => match lang {
+            Language::Ja => "新規シート",
+            Language::Zh => "新建工作表",
+            Language::Ko => "새 시트",
+            Language::Es => "Nueva hoja",
+            Language::De => "Neues Blatt",
+            Language::Fr => "Nouvelle feuille",
+            Language::It => "Nuovo foglio",
+            Language::Nl => "Nieuw blad",
+            _ => "New Sheet",
+        }.to_string(),
+        "open_file" => match lang {
+            Language::Ja => "ファイルを開く",
+            Language::Zh => "打开文件",
+            Language::Ko => "파일 열기",
+            Language::Es => "Abrir archivo",
+            Language::De => "Datei öffnen",
+            Language::Fr => "Ouvrir le fichier",
+            Language::It => "Apri file",
+            Language::Nl => "Bestand openen",
+            _ => "Open File",
+        }.to_string(),
+        "toggle_vim" => match lang {
+            Language::Ja => "Vimモード切り替え",
+            Language::Zh => "切换 Vim 模式",
+            Language::Ko => "Vim 모드 전환",
+            Language::Es => "Alternar modo Vim",
+            Language::De => "Vim-Modus umschalten",
+            Language::Fr => "Basculer le mode Vim",
+            Language::It => "Attiva/disattiva modalità Vim",
+            Language::Nl => "Vim-modus omschakelen",
+            _ => "Toggle Vim Mode",
+        }.to_string(),
+
+        // --- Status Bar ---
+        "network_connected" => match lang {
+            Language::Ja => "ネットワーク接続中",
+            Language::Zh => "网络已连接",
+            Language::Ko => "네트워크 연결됨",
+            Language::Es => "Red conectada",
+            Language::De => "Netzwerk verbunden",
+            Language::Fr => "Réseau connecté",
+            Language::It => "Rete connessa",
+            Language::Nl => "Netwerk verbonden",
+            _ => "Network connected",
+        }.to_string(),
+        "offline" => match lang {
+            Language::Ja => "オフライン",
+            Language::Zh => "离线",
+            Language::Ko => "오프라인",
+            Language::Es => "Fuera de línea",
+            Language::De => "Offline",
+            Language::Fr => "Hors ligne",
+            Language::It => "Non in linea",
+            Language::Nl => "Offline",
+            _ => "Offline",
+        }.to_string(),
+
+        _ => key.to_string(),
+    }
+}

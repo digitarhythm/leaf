@@ -13,6 +13,13 @@ pub struct JSSheet {
     pub temp_content: Option<String>,
     pub temp_timestamp: Option<u64>,
     pub last_sync_timestamp: Option<u64>,
+    pub tab_color: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct JSCategory {
+    pub id: String,
+    pub name: String,
 }
 
 #[wasm_bindgen(module = "/db.js")]
@@ -28,4 +35,10 @@ extern "C" {
 
     #[wasm_bindgen(catch)]
     pub async fn delete_sheet(id: &str) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(catch)]
+    pub async fn save_categories(categories: JsValue) -> Result<(), JsValue>;
+
+    #[wasm_bindgen(catch)]
+    pub async fn load_categories() -> Result<JsValue, JsValue>;
 }
