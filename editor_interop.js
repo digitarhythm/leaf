@@ -7,6 +7,39 @@ let commandCallback;
 let pendingContent = null;
 const FONT_SIZE_KEY = 'leaf_font_size';
 
+export function render_markdown(text) {
+    if (typeof marked === 'undefined') return text;
+    // GFM (GitHub Flavored Markdown) を有効化
+    return marked.parse(text, { gfm: true, breaks: true });
+}
+
+export async function init_mermaid(element) {
+    if (typeof mermaid === 'undefined') return;
+    
+    // marked が出力した <code class="language-mermaid"> を探す
+    const codeBlocks = element.querySelectorAll('code.language-mermaid');
+    codeBlocks.forEach(block => {
+        const pre = block.parentElement;
+        if (pre && pre.tagName === 'PRE') {
+            // Mermaid 用のコンテナに変換
+            const div = document.createElement('div');
+            div.className = 'mermaid';
+            div.textContent = block.textContent;
+            pre.replaceWith(div);
+        }
+    });
+
+    try {
+        // 非同期実行。構文エラーがあってもキャッチする
+        await mermaid.run({
+            nodes: element.querySelectorAll('.mermaid'),
+            suppressErrors: true
+        });
+    } catch (e) {
+        console.error("[Leaf-SYSTEM] Mermaid rendering failed:", e);
+    }
+}
+
 export function generate_uuid() {
     return crypto.randomUUID();
 }
@@ -119,6 +152,8 @@ function setupGlobalKeys() {
         if (e.altKey && e.code === 'KeyS') { e.preventDefault(); if (commandCallback) commandCallback("save"); }
         if (e.altKey && e.code === 'KeyN') { e.preventDefault(); if (commandCallback) commandCallback("new_sheet"); }
         if (e.altKey && e.code === 'KeyO') { e.preventDefault(); if (commandCallback) commandCallback("open"); }
+        if (e.altKey && e.code === 'KeyI') { e.preventDefault(); if (commandCallback) commandCallback("import"); }
+        if (e.altKey && e.code === 'KeyM') { e.preventDefault(); if (commandCallback) commandCallback("preview"); }
         if (e.altKey && e.code === 'Minus') { e.preventDefault(); change_font_size(-1); }
         if (e.altKey && e.code === 'Equal') { e.preventDefault(); change_font_size(1); }
         if (e.altKey && e.code === 'KeyF') { 

@@ -13,4 +13,6 @@ extern "C" {
     pub fn set_gutter_status(unsaved: bool);
     pub fn generate_uuid() -> String;
     pub fn change_font_size(delta: i32);
+    pub fn render_markdown(text: &str) -> String;
+    pub fn init_mermaid(element: &web_sys::Element);
 }

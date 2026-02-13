@@ -47,7 +47,7 @@ export function save_sheet(sheet) {
         const transaction = db.transaction([STORE_SHEETS], "readwrite");
         const store = transaction.objectStore(STORE_SHEETS);
         
-        // 常に1つだけ保持するため、先にクリアする
+        // 常に最新の1件のみを保持するため、既存データを全削除してから追加する
         const clearReq = store.clear();
         clearReq.onsuccess = () => {
             const request = store.put(sheet);

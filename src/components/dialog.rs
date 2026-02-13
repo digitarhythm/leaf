@@ -89,3 +89,95 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
         </div>
     }
 }
+
+#[derive(Properties, PartialEq)]
+pub struct InputDialogProps {
+    pub title: String,
+    pub message: String,
+    pub on_confirm: Callback<String>,
+    pub on_cancel: Callback<()>,
+}
+
+#[function_component(InputDialog)]
+pub fn input_dialog(props: &InputDialogProps) -> Html {
+    let text = use_state(|| "".to_string());
+    let input_ref = use_node_ref();
+
+    {
+        let input_ref = input_ref.clone();
+        use_effect_with((), move |_| {
+            if let Some(input) = input_ref.cast::<web_sys::HtmlInputElement>() {
+                let _ = input.focus();
+            }
+            || ()
+        });
+    }
+
+    let on_input = {
+        let text = text.clone();
+        Callback::from(move |e: InputEvent| {
+            let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+            text.set(input.value());
+        })
+    };
+
+    let on_confirm = {
+        let on_confirm = props.on_confirm.clone();
+        let text = text.clone();
+        Callback::from(move |_| {
+            on_confirm.emit((*text).clone());
+        })
+    };
+
+    let on_keydown = {
+        let on_confirm = props.on_confirm.clone();
+        let on_cancel = props.on_cancel.clone();
+        let text = text.clone();
+        Callback::from(move |e: KeyboardEvent| {
+            if e.key() == "Enter" {
+                e.prevent_default();
+                on_confirm.emit((*text).clone());
+            } else if e.key() == "Escape" {
+                e.prevent_default();
+                on_cancel.emit(());
+            }
+        })
+    };
+
+    html! {
+        <div class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-dialog-in">
+                <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
+                    <h3 class="text-lg font-bold text-white">{ &props.title }</h3>
+                </div>
+                
+                <div class="px-6 py-6 space-y-4">
+                    <p class="text-sm text-gray-300">{ &props.message }</p>
+                    <input 
+                        ref={input_ref}
+                        type="text" 
+                        value={(*text).clone()}
+                        oninput={on_input}
+                        onkeydown={on_keydown}
+                        class="w-full bg-gray-900 border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    />
+                </div>
+
+                <div class="px-6 py-2 bg-gray-900/50 flex justify-end space-x-3">
+                    <button 
+                        onclick={on_confirm}
+                        class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md transition-colors shadow-lg"
+                    >
+                        { "OK" }
+                    </button>
+                    <button 
+                        onclick={props.on_cancel.reform(|_| ())}
+                        class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md transition-colors"
+                    >
+                        { "Cancel" }
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+}
