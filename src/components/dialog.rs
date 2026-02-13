@@ -22,6 +22,17 @@ pub struct CustomDialogProps {
 pub fn custom_dialog(props: &CustomDialogProps) -> Html {
     let selected_option = use_state(|| 0usize);
     let is_fading_out = use_state(|| false);
+    let root_ref = use_node_ref(); // 追加
+
+    {
+        let root = root_ref.clone();
+        use_effect_with((), move |_| {
+            if let Some(el) = root.cast::<web_sys::HtmlElement>() {
+                let _ = el.focus();
+            }
+            || ()
+        });
+    }
 
     let on_confirm = {
         let on_confirm = props.on_confirm.clone();
@@ -39,11 +50,47 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
         })
     };
 
+    let on_keydown = {
+        let selected = selected_option.clone();
+        let options_len = props.options.len();
+        let on_cfm = on_confirm.clone();
+        let on_cxl = props.on_cancel.clone();
+        Callback::from(move |e: web_sys::KeyboardEvent| {
+            e.stop_propagation(); // 背景に伝えない
+            match e.key().as_str() {
+                "ArrowUp" => {
+                    e.prevent_default();
+                    let cur = *selected;
+                    if cur > 0 { selected.set(cur - 1); }
+                }
+                "ArrowDown" => {
+                    e.prevent_default();
+                    let cur = *selected;
+                    if cur + 1 < options_len { selected.set(cur + 1); }
+                }
+                "Enter" => {
+                    e.prevent_default();
+                    on_cfm.emit(());
+                }
+                "Escape" => {
+                    e.prevent_default();
+                    if let Some(cb) = &on_cxl { cb.emit(()); }
+                }
+                _ => {}
+            }
+        })
+    };
+
     html! {
-        <div class={classes!(
-            "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/60", "backdrop-blur-sm", "p-4",
-            if *is_fading_out { "opacity-0 transition-opacity duration-200" } else { "" }
-        )}>
+        <div 
+            ref={root_ref}
+            class={classes!(
+                "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/60", "backdrop-blur-sm", "p-4", "outline-none",
+                if *is_fading_out { "opacity-0 transition-opacity duration-200" } else { "" }
+            )}
+            tabindex="0"
+            onkeydown={on_keydown}
+        >
             <div class={classes!(
                 "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-md", "overflow-hidden",
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
@@ -89,7 +136,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                         </button>
                     }
                     <button 
-                        onclick={on_confirm}
+                        onclick={on_confirm.reform(|_| ())}
                         class="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md transition-colors shadow-lg shadow-blue-900/20"
                     >
                         { "OK" }
@@ -144,6 +191,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
         let on_cancel = props.on_cancel.clone();
         let text = text.clone();
         Callback::from(move |e: KeyboardEvent| {
+            e.stop_propagation(); // 背景に伝えない
             if e.key() == "Enter" {
                 e.prevent_default();
                 on_confirm.emit((*text).clone());
@@ -202,8 +250,56 @@ pub struct ConfirmDialogProps {
 
 #[function_component(ConfirmDialog)]
 pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
+    let ok_button_ref = use_node_ref();
+    let cancel_button_ref = use_node_ref();
+
+    {
+        let ok_button_ref = ok_button_ref.clone();
+        use_effect_with((), move |_| {
+            if let Some(btn) = ok_button_ref.cast::<web_sys::HtmlElement>() {
+                let _ = btn.focus();
+            }
+            || ()
+        });
+    }
+
+    let on_keydown = {
+        let ok_ref = ok_button_ref.clone();
+        let cancel_ref = cancel_button_ref.clone();
+        Callback::from(move |e: web_sys::KeyboardEvent| {
+            e.stop_propagation(); // 背景に伝えない
+            match e.key().as_str() {
+                "ArrowLeft" | "ArrowRight" => {
+                    e.prevent_default();
+                    let active_el = web_sys::window()
+                        .and_then(|w| w.document())
+                        .and_then(|d| d.active_element());
+                    
+                    if let Some(active) = active_el {
+                        if let Some(ok_btn) = ok_ref.cast::<web_sys::Element>() {
+                            if active == ok_btn {
+                                if let Some(cancel_btn) = cancel_ref.cast::<web_sys::HtmlElement>() {
+                                    let _ = cancel_btn.focus();
+                                }
+                                return;
+                            }
+                        }
+                        if let Some(cancel_btn) = cancel_ref.cast::<web_sys::Element>() {
+                            if active == cancel_btn {
+                                if let Some(ok_btn) = ok_ref.cast::<web_sys::HtmlElement>() {
+                                    let _ = ok_btn.focus();
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })
+    };
+
     html! {
-        <div class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+        <div class="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onkeydown={on_keydown}>
             <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-dialog-in">
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-lg font-bold text-white">{ &props.title }</h3>
@@ -215,14 +311,16 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
 
                 <div class="px-6 py-3 bg-gray-900/50 flex justify-end space-x-3">
                     <button 
+                        ref={cancel_button_ref}
                         onclick={props.on_cancel.reform(|_| ())}
-                        class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md transition-colors"
+                        class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md transition-colors focus:ring-2 focus:ring-blue-500 outline-none"
                     >
                         { "Cancel" }
                     </button>
                     <button 
+                        ref={ok_button_ref}
                         onclick={props.on_confirm.reform(|_| ())}
-                        class="px-8 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-md transition-colors shadow-lg"
+                        class="px-8 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-md transition-colors shadow-lg focus:ring-2 focus:ring-blue-500 outline-none"
                     >
                         { "OK" }
                     </button>

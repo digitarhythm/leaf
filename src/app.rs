@@ -34,7 +34,6 @@ pub struct Sheet {
 
 #[derive(Deserialize)]
 struct Config {
-    app_name: String,
     google_client_id: String,
 }
 
@@ -79,6 +78,7 @@ pub fn app() -> Html {
     let db_loaded = use_state(|| false);
     let conflict_queue = use_state(|| Vec::<ConflictData>::new());
     let fallback_queue = use_state(|| Vec::<String>::new());
+    let pending_import_data = use_state(|| None::<(String, String)>); // (filename, content)
     let is_file_open_dialog_visible = use_state(|| false);
     let is_preview_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
@@ -172,7 +172,12 @@ pub fn app() -> Html {
                                  fq_inner.set(vec![s_clone.id.clone()]); ild_inner.set(false); sp_inner.set(false); *ris_inner.borrow_mut() = false; return;
                              }
                          }
-                         let fname = format!("{}.txt", s_clone.guid.as_ref().unwrap());
+                         let fname = if s_clone.title.contains('.') {
+                             let ext = s_clone.title.split('.').last().unwrap_or("txt");
+                             format!("{}.{}", s_clone.guid.as_ref().unwrap(), ext)
+                         } else {
+                             format!("{}.txt", s_clone.guid.as_ref().unwrap())
+                         };
                          let res = upload_file(&fname, &s_clone.content, &target_folder_id, s_clone.drive_id.as_deref()).await;
                          let mut n_did = s_clone.drive_id.clone(); let mut stime = s_clone.last_sync_timestamp;
                          match res {
@@ -364,50 +369,85 @@ pub fn app() -> Html {
         let s_state = sheets.clone(); let aid_state = active_sheet_id.clone();
         let sp_state = is_suppressing_changes.clone(); let r_s = sheets_ref.clone();
         let ncid = no_category_folder_id.clone();
+        let pending_import = pending_import_data.clone();
         Callback::from(move |_| {
             let s_state_c = s_state.clone(); let aid_state_c = aid_state.clone();
             let sp_state_c = sp_state.clone(); let r_s_c = r_s.clone();
             let cat_id = (*ncid).clone().unwrap_or_else(|| "NO_CATEGORY".to_string());
+            let pending_import_c = pending_import.clone();
+            
             let input: web_sys::HtmlInputElement = web_sys::window().unwrap().document().unwrap().create_element("input").unwrap().dyn_into().unwrap();
-            input.set_type("file"); input.set_accept(".txt,.md,text/*");
+            input.set_type("file"); input.set_accept("*/*");
             let input_c = input.clone();
+            
             let on_change = Closure::wrap(Box::new(move |_: web_sys::Event| {
                 if let Some(files) = input_c.files() {
                     if let Some(file) = files.get(0) {
                         let filename = file.name();
+                        let ext = filename.split('.').last().unwrap_or("").to_lowercase();
                         let reader = web_sys::FileReader::new().unwrap();
                         let reader_c = reader.clone();
                         let s_s = s_state_c.clone(); let a_s = aid_state_c.clone();
                         let sp_s = sp_state_c.clone(); let rs_s = r_s_c.clone();
-                        let cat_id_for_load = cat_id.clone();
-                        let on_load = {
-                            let filename_c = filename.clone(); let s_s = s_s.clone();
-                            let a_s = a_s.clone(); let sp_s = sp_s.clone();
-                            let rs_s = rs_s.clone(); let reader_c = reader_c.clone();
-                            let cat_id_for_sheet = cat_id_for_load.clone();
-                            Closure::wrap(Box::new(move |_: web_sys::Event| {
-                                if let Ok(content) = reader_c.result() {
-                                    if let Some(text) = content.as_string() {
-                                        let nid = js_sys::Date::now().to_string();
-                                        let cat_id_for_final = cat_id_for_sheet.clone();
-                                        let filename_inner = filename_c.clone();
-                                        let ns = Sheet { id: nid.clone(), guid: None, category: cat_id_for_sheet.clone(), title: filename_inner.clone(), content: text.clone(), is_modified: true, drive_id: None, temp_content: Some(text.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), last_sync_timestamp: None, tab_color: generate_random_color() };
-                                        sp_s.set(true); *rs_s.borrow_mut() = vec![ns.clone()];
-                                        s_s.set(vec![ns.clone()]); a_s.set(Some(nid.clone()));
-                                        set_editor_content(&text); set_gutter_status(true); focus_editor();
-                                        let spr = sp_s.clone(); Timeout::new(100, move || { spr.set(false); }).forget();
-                                        let filename_final = filename_inner.clone();
-                                        spawn_local(async move {
-                                            let js = JSSheet { id: nid, guid: None, category: cat_id_for_final, title: filename_final, content: text, is_modified: true, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: ns.tab_color };
-                                            let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                                            if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                                        });
-                                    }
+                        let cat_id_for_sheet = cat_id.clone();
+                        let pending_import_inner = pending_import_c.clone();
+                        let filename_c = filename.clone();
+
+                        let on_load = Closure::wrap(Box::new(move |_: web_sys::Event| {
+                            if let Ok(result) = reader_c.result() {
+                                let buffer = js_sys::Uint8Array::new(&result);
+                                let bytes = buffer.to_vec();
+                                
+                                // 1. 拡張子/内容チェック
+                                let safe_exts = vec!["txt","c","cpp","md","pl","py","php","js","rb","cs","coffee","ts","rs","sh"];
+                                let is_safe_ext = safe_exts.contains(&ext.as_str());
+                                
+                                // NULL文字チェック（バイナリ判定）
+                                let has_null = bytes.iter().any(|&b| b == 0);
+                                if !is_safe_ext && has_null {
+                                    gloo::dialogs::alert("Binary files are not supported.");
+                                    return;
                                 }
-                            }) as Box<dyn FnMut(web_sys::Event)>)
-                        };
+
+                                // 2. BOMチェック (EF BB BF)
+                                let has_bom = bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+                                
+                                // 3. 文字列に変換して改行コードをチェック
+                                let text = match String::from_utf8(if has_bom { bytes[3..].to_vec() } else { bytes.clone() }) {
+                                    Ok(t) => t,
+                                    Err(_) => {
+                                        gloo::dialogs::alert("Failed to decode file as UTF-8.");
+                                        return;
+                                    }
+                                };
+                                
+                                let has_crlf = text.contains("\r\n");
+                                let needs_conversion = !has_bom || has_crlf;
+
+                                if needs_conversion {
+                                    // 変換確認ダイアログを表示するため状態を保持
+                                    pending_import_inner.set(Some((filename_c.clone(), text)));
+                                } else {
+                                    // そのまま取り込み
+                                    let nid = js_sys::Date::now().to_string();
+                                    let ns = Sheet { id: nid.clone(), guid: None, category: cat_id_for_sheet.clone(), title: filename_c.clone(), content: text.clone(), is_modified: true, drive_id: None, temp_content: Some(text.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), last_sync_timestamp: None, tab_color: generate_random_color() };
+                                    sp_s.set(true); *rs_s.borrow_mut() = vec![ns.clone()];
+                                    s_s.set(vec![ns.clone()]); a_s.set(Some(nid.clone()));
+                                    set_editor_content(&text); set_gutter_status(true); focus_editor();
+                                    let spr = sp_s.clone(); Timeout::new(100, move || { spr.set(false); }).forget();
+                                    let filename_final = filename_c.clone();
+                                    let cat_id_final = cat_id_for_sheet.clone();
+                                    spawn_local(async move {
+                                        let js = JSSheet { id: nid, guid: None, category: cat_id_final, title: filename_final, content: text, is_modified: true, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: ns.tab_color };
+                                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                        if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                    });
+                                }
+                            }
+                        }) as Box<dyn FnMut(web_sys::Event)>);
+                        
                         reader.set_onload(Some(on_load.as_ref().unchecked_ref()));
-                        on_load.forget(); reader.read_as_text(&file).unwrap();
+                        on_load.forget(); reader.read_as_array_buffer(&file).unwrap();
                     }
                 }
             }) as Box<dyn FnMut(web_sys::Event)>);
@@ -457,6 +497,39 @@ pub fn app() -> Html {
                     }
                 }
             }
+        })
+    };
+
+    let on_confirm_import = {
+        let pending = pending_import_data.clone();
+        let s_state = sheets.clone(); let aid_state = active_sheet_id.clone();
+        let sp_state = is_suppressing_changes.clone(); let r_s = sheets_ref.clone();
+        let ncid = no_category_folder_id.clone();
+        Callback::from(move |convert: bool| {
+            if let Some((filename, text)) = (*pending).clone() {
+                let nid = js_sys::Date::now().to_string();
+                let cat_id = (*ncid).clone().unwrap_or_else(|| "NO_CATEGORY".to_string());
+                let mut final_text = text;
+                if convert {
+                    final_text = final_text.replace("\r\n", "\n");
+                }
+                
+                let ns = Sheet { id: nid.clone(), guid: None, category: cat_id.clone(), title: filename.clone(), content: final_text.clone(), is_modified: true, drive_id: None, temp_content: Some(final_text.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), last_sync_timestamp: None, tab_color: generate_random_color() };
+                sp_state.set(true); *r_s.borrow_mut() = vec![ns.clone()];
+                s_state.set(vec![ns.clone()]); aid_state.set(Some(nid.clone()));
+                set_editor_content(&final_text); set_gutter_status(true); 
+                crate::js_interop::set_editor_mode(&filename); // モード適用
+                focus_editor(); 
+                let spr = sp_state.clone(); Timeout::new(100, move || { spr.set(false); }).forget();
+                
+                let ns_tab_color = ns.tab_color.clone();
+                spawn_local(async move {
+                    let js = JSSheet { id: nid, guid: None, category: cat_id, title: filename, content: final_text, is_modified: true, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: ns_tab_color };
+                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                    if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                });
+            }
+            pending.set(None);
         })
     };
 
@@ -630,6 +703,8 @@ pub fn app() -> Html {
                 if let Some(id) = &**aid_val { 
                     if let Some(s) = s_val.iter().find(|x| x.id == *id) { 
                         set_editor_content(&s.content); set_gutter_status(s.drive_id.is_none()); 
+                        crate::js_interop::set_editor_mode(&s.title); // モードを自動設定
+                        focus_editor(); 
                     } 
                 } 
             }
@@ -645,24 +720,34 @@ pub fn app() -> Html {
     {
         let is_auth = is_authenticated.clone(); let is_file_open = is_file_open_dialog_visible.clone();
         let is_preview = is_preview_visible.clone(); let pending_del = pending_delete_category.clone();
-        let conflicts = conflict_queue.clone(); let fallbacks = fallback_queue.clone(); let sp = is_suppressing_changes.clone();
-        use_effect_with((*is_auth, *is_file_open, *is_preview, (*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty()), move |deps| {
-            let (auth, file_open, preview, has_del, has_conf, has_fall) = *deps;
-            if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
-            let window = web_sys::window().unwrap();
-            let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
-            let pending_del_c = pending_del.clone(); let conflicts_c = conflicts.clone();
-            let fallbacks_c = fallbacks.clone(); let sp_c = sp.clone();
-            let listener = EventListener::new(&window, "keydown", move |e| {
-                let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
-                if ke.key() == "Escape" {
-                    if has_del { pending_del_c.set(None); }
-                    else if has_conf { conflicts_c.set(Vec::new()); }
-                    else if has_fall { fallbacks_c.set(Vec::new()); }
-                    else if preview { is_preview_c.set(false); focus_editor(); }
-                    else if file_open { is_file_open_c.set(false); sp_c.set(false); focus_editor(); }
-                }
-            });
+                let conflicts = conflict_queue.clone(); let fallbacks = fallback_queue.clone(); let sp = is_suppressing_changes.clone();
+                let pending_imp = pending_import_data.clone();
+                
+                use_effect_with((*is_auth, *is_file_open, *is_preview, (*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some()), move |deps| {
+                    let (auth, file_open, preview, has_del, has_conf, has_fall, has_imp) = *deps;
+                    if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
+                    
+                    let window = web_sys::window().unwrap();
+                    let is_file_open_c = is_file_open.clone(); 
+                    let is_preview_c = is_preview.clone();
+                    let pending_del_c = pending_del.clone(); 
+                    let conflicts_c = conflicts.clone();
+                    let fallbacks_c = fallbacks.clone(); 
+                    let sp_c = sp.clone();
+                    let pending_imp_c = pending_imp.clone();
+                    
+                    let listener = EventListener::new(&window, "keydown", move |e| {
+                        let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
+                        if ke.key() == "Escape" {
+                            if has_del { pending_del_c.set(None); }
+                            else if has_conf { conflicts_c.set(Vec::new()); }
+                            else if has_fall { fallbacks_c.set(Vec::new()); }
+                            else if has_imp { pending_imp_c.set(None); }
+                            else if preview { is_preview_c.set(false); focus_editor(); }
+                            else if file_open { is_file_open_c.set(false); sp_c.set(false); focus_editor(); }
+                        }
+                    });
+        
             Box::new(move || drop(listener)) as Box<dyn FnOnce()>
         });
     }
@@ -758,6 +843,12 @@ pub fn app() -> Html {
                     let fq = fallback_queue.clone(); let on_cfm = on_fallback_cfm.clone();
                     Some(html! { <CustomDialog title={i18n::t("category_not_found_title", lang)} message={i18n::t("category_not_found_fallback", lang)} options={vec![DialogOption { id: 0, label: "OK".to_string() }]} on_confirm={on_cfm} on_cancel={let fq = fq.clone(); Some(Callback::from(move |_| { fq.set(Vec::new()); }))} /> })
                 } else { None } { <div class="pointer-events-auto">{ fb_alert }</div> }
+
+                if let Some(import_diag) = if let Some(_) = (*pending_import_data).clone() {
+                    let on_cfm = on_confirm_import.clone();
+                    let pending = pending_import_data.clone();
+                    Some(html! { <ConfirmDialog title={i18n::t("confirm_conversion", lang)} message={i18n::t("confirm_conversion", lang)} on_confirm={let on_c = on_cfm.clone(); move |_| on_c.emit(true)} on_cancel={move |_| pending.set(None)} /> })
+                } else { None } { <div class="pointer-events-auto">{ import_diag }</div> }
 
                 if *is_loading {
                     <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}>

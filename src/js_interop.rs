@@ -16,4 +16,5 @@ extern "C" {
     pub fn render_markdown(text: &str) -> String;
     pub fn init_mermaid(element: &web_sys::Element);
     pub fn set_preview_active(active: bool);
+    pub fn set_editor_mode(filename: &str);
 }
