@@ -407,6 +407,19 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Offline",
         }.to_string(),
 
+        "help" => match lang {
+            Language::Ja => "ヘルプ",
+            Language::Zh => "帮助",
+            Language::Ko => "도움말",
+            _ => "Help",
+        }.to_string(),
+
+        "help_shortcuts" => match lang {
+            Language::Ja => "# ショートカット一覧\n\n| キー | 機能 |\n| --- | --- |\n| `Opt/Alt + s` | 強制保存 |\n| `Opt/Alt + n` | 新規シート作成 |\n| `Opt/Alt + o` | ファイルを開く |\n| `Opt/Alt + i` | ローカルファイル取り込み |\n| `Opt/Alt + m` | Markdownプレビュー表示 |\n| `Opt/Alt + =` | フォントサイズを大きくする |\n| `Opt/Alt + -` | フォントサイズを小さくする |\n| `Esc` | ダイアログ/プレビューを閉じる |",
+            Language::Zh => "# 快捷键列表\n\n| 按键 | 功能 |\n| --- | --- |\n| `Opt/Alt + s` | 强制保存 |\n| `Opt/Alt + n` | 新建工作表 |\n| `Opt/Alt + o` | 打开文件 |\n| `Opt/Alt + i` | 导入本地文件 |\n| `Opt/Alt + m` | Markdown 预览 |\n| `Opt/Alt + =` | 增大字体 |\n| `Opt/Alt + -` | 减小字体 |\n| `Esc` | 关闭对话框/预览 |",
+            _ => "# Keyboard Shortcuts\n\n| Key | Action |\n| --- | --- |\n| `Opt/Alt + s` | Forced Save |\n| `Opt/Alt + n` | New Sheet |\n| `Opt/Alt + o` | Open File Dialog |\n| `Opt/Alt + i` | Import Local File |\n| `Opt/Alt + m` | Toggle Markdown Preview |\n| `Opt/Alt + =` | Increase Font Size |\n| `Opt/Alt + -` | Decrease Font Size |\n| `Esc` | Close Dialog / Preview |",
+        }.to_string(),
+
         _ => key.to_string(),
     }
 }

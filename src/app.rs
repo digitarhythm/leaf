@@ -81,6 +81,7 @@ pub fn app() -> Html {
     let pending_import_data = use_state(|| None::<(String, String)>); // (filename, content)
     let is_file_open_dialog_visible = use_state(|| false);
     let is_preview_visible = use_state(|| false);
+    let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
 
@@ -534,6 +535,7 @@ pub fn app() -> Html {
     };
 
     let on_open_dialog = { let iv = is_file_open_dialog_visible.clone(); let sp = is_suppressing_changes.clone(); Callback::from(move |_| { sp.set(true); iv.set(true); }) };
+    let on_help_cb = { let ih = is_help_visible.clone(); Callback::from(move |_| { ih.set(true); }) };
 
     // --- Effects ---
 
@@ -718,18 +720,21 @@ pub fn app() -> Html {
     }
 
     {
-        let is_auth = is_authenticated.clone(); let is_file_open = is_file_open_dialog_visible.clone();
-        let is_preview = is_preview_visible.clone(); let pending_del = pending_delete_category.clone();
+                let is_auth = is_authenticated.clone(); let is_file_open = is_file_open_dialog_visible.clone();
+                let is_preview = is_preview_visible.clone(); 
+                let is_help = is_help_visible.clone();
+                let pending_del = pending_delete_category.clone();
                 let conflicts = conflict_queue.clone(); let fallbacks = fallback_queue.clone(); let sp = is_suppressing_changes.clone();
                 let pending_imp = pending_import_data.clone();
                 
-                use_effect_with((*is_auth, *is_file_open, *is_preview, (*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some()), move |deps| {
-                    let (auth, file_open, preview, has_del, has_conf, has_fall, has_imp) = *deps;
+                use_effect_with((*is_auth, *is_file_open, *is_preview, *is_help, (*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some()), move |deps| {
+                    let (auth, file_open, preview, help, has_del, has_conf, has_fall, has_imp) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); 
                     let is_preview_c = is_preview.clone();
+                    let is_help_c = is_help.clone();
                     let pending_del_c = pending_del.clone(); 
                     let conflicts_c = conflicts.clone();
                     let fallbacks_c = fallbacks.clone(); 
@@ -744,11 +749,11 @@ pub fn app() -> Html {
                             else if has_fall { fallbacks_c.set(Vec::new()); }
                             else if has_imp { pending_imp_c.set(None); }
                             else if preview { is_preview_c.set(false); focus_editor(); }
+                            else if help { is_help_c.set(false); focus_editor(); }
                             else if file_open { is_file_open_c.set(false); sp_c.set(false); focus_editor(); }
                         }
                     });
-        
-            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+                    Box::new(move || drop(listener)) as Box<dyn FnOnce()>
         });
     }
 
@@ -772,6 +777,7 @@ pub fn app() -> Html {
                     on_import={on_import_cb} 
                     on_change_font_size={on_change_font_size} 
                     on_change_category={on_change_category_cb} 
+                    on_help={on_help_cb}
                     current_category={current_cat} 
                     categories={(*categories).clone()} 
                 />
@@ -821,6 +827,10 @@ pub fn app() -> Html {
                     let c = if let Some(id) = aid { sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default() } else { "".to_string() };
                     let iv = is_preview_visible.clone();
                     Some(html! { <Preview content={c} on_close={Callback::from(move |_| { iv.set(false); focus_editor(); })} /> })
+                } else if *is_help_visible {
+                    let ih = is_help_visible.clone();
+                    let c = i18n::t("help_shortcuts", lang);
+                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} /> })
                 } else { None } { <div class="pointer-events-auto">{ preview }</div> }
 
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category {

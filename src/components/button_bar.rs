@@ -9,6 +9,7 @@ pub struct ButtonBarProps {
     pub on_toggle_vim: Callback<()>,
     pub on_change_font_size: Callback<i32>,
     pub on_change_category: Callback<String>, 
+    pub on_help: Callback<()>,
     pub current_category: String,             
     pub categories: Vec<crate::db_interop::JSCategory>, 
     pub vim_mode: bool,
@@ -144,6 +145,15 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 { if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }
             </button>
             <div class="flex-1"></div>
+            <button
+                onclick={props.on_help.reform(|_| ())}
+                class="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                title={i18n::t("help", lang)}
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+                </svg>
+            </button>
             <span 
                 class="text-green-500 opacity-30 font-bold px-4 text-xl select-none"
                 style="font-family: 'Petit Formal Script', cursive;"
