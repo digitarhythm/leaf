@@ -4,6 +4,7 @@ mod js_interop;
 mod auth_interop;
 mod db_interop;
 mod drive_interop;
+mod i18n;
 
 use app::App;
 

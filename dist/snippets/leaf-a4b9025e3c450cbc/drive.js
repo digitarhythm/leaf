@@ -75,12 +75,6 @@ export async function find_or_create_folder(folderName, parentId = 'root') {
     return folderData.id;
 }
 
-export async function get_root_info() {
-    const headers = await getHeaders();
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/root?fields=id,name`, { headers });
-    return await response.json();
-}
-
 export async function ensure_directory_structure() {
     console.log("[Drive] Starting directory structure verification...");
     try {
@@ -95,61 +89,90 @@ export async function ensure_directory_structure() {
     }
 }
 
+/**
+ * 内部用：マルチパートボディの構築
+ */
+function buildMultipartBody(filename, content, folderId, boundary) {
+    const encoder = new TextEncoder();
+    const metadata = {
+        name: filename,
+        mimeType: FILE_MIME_TYPE
+    };
+    if (folderId) metadata.parents = [folderId];
+
+    const part1 = `--${boundary}\r\n` +
+                  `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+                  `${JSON.stringify(metadata)}\r\n`;
+    
+    const part2 = `--${boundary}\r\n` +
+                  `Content-Type: ${FILE_MIME_TYPE}\r\n\r\n`;
+    
+    const end = `\r\n--${boundary}--`;
+
+    return new Blob([
+        encoder.encode(part1),
+        encoder.encode(part2),
+        encoder.encode(content),
+        encoder.encode(end)
+    ], { type: `multipart/related; boundary=${boundary}` });
+}
+
 export async function upload_file(filename, content, folderId, fileId = null) {
     const token = get_access_token();
     if (!token) throw new Error("No access token");
 
-    console.log(`[Drive] Uploading file: "${filename}" (fileId: ${fileId}) to folder: "${folderId}"`);
+    console.log(`[Drive] Uploading file: "${filename}" (fileId: ${fileId})`);
 
-    const metadata = {
-        name: filename,
-        mimeType: FILE_MIME_TYPE,
-    };
-    if (folderId && !fileId) {
-        metadata.parents = [folderId];
-    }
-
-    const boundary = '-------314159265358979323846';
-    const delimiter = "\r\n--" + boundary + "\r\n";
-    const close_delim = "\r\n--" + boundary + "--";
-    
-    const encoder = new TextEncoder();
-    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]); // UTF-8 BOM
-    const contentBytes = encoder.encode(content);
-    
-    let method = 'POST';
-    let path = '/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime';
+    // --- ケース1: 上書き保存 (PATCH) ---
     if (fileId) {
-        method = 'PATCH';
-        path = `/upload/drive/v3/files/${fileId}?uploadType=multipart&fields=id,name,modifiedTime`;
+        // コンテンツのみを更新するシンプルアップロード
+        const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=id,name,modifiedTime`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': FILE_MIME_TYPE
+            },
+            body: content
+        });
+
+        if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
+        
+        // 成功
+        if (response.ok) {
+            console.log("[Drive] PATCH successful.");
+            return await response.json();
+        }
+
+        // 404エラーの場合は削除されたと判断し、新規作成へフォールバック
+        if (response.status === 404) {
+            console.warn(`[Drive] File ID ${fileId} not found. Falling back to creation.`);
+        } else {
+            const err = await response.text();
+            console.error("[Drive] PATCH failed:", response.status, err);
+            throw new Error(`Upload failed: ${response.status}`);
+        }
     }
 
-    const metadataPart = `Content-Type: application/json\r\n\r\n${JSON.stringify(metadata)}`;
-    const contentPartHeader = `Content-Type: ${FILE_MIME_TYPE}`;
-    
-    const bodyParts = [
-        delimiter,
-        metadataPart,
-        delimiter,
-        contentPartHeader,
-        '\r\n\r\n',
-        bom,
-        contentBytes,
-        close_delim
-    ];
-    
-    const body = new Blob(bodyParts, { type: `multipart/related; boundary=${boundary}` });
+    // --- ケース2: 新規作成 (POST) または 404からのリトライ ---
+    const boundary = '-------314159265358979323846';
+    const body = buildMultipartBody(filename, content, folderId, boundary);
 
-    const response = await fetch(`https://www.googleapis.com` + path, {
-        method: method,
+    const response = await fetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,modifiedTime`, {
+        method: 'POST',
         headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': `multipart/related; boundary=${boundary}`
+            'Authorization': `Bearer ${token}`
         },
         body: body
     });
-    
+
     if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
+    if (!response.ok) {
+        const err = await response.text();
+        console.error("[Drive] POST failed:", response.status, err);
+        throw new Error(`Upload failed: ${response.status}`);
+    }
+
+    console.log("[Drive] POST successful.");
     return await response.json();
 }
 
@@ -165,31 +188,27 @@ export function parse_date(dateStr) {
     return Date.parse(dateStr);
 }
 
-export async function download_file(fileId) {
+export async function download_file(fileId, range = null) {
     const token = get_access_token();
     if (!token) throw new Error("No access token");
     
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-        headers: {
-            'Authorization': `Bearer ${token}`
-        }
-    });
-    
+    const headers = { 'Authorization': `Bearer ${token}` };
+    if (range) headers['Range'] = `bytes=${range}`;
+
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers });
     if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
+    if (!response.ok && response.status !== 206) throw new Error(`Download failed: ${response.status}`);
+
     const buffer = await response.arrayBuffer();
     const decoder = new TextDecoder('utf-8');
-    
     let text = decoder.decode(buffer);
-    if (text.charCodeAt(0) === 0xFEFF) {
-        text = text.slice(1);
-    }
-    
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     return text;
 }
 
 export async function get_file_metadata(fileId) {
     const headers = await getHeaders();
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,modifiedTime`, { headers });
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,modifiedTime,trashed,parents`, { headers });
     if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
     return await response.json();
 }

@@ -53,6 +53,24 @@
       .ace_editor.leaf-insert-mode .ace_cursor-vimmode {
         opacity: 0 !important;
       }
+      /* --- 検索ダイアログの中央配置 --- */
+      .ace_search {
+        position: fixed !important;
+        top: 50% !important;
+        left: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        z-index: 100 !important;
+        background-color: #1f2937 !important; /* gray-800 */
+        border: 1px solid #374151 !important; /* gray-700 */
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+        border-radius: 0.5rem !important;
+        padding: 1rem !important;
+        width: auto !important;
+        height: auto !important;
+      }
+      .ace_search_form, .ace_replace_form {
+        margin-bottom: 0.5rem !important;
+      }
       /* --- */
     </style>
 

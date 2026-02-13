@@ -1,4 +1,9 @@
+[build]
+# Subresource Integrity (SRI) を無効化
+integrity = "none"
+
 [[hooks]]
-stage = "build"
-command = "npx"
-command_arguments = ["@tailwindcss/cli", "-i", "input.css", "-o", "tailwind.css"]
+# pre_build に変更して、Trunkがアセットを処理する前にCSSを確実に生成する
+stage = "pre_build"
+command = "sh"
+command_arguments = ["-c", "npx @tailwindcss/cli -i input.css -o tailwind.css && sleep 1"]

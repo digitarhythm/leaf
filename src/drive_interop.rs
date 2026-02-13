@@ -18,7 +18,7 @@ extern "C" {
     pub async fn list_files(folder_id: &str) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch)]
-    pub async fn download_file(file_id: &str) -> Result<JsValue, JsValue>;
+    pub async fn download_file(file_id: &str, range: Option<&str>) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch)]
     pub async fn get_file_metadata(file_id: &str) -> Result<JsValue, JsValue>;
