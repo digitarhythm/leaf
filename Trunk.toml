@@ -1,9 +1,10 @@
 [build]
 # Subresource Integrity (SRI) を無効化
 integrity = "none"
+public_url = "/leaf/"
 
 [serve]
-port = 5002
+port = 5003
 
 [[hooks]]
 # pre_build に変更して、Trunkがアセットを処理する前にCSSを確実に生成する
