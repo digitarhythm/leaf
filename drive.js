@@ -23,6 +23,28 @@ export async function list_folders(parentId = 'root') {
     return await response.json();
 }
 
+export async function create_folder(folderName, parentId) {
+    const headers = await getHeaders();
+    const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+            name: folderName,
+            mimeType: FOLDER_MIME_TYPE,
+            parents: [parentId]
+        })
+    });
+
+    if (createRes.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
+    if (!createRes.ok) {
+        const errText = await createRes.text();
+        console.error(`[Drive] Create folder failed: ${folderName}`, errText);
+        throw new Error(`Create folder failed: ${createRes.status}`);
+    }
+    const folderData = await createRes.json();
+    return folderData.id;
+}
+
 export async function find_or_create_folder(folderName, parentId = 'root') {
     const headers = await getHeaders();
     console.log(`[Drive] Searching for folder: "${folderName}" in parent: "${parentId}"`);
@@ -115,6 +137,29 @@ function buildMultipartBody(filename, content, folderId, boundary) {
         encoder.encode(content),
         encoder.encode(end)
     ], { type: `multipart/related; boundary=${boundary}` });
+}
+
+export async function move_file(fileId, oldParentId, newParentId) {
+    const token = get_access_token();
+    if (!token) throw new Error("No access token");
+
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${newParentId}&removeParents=${oldParentId}&fields=id,parents`;
+    const response = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+            'Authorization': `Bearer ${token}`
+        }
+    });
+
+    if (response.status === 401) { sign_out(); throw new Error("UNAUTHORIZED"); }
+    if (!response.ok) {
+        const err = await response.text();
+        console.error("[Drive] Move failed:", response.status, err);
+        throw new Error(`Move failed: ${response.status}`);
+    }
+
+    console.log("[Drive] File moved successfully.");
+    return await response.json();
 }
 
 export async function upload_file(filename, content, folderId, fileId = null) {

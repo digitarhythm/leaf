@@ -2,6 +2,7 @@ use yew::prelude::*;
 use crate::drive_interop::{list_files, download_file};
 use crate::db_interop::JSCategory;
 use crate::i18n::{self, Language};
+use crate::components::dialog::InputDialog;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::KeyboardEvent;
@@ -16,15 +17,13 @@ pub struct FilePreview {
 #[derive(Properties, PartialEq)]
 pub struct FileOpenDialogProps {
     pub on_close: Callback<()>,
-    pub on_select: Callback<(String, String, String)>, // (drive_id, title, category)
+    pub on_select: Callback<(String, String, String)>, // (drive_id, title, category_id)
     pub leaf_data_id: String,
     pub categories: Vec<JSCategory>,
     pub on_refresh: Callback<()>,
     #[prop_or_default]
     pub on_start_processing: Callback<()>,
 }
-
-// ... (omitted - I will use exact literal in actual call)
 
 #[derive(PartialEq, Clone, Copy)]
 enum FocusedArea {
@@ -44,7 +43,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let selected_file_idx = use_state(|| 0usize);
     let files = use_state(|| Vec::<FilePreview>::new());
     let is_loading_files = use_state(|| false);
+    let is_creating_category = use_state(|| false);
     let is_fading_out = use_state(|| false);
+    let current_category_id = use_state(|| "".to_string());
     let current_category_name = use_state(|| "".to_string());
     let root_ref = use_node_ref();
 
@@ -53,6 +54,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let files_state = files.clone();
         let selected_file_idx = selected_file_idx.clone();
         let is_loading = is_loading_files.clone();
+        let current_category_id = current_category_id.clone();
         let current_category_name = current_category_name.clone();
         let focused_area = focused_area.clone();
         let is_fading_out = is_fading_out.clone();
@@ -61,6 +63,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let files_state = files_state.clone();
             let selected_file_idx = selected_file_idx.clone();
             let is_loading = is_loading.clone();
+            let current_category_id = current_category_id.clone();
             let current_category_name = current_category_name.clone();
             let focused_area = focused_area.clone();
             let is_fading_out = is_fading_out.clone();
@@ -73,6 +76,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             }
 
             is_loading.set(true);
+            current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
             spawn_local(async move {
                 if let Ok(res) = list_files(&cat_id).await {
@@ -165,7 +169,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_close = props.on_close.clone();
         let on_select = props.on_select.clone();
         let on_start = props.on_start_processing.clone();
-        let current_cat_name = current_category_name.clone();
+        let current_cat_id = current_category_id.clone();
         let is_loading_files = is_loading_files.clone();
         let is_fading_out = is_fading_out.clone();
 
@@ -175,7 +179,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             if *is_fading_out { return; }
             
             match e.key().as_str() {
-                // ... (skipping some lines for brevity in thought, but I will provide exact below)
                 "Tab" => {
                     e.prevent_default();
                     focused_area.set(if current_focus == FocusedArea::Categories { FocusedArea::Files } else { FocusedArea::Categories });
@@ -218,13 +221,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let file = &files[*selected_file_idx];
                             let drive_id = file.id.clone();
                             let title = file.name.clone();
-                            let cat = (*current_cat_name).clone();
+                            let cat_id = (*current_cat_id).clone();
                             let on_select = on_select.clone();
                             let on_start = on_start.clone();
                             is_fading_out.set(true);
                             on_start.emit(());
                             gloo::timers::callback::Timeout::new(200, move || {
-                                on_select.emit((drive_id, title, cat));
+                                on_select.emit((drive_id, title, cat_id));
                             }).forget();
                         }
                     }
@@ -245,24 +248,24 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     let on_ok_click = {
         let on_select = props.on_select.clone();
-        let on_start = props.on_start_processing.clone();
         let files = files.clone();
         let selected_file_idx = selected_file_idx.clone();
-        let current_cat_name = current_category_name.clone();
+        let current_cat_id = current_category_id.clone();
         let is_loading_files = is_loading_files.clone();
         let is_fading_out = is_fading_out.clone();
+        let on_start = props.on_start_processing.clone();
         Callback::from(move |_| {
             if !*is_loading_files && !files.is_empty() && !*is_fading_out {
                 let file = &files[*selected_file_idx];
                 let drive_id = file.id.clone();
                 let title = file.name.clone();
-                let cat = (*current_cat_name).clone();
+                let cat_id = (*current_cat_id).clone();
                 let on_select = on_select.clone();
                 let on_start = on_start.clone();
                 is_fading_out.set(true);
                 on_start.emit(());
                 gloo::timers::callback::Timeout::new(200, move || {
-                    on_select.emit((drive_id, title, cat));
+                    on_select.emit((drive_id, title, cat_id));
                 }).forget();
             }
         })
@@ -290,7 +293,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 </div>
 
                 // Top Button Bar
-                <div class="px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex justify-end">
+                <div class="px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex justify-end space-x-2">
+                    <button 
+                        onclick={let is_creating = is_creating_category.clone(); move |_| is_creating.set(true)}
+                        class="p-2 rounded-[6px] bg-gray-700 hover:bg-gray-600 shadow-md transition-all text-white flex items-center space-x-2"
+                        title={ i18n::t("new_category", lang) }
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                        </svg>
+                        <span class="text-xs font-bold px-1">{ i18n::t("new_category", lang) }</span>
+                    </button>
                     <button 
                         onclick={let cb = props.on_refresh.clone(); move |_| cb.emit(())}
                         class="p-2 rounded-[6px] bg-gray-700 hover:bg-gray-600 shadow-md transition-all text-white"
@@ -310,7 +323,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let is_selected = *selected_cat_idx == idx;
                             let area_active = *focused_area == FocusedArea::Categories && *is_root_focused;
                             let is_focused = is_selected && area_active;
-                            let show_selection = is_selected && area_active;
+                            let show_selection = is_selected && *is_root_focused;
                             let id = cat.id.clone();
                             let name = cat.name.clone();
                             let load_files = load_files.clone();
@@ -319,7 +332,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 <button 
                                     onclick={move |_| { selected_cat_idx.set(idx); load_files.emit((id.clone(), name.clone(), false)); }}
                                     class={classes!(
-                                        "w-full", "text-left", "px-4", "rounded-[6px]", "shadow-md", "transition-all", "flex", "items-center", "border-2",
+                                        "w-full", "text-left", "px-4", "rounded-[6px]", "shadow-md", "transition-all", "flex", "items-center", "border-[3px]",
                                         if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
                                         if show_selection { vec!["bg-blue-600", "text-white"] } else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
                                     )}
@@ -349,7 +362,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 <button 
                                     onclick={move |_| if !*is_loading_files { selected_file_idx.set(idx) }}
                                     class={classes!(
-                                        "w-full", "text-left", "p-4", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-2",
+                                        "w-full", "text-left", "p-4", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",
                                         if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
                                         if show_selection { vec!["bg-blue-600", "text-white"] } else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
                                     )}
@@ -386,6 +399,33 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     </div>
                 </div>
             </div>
+            if *is_creating_category {
+                <InputDialog 
+                    title={i18n::t("new_category", lang)} 
+                    message={i18n::t("enter_category_name_message", lang)} 
+                    on_confirm={
+                        let is_creating = is_creating_category.clone();
+                        let ldid = props.leaf_data_id.clone();
+                        let on_refresh = props.on_refresh.clone();
+                        Callback::from(move |name: String| {
+                            let is_creating = is_creating.clone();
+                            let ldid = ldid.clone();
+                            let on_refresh = on_refresh.clone();
+                            if !name.trim().is_empty() {
+                                spawn_local(async move {
+                                    if let Ok(_) = crate::drive_interop::create_folder(&name, &ldid).await {
+                                        on_refresh.emit(());
+                                    }
+                                    is_creating.set(false);
+                                });
+                            } else {
+                                is_creating.set(false);
+                            }
+                        })
+                    }
+                    on_cancel={let is_creating = is_creating_category.clone(); Callback::from(move |_| is_creating.set(false))}
+                />
+            }
         </div>
     }
 }
