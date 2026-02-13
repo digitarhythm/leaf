@@ -2,6 +2,9 @@
 # Subresource Integrity (SRI) を無効化
 integrity = "none"
 
+[serve]
+port = 5002
+
 [[hooks]]
 # pre_build に変更して、Trunkがアセットを処理する前にCSSを確実に生成する
 stage = "pre_build"
