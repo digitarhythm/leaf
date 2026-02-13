@@ -1,6 +1,5 @@
 use yew::prelude::*;
 use crate::js_interop::{render_markdown, init_mermaid};
-use wasm_bindgen::JsCast;
 
 #[derive(Properties, PartialEq)]
 pub struct PreviewProps {
@@ -19,24 +18,10 @@ pub fn preview(props: &PreviewProps) -> Html {
             if let Some(div) = node_ref.cast::<web_sys::Element>() {
                 // DOM の更新を待つために少し遅延させる
                 gloo::timers::callback::Timeout::new(50, move || {
-                    init_mermaid(&div);
+                    let _ = init_mermaid(&div);
                 }).forget();
             }
             || ()
-        });
-    }
-
-    // ESC key listener
-    {
-        let on_close = props.on_close.clone();
-        use_effect_with((), move |_| {
-            let listener = gloo::events::EventListener::new(&web_sys::window().unwrap(), "keydown", move |e| {
-                let e = e.unchecked_ref::<web_sys::KeyboardEvent>();
-                if e.key() == "Escape" {
-                    on_close.emit(());
-                }
-            });
-            move || drop(listener)
         });
     }
 

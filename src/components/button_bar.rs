@@ -8,9 +8,9 @@ pub struct ButtonBarProps {
     pub on_import: Callback<()>,
     pub on_toggle_vim: Callback<()>,
     pub on_change_font_size: Callback<i32>,
-    pub on_change_category: Callback<String>, // New: (category_id)
-    pub current_category: String,             // New: current category ID
-    pub categories: Vec<crate::db_interop::JSCategory>, // New: all categories
+    pub on_change_category: Callback<String>, 
+    pub current_category: String,             
+    pub categories: Vec<crate::db_interop::JSCategory>, 
     pub vim_mode: bool,
 }
 
