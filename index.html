@@ -153,29 +153,43 @@
       }
       /* --- */
       .markdown-body {
-        color: #e5e7eb;
+        color: #1f2937; /* gray-800 */
         line-height: 1.6;
         word-wrap: break-word;
       }
-      .markdown-body h1 { font-size: 2em; border-bottom: 1px solid #374151; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
-      .markdown-body h2 { font-size: 1.5em; border-bottom: 1px solid #374151; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
+      .markdown-body h1 { font-size: 2em; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
+      .markdown-body h2 { font-size: 1.5em; border-bottom: 1px solid #e5e7eb; padding-bottom: 0.3em; margin-top: 24px; margin-bottom: 16px; font-weight: 600; }
       .markdown-body p { margin-top: 0; margin-bottom: 16px; }
-      .markdown-body code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: rgba(255,255,255,0.1); border-radius: 6px; font-family: monospace; }
-      .markdown-body pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: #1f2937; border-radius: 6px; }
+      .markdown-body code { padding: 0.2em 0.4em; margin: 0; font-size: 85%; background-color: rgba(0,0,0,0.05); border-radius: 6px; font-family: monospace; }
+      .markdown-body pre { padding: 16px; overflow: auto; font-size: 85%; line-height: 1.45; background-color: #1d2021; border-radius: 6px; border: 1px solid #3c3836; color: #ebdbb2; }
       .markdown-body ul { padding-left: 2em; list-style-type: disc; margin-bottom: 16px; }
+      .markdown-body table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+      .markdown-body th, .markdown-body td { border: 1px solid #d5c4a1; padding: 8px 12px; text-align: left; }
+      .markdown-body th { background-color: #f3f4f6; font-weight: 600; }
       /* --- */
     </style>
 
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/gruvbox-dark.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-twilight.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
-      mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+      mermaid.initialize({ startOnLoad: false, theme: 'default' });
       ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
+      
+      // Marked のオプション設定
+      marked.setOptions({
+        highlight: function(code, lang) {
+          const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+          return hljs.highlight(code, { language }).value;
+        },
+        langPrefix: 'hljs language-'
+      });
     </script>
   </head>
   <body>

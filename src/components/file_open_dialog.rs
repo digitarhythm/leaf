@@ -1,11 +1,13 @@
 use yew::prelude::*;
-use crate::drive_interop::{list_files, download_file};
+use crate::drive_interop::{list_files, download_file, move_file, delete_file};
 use crate::db_interop::JSCategory;
 use crate::i18n::{self, Language};
-use crate::components::dialog::InputDialog;
-use wasm_bindgen::JsValue;
+use crate::components::dialog::{InputDialog, ConfirmDialog};
+use wasm_bindgen::{JsValue, JsCast};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{KeyboardEvent, AbortController};
+use web_sys::{KeyboardEvent, AbortController, HtmlElement};
+use gloo::timers::callback::Timeout;
+use gloo::events::EventListener;
 
 #[derive(Clone, PartialEq)]
 pub struct FilePreview {
@@ -48,8 +50,38 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let is_fading_out = use_state(|| false);
     let current_category_id = use_state(|| "".to_string());
     let current_category_name = use_state(|| "".to_string());
+    let active_dropdown_file_id = use_state(|| None::<String>); // 上に移動
     let abort_controller = use_state(|| None::<AbortController>);
     let root_ref = use_node_ref();
+    let dropdown_ref = use_node_ref(); 
+
+    // 外側クリックでドロップダウンを閉じる
+    {
+        let dropdown_active = active_dropdown_file_id.clone();
+        let dropdown_node = dropdown_ref.clone();
+        use_effect_with((*dropdown_active).clone(), move |active_id: &Option<String>| {
+            if active_id.is_none() { return Box::new(|| ()) as Box<dyn FnOnce()>; }
+            
+            let dropdown_active = dropdown_active.clone();
+            let dropdown_node = dropdown_node.clone();
+            let window = web_sys::window().unwrap();
+            
+            let listener = EventListener::new(&window, "mousedown", move |e| {
+                let target = e.target().unwrap().dyn_into::<HtmlElement>().unwrap();
+                if let Some(dd_el) = dropdown_node.get() {
+                    if !dd_el.contains(Some(&target)) {
+                        dropdown_active.set(None);
+                    }
+                }
+            });
+            
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
+    }
+
+    // ファイル操作用の状態
+    let pending_delete_file = use_state(|| None::<(String, String)>); 
+    let pending_move_file_id = use_state(|| None::<String>); 
 
     // カテゴリ選択時のファイル一覧取得
     let load_files = {
@@ -61,6 +93,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let focused_area = focused_area.clone();
         let is_fading_out = is_fading_out.clone();
         let abort_ctrl_state = abort_controller.clone();
+        let dropdown_active = active_dropdown_file_id.clone();
+        let pending_move = pending_move_file_id.clone();
         
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             let files_state = files_state.clone();
@@ -71,36 +105,29 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let focused_area = focused_area.clone();
             let is_fading_out = is_fading_out.clone();
             let abort_ctrl_state = abort_ctrl_state.clone();
+            let dropdown_active = dropdown_active.clone();
+            let pending_move = pending_move.clone();
             
-            // 以前のリクエストをキャンセル
-            if let Some(ctrl) = (*abort_ctrl_state).as_ref() {
-                ctrl.abort();
-            }
-            
-            // 新しいコントローラーを作成
+            if let Some(ctrl) = (*abort_ctrl_state).as_ref() { ctrl.abort(); }
             let new_ctrl = AbortController::new().unwrap();
             let signal = new_ctrl.signal();
             abort_ctrl_state.set(Some(new_ctrl.clone()));
 
             if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    let _ = storage.set_item(STORAGE_KEY_LAST_CAT, &cat_id);
-                }
+                if let Ok(Some(storage)) = window.local_storage() { let _ = storage.set_item(STORAGE_KEY_LAST_CAT, &cat_id); }
             }
 
+            files_state.set(Vec::new()); // リストをクリア
             is_loading.set(true);
             current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
+            dropdown_active.set(None);
+            pending_move.set(None);
             
             let signal_for_list = signal.clone();
             spawn_local(async move {
                 let res = list_files(&cat_id, Some(signal_for_list.clone())).await;
-                
-                // シグナルが中断されていたら、新しいリクエストが開始されているので、
-                // この古いリクエストではインジケータを触らない。
-                if signal_for_list.aborted() {
-                    return;
-                }
+                if signal_for_list.aborted() { return; }
 
                 if let Ok(res_val) = res {
                     if let Ok(files_val) = js_sys::Reflect::get(&res_val, &JsValue::from_str("files")) {
@@ -121,10 +148,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             });
                         }
                         let previews = futures::future::join_all(download_futures).await;
-                        
-                        if signal_for_list.aborted() {
-                            return;
-                        }
+                        if signal_for_list.aborted() { return; }
 
                         let has_files = !previews.is_empty();
                         files_state.set(previews);
@@ -168,10 +192,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let root_ref = root_ref.clone();
         use_effect_with((), move |_| {
             let root = root_ref.clone();
-            gloo::timers::callback::Timeout::new(10, move || {
-                if let Some(div) = root.cast::<web_sys::HtmlElement>() { 
-                    let _ = div.focus(); 
-                }
+            Timeout::new(10, move || {
+                if let Some(div) = root.cast::<web_sys::HtmlElement>() { let _ = div.focus(); }
             }).forget();
             || ()
         });
@@ -195,7 +217,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let on_start = on_start.clone();
                 is_fading_out.set(true);
                 on_start.emit(());
-                gloo::timers::callback::Timeout::new(200, move || {
+                Timeout::new(200, move || {
                     on_select.emit((drive_id, title, cat_id));
                 }).forget();
             }
@@ -207,26 +229,28 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let selected_cat_idx = selected_cat_idx.clone();
         let selected_file_idx = selected_file_idx.clone();
         let categories = props.categories.clone();
-        let files = files.clone();
+        let files_c = files.clone();
         let load_files = load_files.clone();
         let on_ok = on_ok_click.clone();
         let is_fading_out = is_fading_out.clone();
         let loading_handle = is_loading_files.clone();
+        let dropdown_active = active_dropdown_file_id.clone();
+        let is_creating_cat = is_creating_category.clone();
+        let is_deleting_file = pending_delete_file.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area;
-            if *is_fading_out { return; }
+            // サブダイアログ表示中、またはフェードアウト中、ドロップダウン表示中は入力を無視
+            if *is_fading_out || dropdown_active.is_some() || *is_creating_cat || is_deleting_file.is_some() { 
+                return; 
+            }
             
             match e.key().as_str() {
                 "Tab" => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Categories {
-                        if !*loading_handle {
-                            focused_area.set(FocusedArea::Files);
-                        }
-                    } else {
-                        focused_area.set(FocusedArea::Categories);
-                    }
+                        if !*loading_handle { focused_area.set(FocusedArea::Files); }
+                    } else { focused_area.set(FocusedArea::Categories); }
                 }
                 "ArrowUp" => {
                     e.prevent_default();
@@ -249,20 +273,81 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             load_files.emit((categories[new_idx].id.clone(), categories[new_idx].name.clone(), false));
                         }
                     } else {
-                        if *selected_file_idx + 1 < files.len() { selected_file_idx.set(*selected_file_idx + 1); }
+                        if *selected_file_idx + 1 < files_c.len() { selected_file_idx.set(*selected_file_idx + 1); }
                     }
                 }
                 "Enter" => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Categories {
-                        if !*loading_handle {
-                            focused_area.set(FocusedArea::Files);
-                        }
-                    } else {
-                        on_ok.emit(());
-                    }
+                        if !*loading_handle { focused_area.set(FocusedArea::Files); }
+                    } else { on_ok.emit(()); }
                 }
                 _ => {}
+            }
+        })
+    };
+
+    let on_move_file = {
+        let load_files = load_files.clone();
+        let cur_cat_id = current_category_id.clone();
+        let cur_cat_name = current_category_name.clone();
+        let dropdown_active = active_dropdown_file_id.clone();
+        let pending_move = pending_move_file_id.clone();
+        let is_loading = is_loading_files.clone();
+        let files_state = files.clone(); // 追加
+        Callback::from(move |(file_id, new_cat_id): (String, String)| {
+            let load_files = load_files.clone();
+            let cat_id = (*cur_cat_id).clone();
+            let cat_name = (*cur_cat_name).clone();
+            let dropdown_active = dropdown_active.clone();
+            let pending_move = pending_move.clone();
+            let is_loading = is_loading.clone();
+            let files_state = files_state.clone();
+            let f_id = file_id.clone();
+            
+            dropdown_active.set(None);
+            is_loading.set(true); 
+            
+            spawn_local(async move {
+                if let Ok(_) = move_file(&f_id, &cat_id, &new_cat_id).await {
+                    is_loading.set(false);
+                    pending_move.set(Some(f_id.clone())); 
+                    
+                    Timeout::new(300, move || {
+                        // リスト更新前にローカルの状態から削除して、再表示を防ぐ
+                        let mut current_files = (*files_state).clone();
+                        current_files.retain(|f| f.id != f_id);
+                        files_state.set(current_files);
+                        
+                        load_files.emit((cat_id, cat_name, false));
+                    }).forget();
+                } else { 
+                    is_loading.set(false); 
+                }
+            });
+        })
+    };
+
+    let on_delete_file_confirm = {
+        let load_files = load_files.clone();
+        let cur_cat_id = current_category_id.clone();
+        let cur_cat_name = current_category_name.clone();
+        let pending_delete = pending_delete_file.clone();
+        let is_loading = is_loading_files.clone();
+        Callback::from(move |_: ()| {
+            if let Some((id, _)) = (*pending_delete).clone() {
+                let load_files = load_files.clone();
+                let cat_id = (*cur_cat_id).clone();
+                let cat_name = (*cur_cat_name).clone();
+                let is_loading = is_loading.clone();
+                let pending = pending_delete.clone();
+                is_loading.set(true);
+                pending.set(None);
+                spawn_local(async move {
+                    if let Ok(_) = delete_file(&id).await {
+                        load_files.emit((cat_id, cat_name, false));
+                    } else { is_loading.set(false); }
+                });
             }
         })
     };
@@ -290,7 +375,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "overflow-hidden", "flex", "flex-col", "relative",
                     if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
                 )}
-                style="width: 80vw; height: 80vh;"
+                style="width: 60vw; height: 70vh;"
             >
                 <div class="px-6 py-3 border-b border-gray-700 bg-gray-900 flex justify-between items-center">
                     <h3 class="text-lg font-bold text-white">{ i18n::t("file_selection", lang) }</h3>
@@ -326,7 +411,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let is_focused = is_selected && area_active;
                             
                             let id_for_change = cat.id.clone();
-                            let id_for_delete = cat.id.clone();
                             let name = cat.name.clone();
                             let load_files = load_files.clone();
                             let selected_cat_idx = selected_cat_idx.clone();
@@ -335,7 +419,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                             html! {
                                 <div class={classes!(
-                                    "w-full", "rounded-[6px]", "transition-all", "flex", "items-center", "group", "border-[3px]",
+                                    "w-full", "rounded-[6px]", "transition-all", "flex", "items-center", "group/cat", "border-[3px]",
                                     if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
                                     if is_focused { vec!["bg-blue-600", "text-white"] }
                                     else if is_selected { vec!["bg-slate-600", "text-gray-200"] }
@@ -351,8 +435,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     </button>
                                     if !is_no_cat {
                                         <button
-                                            onclick={move |e: MouseEvent| { e.stop_propagation(); on_delete.emit(id_for_delete.clone()); }}
-                                            class="p-2 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity outline-none"
+                                            onclick={let id = cat.id.clone(); move |e: MouseEvent| { e.stop_propagation(); on_delete.emit(id.clone()); }}
+                                            class="p-2 text-gray-500 hover:text-red-400 opacity-0 group-hover/cat:opacity-100 transition-opacity outline-none"
                                             title={i18n::t("delete", lang)}
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
@@ -380,25 +464,93 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let s_idx_2 = selected_file_idx.clone();
                             let is_loading_files = is_loading_files.clone();
                             let on_ok = on_ok_click.clone();
+                            let file_id = file.id.clone();
+                            let file_name = file.name.clone();
+                            let active_drop = active_dropdown_file_id.clone();
+                            let is_drop_open = (*active_drop).as_ref() == Some(&file_id);
+                            let on_move = on_move_file.clone();
+                            let pending_del = pending_delete_file.clone();
+                            let is_fading_item = (*pending_move_file_id).as_ref() == Some(&file_id);
+                            let current_cid = (*current_category_id).clone();
 
                             html! {
-                                <button 
-                                    onclick={move |_| if !*is_loading_files { s_idx_1.set(idx) }}
-                                    ondblclick={let on_ok = on_ok.clone(); move |_| { s_idx_2.set(idx); on_ok.emit(()); }}
-                                    class={classes!(
-                                        "w-full", "text-left", "p-4", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",
-                                        if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
-                                        if is_focused { vec!["bg-blue-600", "text-white"] }
-                                        else if is_selected { vec!["bg-slate-600", "text-gray-200"] }
-                                        else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
-                                    )}
-                                    style="height: 19%; min-height: 80px; margin-bottom: 1%;"
-                                >
-                                    <div class="font-bold text-xs opacity-50 mb-1">{ &file.name }</div>
-                                    <div class="text-sm line-clamp-2 whitespace-pre-wrap font-mono opacity-80">
-                                        { &file.content }
+                                <div class={classes!(
+                                    "relative", "group/item", "transition-all", "duration-300",
+                                    if is_fading_item { "opacity-0 scale-95 pointer-events-none" } else { "opacity-100" }
+                                )}>
+                                    <button 
+                                        onclick={move |_| if !*is_loading_files { s_idx_1.set(idx) }}
+                                        ondblclick={let on_ok = on_ok.clone(); move |_| { s_idx_2.set(idx); on_ok.emit(()); }}
+                                        class={classes!(
+                                            "w-full", "text-left", "p-4", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",
+                                            if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
+                                            if is_focused { vec!["bg-blue-600", "text-white"] }
+                                            else if is_selected { vec!["bg-slate-600", "text-gray-200"] }
+                                            else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
+                                        )}
+                                        style="height: 100%; min-height: 80px; margin-bottom: 1%;"
+                                    >
+                                        <div class="font-bold text-xs opacity-50 mb-1">{ &file.name }</div>
+                                        <div class="text-sm line-clamp-2 whitespace-pre-wrap font-mono opacity-80 pr-16">
+                                            { &file.content }
+                                        </div>
+                                    </button>
+                                    
+                                    <div class="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                        <div class="relative">
+                                            <button 
+                                                onclick={let active = active_drop.clone(); let id = file_id.clone(); move |e: MouseEvent| { e.stop_propagation(); if (*active).as_ref() == Some(&id) { active.set(None); } else { active.set(Some(id.clone())); } }}
+                                                class="p-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white shadow-sm"
+                                                title={i18n::t("change_category", lang)}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                                                    <path d="M3 3h8v8H3V3zm0 10h8v8H3v-8zm10-10h8v8h-8V3zm0 10h8v8h-8v-8z" />
+                                                </svg>
+                                            </button>
+                                            if is_drop_open {
+                                                <div ref={dropdown_ref.clone()} class="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-xl z-50 overflow-hidden py-1">
+                                                    { for props.categories.iter().map(|c| {
+                                                        let id = c.id.clone();
+                                                        let fid = file_id.clone();
+                                                        let on_m = on_move.clone();
+                                                        let is_curr = id == current_cid;
+                                                        html! {
+                                                            <button 
+                                                                onclick={if is_curr { 
+                                                                    Callback::from(|e: MouseEvent| e.stop_propagation()) 
+                                                                } else { 
+                                                                    let on_m = on_m.clone();
+                                                                    let fid = fid.clone();
+                                                                    let id = id.clone();
+                                                                    Callback::from(move |e: MouseEvent| { 
+                                                                        e.stop_propagation(); 
+                                                                        on_m.emit((fid.clone(), id.clone())); 
+                                                                    }) 
+                                                                }}
+                                                                class={classes!(
+                                                                    "w-full", "text-left", "px-4", "py-2", "text-xs", "transition-colors",
+                                                                    if is_curr { "text-gray-600 cursor-default bg-gray-900/50" } 
+                                                                    else { "text-gray-300 hover:bg-blue-600 hover:text-white" }
+                                                                )}
+                                                            >
+                                                                { &c.name }
+                                                            </button>
+                                                        }
+                                                    }) }
+                                                </div>
+                                            }
+                                        </div>
+                                        <button 
+                                            onclick={let fid = file_id.clone(); let fname = file_name.clone(); move |e: MouseEvent| { e.stop_propagation(); pending_del.set(Some((fid.clone(), fname.clone()))); }}
+                                            class="p-1.5 rounded bg-gray-600 hover:bg-red-600 text-white shadow-sm"
+                                            title={i18n::t("delete", lang)}
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.112 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.112 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                            </svg>
+                                        </button>
                                     </div>
-                                </button>
+                                </div>
                             }
                         }) }
                     </div>
@@ -449,6 +601,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         })
                     }
                     on_cancel={let is_creating = is_creating_category.clone(); Callback::from(move |_| is_creating.set(false))}
+                />
+            }
+            if let Some((_, _)) = (*pending_delete_file).clone() {
+                <ConfirmDialog 
+                    title={i18n::t("delete", lang)} 
+                    message={i18n::t("confirm_delete_file", lang)} 
+                    on_confirm={on_delete_file_confirm} 
+                    on_cancel={let pending = pending_delete_file.clone(); move |_| pending.set(None)} 
                 />
             }
         </div>

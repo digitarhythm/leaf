@@ -1,231 +1,131 @@
-// editor_interop.js
-// --- ver1.12 ---
-console.log("%c[Leaf-SYSTEM] NEW SCRIPT LOADED - ver1.12", "color: white; background: #008888; font-size: 16px;");
-
 let editor;
 let commandCallback;
 let pendingContent = null;
-let pendingGutterUnsaved = null; // 追加: 未保存ステータスの待機用
+let pendingGutterUnsaved = null; 
+let pendingMode = null; // 追加: モード設定の待機用
 let previewActive = false;
 const FONT_SIZE_KEY = 'leaf_font_size';
 
-export function set_preview_active(active) {
-    previewActive = active;
-}
-
-export function render_markdown(text) {
-    if (typeof marked === 'undefined') return text;
-    // GFM (GitHub Flavored Markdown) を有効化
-    return marked.parse(text, { gfm: true, breaks: true });
-}
-
-export async function init_mermaid(element) {
-    if (typeof mermaid === 'undefined') return;
-    
-    // marked が出力した <code class="language-mermaid"> を探す
-    const codeBlocks = element.querySelectorAll('code.language-mermaid');
-    codeBlocks.forEach(block => {
-        const pre = block.parentElement;
-        if (pre && pre.tagName === 'PRE') {
-            // Mermaid 用のコンテナに変換
-            const div = document.createElement('div');
-            div.className = 'mermaid';
-            div.textContent = block.textContent;
-            pre.replaceWith(div);
-        }
-    });
-
-    try {
-        // 非同期実行。構文エラーがあってもキャッチする
-        await mermaid.run({
-            nodes: element.querySelectorAll('.mermaid'),
-            suppressErrors: true
-        });
-    } catch (e) {
-        console.error("[Leaf-SYSTEM] Mermaid rendering failed:", e);
-    }
-}
-
-export function generate_uuid() {
-    return crypto.randomUUID();
-}
-
 export function set_window_title(title) {
-    document.title = title;
+    document.title = title ? `${title} - Leaf` : "Leaf";
 }
 
-export function init_editor(elementId, callback) {
-    console.log("[Leaf-SYSTEM] init_editor called for:", elementId);
+export function init_editor(element_id, callback) {
+    commandCallback = callback;
+    editor = ace.edit(element_id);
+    editor.setTheme("ace/theme/gruvbox");
+    editor.session.setMode("ace/mode/javascript");
     
-    const element = document.getElementById(elementId);
-    if (!element) {
-        console.warn("[Leaf-SYSTEM] Editor element not found, retrying in 100ms...");
-        setTimeout(() => init_editor(elementId, callback), 100);
-        return;
-    }
-
-    // 既にエディタが存在し、かつコンテナが現在の要素と同じであれば、コールバックのみ更新
-    if (editor && editor.container && document.body.contains(editor.container) && editor.container.id === elementId) {
-        console.log("[Leaf-SYSTEM] Editor already exists and attached, updating callback.");
-        commandCallback = callback;
-        if (pendingContent !== null) {
-            console.log("[Leaf-SYSTEM] Applying pending content to existing editor.");
-            set_editor_content(pendingContent);
-        }
-        editor.resize();
-        return;
-    }
-
-    // エディタが存在するが、コンテナがDOMから消えている、あるいは別の要素になった場合は破棄して再作成
-    if (editor) {
-        console.log("[Leaf-SYSTEM] Re-initializing editor due to DOM change.");
-        editor.destroy();
-        editor = null;
-    }
-
-    if (!window.ace) {
-        console.error("Ace editor not loaded");
-        return;
-    }
-
-    editor = ace.edit(elementId);
-    editor.setTheme("ace/theme/twilight");
-    editor.session.setMode("ace/mode/text");
-    
-    const savedFontSize = localStorage.getItem(FONT_SIZE_KEY) || "14pt";
+    // 基本設定
     editor.setOptions({
-        fontSize: savedFontSize,
-        showLineNumbers: true,
-        showGutter: true,
-        useWorker: false,
-        wrap: true
+        fontSize: localStorage.getItem(FONT_SIZE_KEY) || "14pt",
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+        enableBasicAutocompletion: true,
+        enableLiveAutocompletion: true,
+        showPrintMargin: false,
+        useSoftTabs: true,
+        tabSize: 4,
+        wrap: true,
+        indentedSoftWrap: true
     });
 
-    commandCallback = callback;
-    setupCommands();
-    setupGlobalKeys();
+    // キーバインド (Vim)
+    editor.setKeyboardHandler("ace/keyboard/vim");
 
-    editor.session.on('change', function(delta) {
+    // 変更イベント
+    editor.on("change", () => {
         if (commandCallback) commandCallback("change");
+    });
+
+    // Vim モードの状態監視
+    const vimHandler = ace.require("ace/keyboard/vim").Vim;
+    editor.on("vimModeChange", (e) => {
+        const container = editor.container;
+        if (e.mode === "insert") {
+            container.classList.add("leaf-insert-mode");
+            container.classList.remove("leaf-normal-mode");
+        } else if (e.mode === "normal" || e.mode === "visual") {
+            container.classList.add("leaf-normal-mode");
+            container.classList.remove("leaf-insert-mode");
+        }
+    });
+
+    // カスタムコマンド (保存)
+    editor.commands.addCommand({
+        name: "saveSheet",
+        bindKey: { win: "Alt-S", mac: "Option-S" },
+        exec: () => { if (commandCallback) commandCallback("save"); }
+    });
+
+    // カスタムコマンド (新規)
+    editor.commands.addCommand({
+        name: "newSheet",
+        bindKey: { win: "Alt-N", mac: "Option-N" },
+        exec: () => { if (commandCallback) commandCallback("new_sheet"); }
+    });
+
+    // カスタムコマンド (開く)
+    editor.commands.addCommand({
+        name: "openFileDialog",
+        bindKey: { win: "Alt-O", mac: "Option-O" },
+        exec: () => { if (commandCallback) commandCallback("open"); }
+    });
+
+    // カスタムコマンド (インポート)
+    editor.commands.addCommand({
+        name: "importFile",
+        bindKey: { win: "Alt-I", mac: "Option-I" },
+        exec: () => { if (commandCallback) commandCallback("import"); }
+    });
+
+    // カスタムコマンド (プレビュー)
+    editor.commands.addCommand({
+        name: "togglePreview",
+        bindKey: { win: "Alt-M", mac: "Option-M" },
+        exec: () => { if (commandCallback) commandCallback("preview"); }
+    });
+
+    // カスタムコマンド (フォントサイズ+)
+    editor.commands.addCommand({
+        name: "increaseFontSize",
+        bindKey: { win: "Alt-=", mac: "Option-=" },
+        exec: () => { change_font_size(1); }
+    });
+
+    // カスタムコマンド (フォントサイズ-)
+    editor.commands.addCommand({
+        name: "decreaseFontSize",
+        bindKey: { win: "Alt--", mac: "Option--" },
+        exec: () => { change_font_size(-1); }
     });
 
     // 待機中の内容があれば反映
     if (pendingContent !== null) {
-        console.log("[Leaf-SYSTEM] Applying pending content after init.");
         set_editor_content(pendingContent);
     }
 
     // 待機中のガーターステータスがあれば反映
     if (pendingGutterUnsaved !== null) {
-        console.log("[Leaf-SYSTEM] Applying pending gutter status after init.");
         set_gutter_status(pendingGutterUnsaved);
     }
 
-    // 初期化直後のリサイズを複数回行う
-    let count = 0;
-    const interval = setInterval(() => {
-        if (editor) {
-            editor.resize();
-            if (editor.renderer && editor.renderer.lineHeight > 0) {
-                clearInterval(interval);
-            }
-        }
-        if (++count > 20) clearInterval(interval);
-    }, 100);
-}
+    // 待機中のモードがあれば反映
+    if (pendingMode !== null) {
+        console.log("[Leaf-SYSTEM] Applying pending mode after init:", pendingMode);
+        set_editor_mode(pendingMode);
+    }
 
-function setupCommands() {
-    editor.commands.addCommand({
-        name: "save",
-        bindKey: {win: "Alt-S", mac: "Option-S"},
-        exec: function(editor) { 
-            if (previewActive) return;
-            if (commandCallback) commandCallback("save"); 
-        }
-    });
-    editor.commands.addCommand({
-        name: "new_sheet",
-        bindKey: {win: "Alt-N", mac: "Option-N"},
-        exec: function(editor) { 
-            if (previewActive) return;
-            if (commandCallback) commandCallback("new_sheet"); 
-        }
-    });
-    editor.commands.addCommand({
-        name: "decreaseFontSize",
-        bindKey: {win: "Alt--", mac: "Option--"},
-        exec: function(editor) { 
-            if (previewActive) return;
-            change_font_size(-1); 
-        }
-    });
-    editor.commands.addCommand({
-        name: "increaseFontSize",
-        bindKey: {win: "Alt-=", mac: "Option-="},
-        exec: function(editor) { 
-            if (previewActive) return;
-            change_font_size(1); 
-        }
-    });
-}
-
-function setupGlobalKeys() {
-    if (window._leaf_keys_attached) return;
-    window._leaf_keys_attached = true;
-    window.addEventListener('keydown', function(e) {
-        if (previewActive) return;
-        
-        if (e.altKey && e.code === 'KeyS') { e.preventDefault(); if (commandCallback) commandCallback("save"); }
-        if (e.altKey && e.code === 'KeyN') { e.preventDefault(); if (commandCallback) commandCallback("new_sheet"); }
-        if (e.altKey && e.code === 'KeyO') { e.preventDefault(); if (commandCallback) commandCallback("open"); }
-        if (e.altKey && e.code === 'KeyI') { e.preventDefault(); if (commandCallback) commandCallback("import"); }
-        if (e.altKey && e.code === 'KeyM') { e.preventDefault(); if (commandCallback) commandCallback("preview"); }
-        if (e.altKey && e.code === 'Minus') { e.preventDefault(); change_font_size(-1); }
-        if (e.altKey && e.code === 'Equal') { e.preventDefault(); change_font_size(1); }
-        if (e.altKey && e.code === 'KeyF') { 
-            e.preventDefault(); 
-            if (editor) editor.execCommand("find");
-        }
-    }, {passive: false});
+    // 初期化直後のリサイズ
+    setTimeout(() => editor.resize(), 100);
+    setTimeout(() => editor.resize(), 500);
 }
 
 export function set_vim_mode(enabled) {
-    console.log("[Leaf-SYSTEM] set_vim_mode:", enabled);
-    if (!editor) {
-        setTimeout(() => set_vim_mode(enabled), 100);
-        return;
-    }
+    if (!editor) return;
     const container = editor.container;
     if (enabled) {
-        ace.config.loadModule("ace/keyboard/vim", function(m) {
-            editor.setKeyboardHandler(m.handler);
-            container.classList.add("leaf-vim-enabled");
-            
-            if (!editor._vim_v1_4_setup) {
-                setInterval(() => {
-                    const h = editor.getKeyboardHandler();
-                    if (!h) return;
-                    const isInsert = 
-                        (h.state && h.state.insertMode) || 
-                        (h.$vimModeHandler && h.$vimModeHandler.state && h.$vimModeHandler.state.insertMode) ||
-                        (editor.state && editor.state.cm && editor.state.cm.state.vim && editor.state.cm.state.vim.insertMode);
-
-                    if (isInsert) {
-                        if (!container.classList.contains("leaf-insert-mode")) {
-                            container.classList.remove("leaf-normal-mode");
-                            container.classList.add("leaf-insert-mode");
-                        }
-                    } else {
-                        if (container.classList.contains("leaf-insert-mode")) {
-                            container.classList.remove("leaf-insert-mode");
-                            container.classList.add("leaf-normal-mode");
-                        }
-                    }
-                }, 100);
-                editor._vim_v1_4_setup = true;
-            }
-            editor.focus();
-        });
+        editor.setKeyboardHandler("ace/keyboard/vim");
+        container.classList.add("leaf-vim-enabled");
     } else {
         editor.setKeyboardHandler(null);
         container.classList.remove("leaf-vim-enabled", "leaf-normal-mode", "leaf-insert-mode");
@@ -235,14 +135,10 @@ export function set_vim_mode(enabled) {
 
 export function set_editor_content(content) {
     pendingContent = content;
-    if (!editor) {
-        console.log("[Leaf-SYSTEM] Editor not ready, content pended.");
-        return;
-    }
+    if (!editor) return;
     if (editor.getValue() !== content) {
         editor.setValue(content || "", -1);
         editor.clearSelection();
-        // 履歴をリセットして、ここを基点にする
         editor.session.getUndoManager().reset();
         pendingContent = null;
     }
@@ -252,6 +148,7 @@ export function get_editor_content() {
     if (!editor) return null;
     return editor.getValue(); 
 }
+
 export function resize_editor() { if (editor) editor.resize(); }
 export function focus_editor() { if (editor) editor.focus(); }
 
@@ -271,17 +168,83 @@ export function set_gutter_status(unsaved) {
 
 export function change_font_size(delta) {
     if (!editor) return;
-    // 現在のサイズを取得（文字列 "14pt" などから数値を抽出）
     const currentStyle = editor.getFontSize();
     let currentSize = parseFloat(currentStyle);
-    
-    // パース失敗時のフォールバック
     if (isNaN(currentSize)) currentSize = 14;
-
     const newSize = Math.max(8, Math.min(72, currentSize + delta));
     const sizeStr = newSize + "pt";
-    
     editor.setFontSize(sizeStr);
     localStorage.setItem(FONT_SIZE_KEY, sizeStr);
-    console.log("[Leaf-SYSTEM] Font size changed to:", sizeStr);
+}
+
+export function generate_uuid() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+export function render_markdown(text) {
+    if (typeof marked === 'undefined') return text;
+    return marked.parse(text);
+}
+
+export function init_mermaid(element) {
+    if (typeof mermaid === 'undefined') return;
+    mermaid.run({
+        nodes: element.querySelectorAll('.language-mermaid')
+    });
+}
+
+export function set_editor_mode(filename) {
+    if (!editor) {
+        pendingMode = filename;
+        return;
+    }
+    const parts = filename.split('.');
+    const ext = parts.length > 1 ? parts.pop().toLowerCase() : "";
+    let mode = "ace/mode/text";
+    
+    const modeMap = {
+        "js": "javascript",
+        "ts": "typescript",
+        "coffee": "javascript",
+        "rs": "rust",
+        "md": "markdown",
+        "markdown": "markdown",
+        "html": "html",
+        "css": "css",
+        "json": "json",
+        "py": "python",
+        "sh": "sh",
+        "bash": "sh",
+        "zsh": "sh",
+        "pl": "perl",
+        "php": "php",
+        "rb": "ruby",
+        "cs": "csharp",
+        "cpp": "c_cpp",
+        "c": "c_cpp",
+        "h": "c_cpp",
+        "m": "c_cpp",
+        "toml": "toml",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "xml": "xml",
+        "sql": "sql"
+    };
+
+    if (modeMap[ext]) {
+        mode = "ace/mode/" + modeMap[ext];
+    } else {
+        // デフォルトは以前の JavaScript ではなく text に戻す（不明な拡張子のため）
+        mode = "ace/mode/text";
+    }
+    
+    editor.session.setMode(mode);
+    console.log(`[Leaf-SYSTEM] Editor mode set to ${mode} for extension .${ext}`);
+}
+
+export function set_preview_active(active) {
+    previewActive = active;
 }
