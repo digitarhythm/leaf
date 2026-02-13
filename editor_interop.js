@@ -5,7 +5,13 @@ console.log("%c[Leaf-SYSTEM] NEW SCRIPT LOADED - ver1.12", "color: white; backgr
 let editor;
 let commandCallback;
 let pendingContent = null;
+let pendingGutterUnsaved = null; // 追加: 未保存ステータスの待機用
+let previewActive = false;
 const FONT_SIZE_KEY = 'leaf_font_size';
+
+export function set_preview_active(active) {
+    previewActive = active;
+}
 
 export function render_markdown(text) {
     if (typeof marked === 'undefined') return text;
@@ -109,6 +115,12 @@ export function init_editor(elementId, callback) {
         set_editor_content(pendingContent);
     }
 
+    // 待機中のガーターステータスがあれば反映
+    if (pendingGutterUnsaved !== null) {
+        console.log("[Leaf-SYSTEM] Applying pending gutter status after init.");
+        set_gutter_status(pendingGutterUnsaved);
+    }
+
     // 初期化直後のリサイズを複数回行う
     let count = 0;
     const interval = setInterval(() => {
@@ -126,22 +138,34 @@ function setupCommands() {
     editor.commands.addCommand({
         name: "save",
         bindKey: {win: "Alt-S", mac: "Option-S"},
-        exec: function(editor) { if (commandCallback) commandCallback("save"); }
+        exec: function(editor) { 
+            if (previewActive) return;
+            if (commandCallback) commandCallback("save"); 
+        }
     });
     editor.commands.addCommand({
         name: "new_sheet",
         bindKey: {win: "Alt-N", mac: "Option-N"},
-        exec: function(editor) { if (commandCallback) commandCallback("new_sheet"); }
+        exec: function(editor) { 
+            if (previewActive) return;
+            if (commandCallback) commandCallback("new_sheet"); 
+        }
     });
     editor.commands.addCommand({
         name: "decreaseFontSize",
         bindKey: {win: "Alt--", mac: "Option--"},
-        exec: function(editor) { change_font_size(-1); }
+        exec: function(editor) { 
+            if (previewActive) return;
+            change_font_size(-1); 
+        }
     });
     editor.commands.addCommand({
         name: "increaseFontSize",
         bindKey: {win: "Alt-=", mac: "Option-="},
-        exec: function(editor) { change_font_size(1); }
+        exec: function(editor) { 
+            if (previewActive) return;
+            change_font_size(1); 
+        }
     });
 }
 
@@ -149,6 +173,8 @@ function setupGlobalKeys() {
     if (window._leaf_keys_attached) return;
     window._leaf_keys_attached = true;
     window.addEventListener('keydown', function(e) {
+        if (previewActive) return;
+        
         if (e.altKey && e.code === 'KeyS') { e.preventDefault(); if (commandCallback) commandCallback("save"); }
         if (e.altKey && e.code === 'KeyN') { e.preventDefault(); if (commandCallback) commandCallback("new_sheet"); }
         if (e.altKey && e.code === 'KeyO') { e.preventDefault(); if (commandCallback) commandCallback("open"); }
@@ -216,6 +242,8 @@ export function set_editor_content(content) {
     if (editor.getValue() !== content) {
         editor.setValue(content || "", -1);
         editor.clearSelection();
+        // 履歴をリセットして、ここを基点にする
+        editor.session.getUndoManager().reset();
         pendingContent = null;
     }
 }
@@ -228,13 +256,17 @@ export function resize_editor() { if (editor) editor.resize(); }
 export function focus_editor() { if (editor) editor.focus(); }
 
 export function set_gutter_status(unsaved) {
-    if (!editor) return;
+    if (!editor) {
+        pendingGutterUnsaved = unsaved;
+        return;
+    }
     const container = editor.container;
     if (unsaved) {
         container.classList.add("leaf-unsaved-gutter");
     } else {
         container.classList.remove("leaf-unsaved-gutter");
     }
+    pendingGutterUnsaved = null;
 }
 
 export function change_font_size(delta) {

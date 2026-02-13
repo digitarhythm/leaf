@@ -60,7 +60,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let current_category_name = current_category_name.clone();
         let focused_area = focused_area.clone();
         let is_fading_out = is_fading_out.clone();
-        let abort_ctrl = abort_controller.clone();
+        let abort_ctrl_state = abort_controller.clone();
         
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             let files_state = files_state.clone();
@@ -70,17 +70,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let current_category_name = current_category_name.clone();
             let focused_area = focused_area.clone();
             let is_fading_out = is_fading_out.clone();
-            let abort_ctrl = abort_ctrl.clone();
+            let abort_ctrl_state = abort_ctrl_state.clone();
             
-            // 以前のリクエストがあればキャンセル
-            if let Some(ctrl) = (*abort_ctrl).as_ref() {
+            // 以前のリクエストをキャンセル
+            if let Some(ctrl) = (*abort_ctrl_state).as_ref() {
                 ctrl.abort();
             }
             
-            // 新しい AbortController を作成
+            // 新しいコントローラーを作成
             let new_ctrl = AbortController::new().unwrap();
             let signal = new_ctrl.signal();
-            abort_ctrl.set(Some(new_ctrl));
+            abort_ctrl_state.set(Some(new_ctrl.clone()));
 
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
@@ -94,8 +94,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             
             let signal_for_list = signal.clone();
             spawn_local(async move {
-                if let Ok(res) = list_files(&cat_id, Some(signal_for_list)).await {
-                    if let Ok(files_val) = js_sys::Reflect::get(&res, &JsValue::from_str("files")) {
+                let res = list_files(&cat_id, Some(signal_for_list.clone())).await;
+                
+                // シグナルが中断されていたら、新しいリクエストが開始されているので、
+                // この古いリクエストではインジケータを触らない。
+                if signal_for_list.aborted() {
+                    return;
+                }
+
+                if let Ok(res_val) = res {
+                    if let Ok(files_val) = js_sys::Reflect::get(&res_val, &JsValue::from_str("files")) {
                         let array = js_sys::Array::from(&files_val);
                         let mut download_futures = Vec::new();
                         for i in 0..array.length() {
@@ -104,9 +112,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let id = js_sys::Reflect::get(&v, &JsValue::from_str("id")).unwrap().as_string().unwrap();
                             let name = js_sys::Reflect::get(&v, &JsValue::from_str("name")).unwrap().as_string().unwrap();
                             let id_clone = id.clone();
-                            let signal_for_dl = signal.clone();
+                            let signal_inner = signal_for_list.clone();
                             download_futures.push(async move {
-                                let content = if let Ok(c_val) = download_file(&id_clone, Some("0-1024"), Some(signal_for_dl)).await {
+                                let content = if let Ok(c_val) = download_file(&id_clone, Some("0-1024"), Some(signal_inner)).await {
                                     c_val.as_string().unwrap_or_default()
                                 } else { "".to_string() };
                                 FilePreview { id, name, content }
@@ -114,6 +122,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         }
                         let previews = futures::future::join_all(download_futures).await;
                         
+                        if signal_for_list.aborted() {
+                            return;
+                        }
+
                         let has_files = !previews.is_empty();
                         files_state.set(previews);
                         selected_file_idx.set(0);
@@ -243,9 +255,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 "Enter" => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Categories {
-                        if !categories.is_empty() {
-                            let idx = *selected_cat_idx;
-                            load_files.emit((categories[idx].id.clone(), categories[idx].name.clone(), false));
+                        if !*loading_handle {
                             focused_area.set(FocusedArea::Files);
                         }
                     } else {
@@ -314,7 +324,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let is_selected = *selected_cat_idx == idx;
                             let area_active = *focused_area == FocusedArea::Categories && *is_root_focused;
                             let is_focused = is_selected && area_active;
-                            let show_selection = is_selected && *is_root_focused;
                             
                             let id_for_change = cat.id.clone();
                             let id_for_delete = cat.id.clone();
@@ -328,7 +337,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 <div class={classes!(
                                     "w-full", "rounded-[6px]", "transition-all", "flex", "items-center", "group", "border-[3px]",
                                     if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
-                                    if show_selection { vec!["bg-blue-600", "text-white"] } else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
+                                    if is_focused { vec!["bg-blue-600", "text-white"] }
+                                    else if is_selected { vec!["bg-slate-600", "text-gray-200"] }
+                                    else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
                                 )}
                                 style="height: 6.2%; min-height: 32px; margin-bottom: 0.4%;"
                                 >
@@ -364,7 +375,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let is_selected = *selected_file_idx == idx;
                             let area_active = *focused_area == FocusedArea::Files && *is_root_focused;
                             let is_focused = is_selected && area_active;
-                            let show_selection = is_selected && area_active;
                             
                             let s_idx_1 = selected_file_idx.clone();
                             let s_idx_2 = selected_file_idx.clone();
@@ -378,7 +388,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     class={classes!(
                                         "w-full", "text-left", "p-4", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",
                                         if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
-                                        if show_selection { vec!["bg-blue-600", "text-white"] } else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
+                                        if is_focused { vec!["bg-blue-600", "text-white"] }
+                                        else if is_selected { vec!["bg-slate-600", "text-gray-200"] }
+                                        else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
                                     )}
                                     style="height: 19%; min-height: 80px; margin-bottom: 1%;"
                                 >
