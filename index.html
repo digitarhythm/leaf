@@ -27,9 +27,9 @@
       #root { height: 100%; }
       /* --- カーソルスタイル修正：Gruvboxテーマ対応版 --- */
       
-      /* 標準カーソルを「ブロック」に設定（ノーマルモード用） */
+      /* ノーマルモード時：ブロックカーソル */
       .ace_editor.ace-gruvbox .ace_cursor {
-        background-color: #ebdbb2 !important; /* Gruvbox light color */
+        background-color: #ebdbb2 !important; 
         border-left: none !important;
         width: 0.6em !important;
         opacity: 0.6 !important;
@@ -43,16 +43,19 @@
         opacity: 0.6 !important;
       }
 
-      /* 【挿入モード時】標準カーソルを「白い縦棒（バー）」に変更 */
-      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor {
-        border-left: 2px solid #ebdbb2 !important;
+      /* 【挿入モード時】縦棒（バー）カーソル */
+      /* セレクタを重ねて優先順位を最大化 */
+      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor,
+      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor-layer .ace_cursor {
         background-color: transparent !important;
+        border-left: 2px solid #ebdbb2 !important;
         width: 2px !important;
         opacity: 1 !important;
       }
 
-      /* 挿入モード時はVim用ブロック要素を完全に隠す */
+      /* 挿入モード時はVim用ブロック要素を確実に隠す */
       .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor-vimmode {
+        display: none !important;
         opacity: 0 !important;
       }
       /* --- 検索ダイアログのカスタマイズ --- */
