@@ -25,36 +25,29 @@
     <style>
       html, body { height: 100%; margin: 0; background-color: #111827; overflow: hidden; }
       #root { height: 100%; }
-      /* --- カーソルスタイル修正：Gruvboxテーマ対応版 --- */
+      /* --- カーソルスタイル修正：Gruvboxテーマ対応版（極限強化） --- */
       
-      /* ノーマルモード時：ブロックカーソル */
-      .ace_editor.ace-gruvbox .ace_cursor {
+      /* ノーマル/ビジュアルモード時：ブロックカーソルを維持 */
+      .ace_editor.ace-gruvbox.leaf-normal-mode .ace_cursor {
         background-color: #ebdbb2 !important; 
         border-left: none !important;
         width: 0.6em !important;
         opacity: 0.6 !important;
+        display: block !important;
       }
 
-      /* Vim専用の追加ブロック要素も同様にする */
-      .ace_editor.ace-gruvbox .ace_cursor-vimmode {
-        background-color: #ebdbb2 !important;
-        border: none !important;
-        width: 0.6em !important;
-        opacity: 0.6 !important;
-      }
-
-      /* 【挿入モード時】縦棒（バー）カーソル */
-      /* セレクタを重ねて優先順位を最大化 */
-      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor,
-      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor-layer .ace_cursor {
+      /* 【挿入モード時】確実に「縦棒（バー）」にする設定 */
+      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor {
         background-color: transparent !important;
         border-left: 2px solid #ebdbb2 !important;
         width: 2px !important;
         opacity: 1 !important;
+        display: block !important;
       }
 
-      /* 挿入モード時はVim用ブロック要素を確実に隠す */
-      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor-vimmode {
+      /* Vim専用の別ブロック要素が存在する場合、挿入モードでは隠す */
+      .ace_editor.leaf-insert-mode .ace_cursor-vimmode,
+      .ace_editor.leaf-insert-mode .ace_cursor.ace_cursor-vimmode {
         display: none !important;
         opacity: 0 !important;
       }

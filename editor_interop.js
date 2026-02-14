@@ -38,13 +38,13 @@ export function init_editor(element_id, callback) {
     });
 
     // Vim モードの状態監視
-    const vimHandler = ace.require("ace/keyboard/vim").Vim;
     editor.on("vimModeChange", (e) => {
         const container = editor.container;
+        console.log("[Leaf-VIM] Mode changed to:", e.mode);
         if (e.mode === "insert") {
             container.classList.add("leaf-insert-mode");
             container.classList.remove("leaf-normal-mode");
-        } else if (e.mode === "normal" || e.mode === "visual") {
+        } else {
             container.classList.add("leaf-normal-mode");
             container.classList.remove("leaf-insert-mode");
         }
