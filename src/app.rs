@@ -657,7 +657,25 @@ pub fn app() -> Html {
         let aid = active_sheet_id.clone(); let iv = is_file_open_dialog_visible.clone();
         let ss = sheets.clone(); let il = is_loading.clone(); let ifo = is_fading_out.clone();
         let rs = sheets_ref.clone(); let sp = is_suppressing_changes.clone();
+        let os = on_save_cb.clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
+            let aid_val = (*aid).clone();
+            let mut needs_save = false;
+            if let Some(id) = aid_val {
+                let cur_s = (*rs.borrow()).clone();
+                if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
+                    let cur_c_val = get_editor_content();
+                    if let Some(cur_c) = cur_c_val.as_string() {
+                        if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) {
+                            needs_save = true;
+                        }
+                    }
+                }
+            }
+            if needs_save {
+                os.emit(false);
+            }
+
             iv.set(false); il.set(true); ifo.set(false); sp.set(true); 
             let ss_inner = ss.clone(); let aid_inner = aid.clone(); let sp_inner = sp.clone();
             let il_inner = il.clone(); let ifo_inner = ifo.clone(); let rs_inner = rs.clone();
@@ -693,7 +711,25 @@ pub fn app() -> Html {
         let il_h = il_for_import;
         let ifo_h = ifo_for_import;
         let lock_fade_h = lock_fade_for_import;
+        let os = on_save_cb.clone();
         Callback::from(move |_| {
+            let aid_val = (*aid_state).clone();
+            let mut needs_save = false;
+            if let Some(id) = aid_val {
+                let cur_s = (*r_s.borrow()).clone();
+                if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
+                    let cur_c_val = get_editor_content();
+                    if let Some(cur_c) = cur_c_val.as_string() {
+                        if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) {
+                            needs_save = true;
+                        }
+                    }
+                }
+            }
+            if needs_save {
+                os.emit(false);
+            }
+
             let s_state_c = s_state.clone(); let aid_state_c = aid_state.clone();
             let sp_state_c = sp_state.clone(); let r_s_c = r_s.clone();
             let lock_cb = lock_h.clone();
