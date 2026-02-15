@@ -115,7 +115,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
         <div 
             ref={root_ref}
             class={classes!(
-                "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/50", "backdrop-blur-md", "p-4", "outline-none",
+                "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/50", "backdrop-blur-md", "p-4", "outline-none", "pointer-events-auto",
                 if *is_fading_out { "opacity-0 transition-opacity duration-200" } else { "" }
             )}
             tabindex="0"
@@ -248,7 +248,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
     };
 
     html! {
-        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 outline-none">
+        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 outline-none pointer-events-auto">
             <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-dialog-in">
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-lg font-bold text-white">{ &props.title }</h3>
@@ -353,7 +353,7 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
     html! {
         <div 
             ref={root_ref}
-            class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 animate-in fade-in duration-200 outline-none" 
+            class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 animate-in fade-in duration-200 outline-none pointer-events-auto" 
             tabindex="0"
             onkeydown={on_keydown}
         >
@@ -495,7 +495,7 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
     };
 
     html! {
-        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 animate-in fade-in duration-200 outline-none">
+        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 animate-in fade-in duration-200 outline-none pointer-events-auto">
             <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-md overflow-hidden animate-dialog-in">
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-lg font-bold text-white">{ &props.title }</h3>

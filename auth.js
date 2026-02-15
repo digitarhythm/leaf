@@ -49,11 +49,7 @@ export function init_google_auth(clientId, onSuccessCallback) {
             console.log("[Auth] Existing valid token found.");
             if (onSuccessCallback) onSuccessCallback(accessToken);
         } else {
-            console.log("[Auth] Session expired or not found. Attempting initial silent refresh...");
-            // 初期化時のサイレントリフレッシュ。失敗しても単にログイン画面が出るだけなので例外はキャッチする。
-            try_silent_refresh().catch(e => {
-                console.log("[Auth] Initial silent refresh unavailable. User must sign in manually.");
-            });
+            console.log("[Auth] No valid session found. Waiting for user to sign in manually.");
         }
     };
     document.body.appendChild(script);
