@@ -462,7 +462,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         }) }
                     </div>
 
-                    <div class="w-[70%] flex flex-col overflow-y-auto p-4 space-y-2 relative">
+                    <div class="w-[70%] flex flex-col overflow-y-auto relative bg-gray-800/20">
                         if *is_loading_files {
                             <div class="absolute inset-0 flex items-center justify-center bg-gray-800/30 z-10">
                                 <div class="w-10 h-10 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
@@ -488,28 +488,27 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                             html! {
                                 <div class={classes!(
-                                    "relative", "group/item", "transition-all", "duration-300",
+                                    "relative", "group/item", "transition-all", "duration-300", "h-1/5", "w-full", "p-1.5",
                                     if is_fading_item { "opacity-0 scale-95 pointer-events-none" } else { "opacity-100" }
                                 )}>
                                     <button 
                                         onclick={move |_| if !*is_loading_files { s_idx_1.set(idx) }}
                                         ondblclick={let on_ok = on_ok.clone(); move |_| { s_idx_2.set(idx); on_ok.emit(()); }}
                                         class={classes!(
-                                            "w-full", "text-left", "p-4", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",
+                                            "w-full", "h-full", "text-left", "px-4", "py-2", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",
                                             if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
                                             if is_focused { vec!["bg-blue-600", "text-white"] }
                                             else if is_selected { vec!["bg-slate-600", "text-gray-200"] }
                                             else { vec!["bg-gray-700/50", "text-gray-400", "hover:bg-gray-700"] }
                                         )}
-                                        style="height: 100%; min-height: 80px; margin-bottom: 1%;"
                                     >
-                                        <div class="font-bold text-xs opacity-50 mb-1">{ &file.name }</div>
-                                        <div class="text-sm line-clamp-2 whitespace-pre-wrap font-mono opacity-80 pr-16">
+                                        <div class="font-bold text-[10px] opacity-50 mb-0.5 truncate shrink-0">{ &file.name }</div>
+                                        <div class="text-xs flex-1 whitespace-pre-wrap font-mono opacity-80 pr-12 leading-snug overflow-hidden">
                                             { &file.content }
                                         </div>
                                     </button>
                                     
-                                    <div class="absolute top-2 right-2 flex space-x-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                    <div class="absolute top-3 right-3 flex space-x-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
                                         <div class="relative">
                                             <button 
                                                 onclick={let active = active_drop.clone(); let id = file_id.clone(); move |e: MouseEvent| { e.stop_propagation(); if (*active).as_ref() == Some(&id) { active.set(None); } else { active.set(Some(id.clone())); } }}

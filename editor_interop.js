@@ -114,36 +114,19 @@ export function init_editor(element_id, callback) {
         exec: () => { if (commandCallback) commandCallback("new_sheet"); }
     });
 
-    // カスタムコマンド (開く - シート選択ダイアログ)
-    editor.commands.addCommand({
-        name: "openSheetDialog",
-        bindKey: { win: "Alt-M", mac: "Option-M" },
-        exec: () => { if (commandCallback) commandCallback("open"); }
-    });
-
     // カスタムコマンド (インポート - ローカルファイルを開く)
     editor.commands.addCommand({
         name: "openLocalFile",
-        bindKey: { win: "Alt-O", mac: "Option-O" },
+        bindKey: { win: "Alt-O", mac: "Alt-O" },
         exec: () => { if (commandCallback) commandCallback("import"); }
-    });
-
-    // カスタムコマンド (プレビュー)
-    editor.commands.addCommand({
-        name: "togglePreview",
-        bindKey: { win: "Alt-P", mac: "Option-P" },
-        exec: () => { 
-            console.log("[Leaf-VIM] Triggering preview shortcut");
-            if (commandCallback) commandCallback("preview"); 
-        }
     });
 
     // カスタムコマンド (ヘルプ)
     editor.commands.addCommand({
         name: "showHelp",
-        bindKey: { win: "Alt-H", mac: "Option-H" },
+        bindKey: { win: "Alt-H", mac: "Alt-H" },
         exec: () => { 
-            console.log("[Leaf-VIM] Triggering help shortcut");
+            console.log("[Leaf-VIM] Triggering help shortcut (Alt+H)");
             if (commandCallback) commandCallback("help"); 
         }
     });

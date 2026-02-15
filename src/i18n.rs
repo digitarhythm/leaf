@@ -478,8 +478,8 @@ pub fn t(key: &str, lang: Language) -> String {
         }.to_string(),
 
         "help_shortcuts" => match lang {
-            Language::Ja => "# ショートカット一覧\n\n| キー | 機能 |\n| --- | --- |\n| `Opt/Alt + s` | 強制保存（新規シートはGoogleドライブへ新規保存） |\n| `Opt/Alt + n` | 新規シート作成 |\n| `Opt/Alt + f` | 検索ダイアログ表示 |\n| `Opt/Alt + o` | ローカルファイルを開く |\n| `Opt/Alt + m` | 編集シート選択ダイアログ |\n| `Opt/Alt + p` | Markdownプレビュー表示 |\n| `Opt/Alt + h` | このヘルプを表示 |\n| `Opt/Alt + =` | フォントサイズを大きくする |\n| `Opt/Alt + -` | フォントサイズを小さくする |\n| `Esc` | ダイアログ/プレビュー/ドロップダウンを閉じる |",
-            _ => "# Keyboard Shortcuts\n\n| Key | Action |\n| --- | --- |\n| `Opt/Alt + s` | Forced Save (New sheets are saved to Drive) |\n| `Opt/Alt + n` | New Sheet |\n| `Opt/Alt + f` | Show Search Dialog |\n| `Opt/Alt + o` | Open Local File |\n| `Opt/Alt + m` | Sheet Selection Dialog |\n| `Opt/Alt + p` | Toggle Markdown Preview |\n| `Opt/Alt + h` | Show This Help |\n| `Opt/Alt + =` | Increase Font Size |\n| `Opt/Alt + -` | Decrease Font Size |\n| `Esc` | Close Dialog / Preview / Dropdown |",
+            Language::Ja => "# ショートカット一覧\n\n| キー | 機能 |\n| --- | --- |\n| `Opt/Alt + s` | 強制保存（新規シートはGoogleドライブへ新規保存） |\n| `Opt/Alt + n` | 新規シート作成 |\n| `Opt/Alt + f` | 検索ダイアログ表示 |\n| `Opt/Alt + o` | ローカルファイルを開く |\n| `Opt/Alt + m` | 編集シート選択ダイアログ |\n| `Opt/Alt + l` | Markdownプレビュー表示 |\n| `Opt/Alt + h` | このヘルプを表示 |\n| `Opt/Alt + =` | フォントサイズを大きくする |\n| `Opt/Alt + -` | フォントサイズを小さくする |\n| `Esc` | ダイアログ/プレビュー/ドロップダウンを閉じる |",
+            _ => "# Keyboard Shortcuts\n\n| Key | Action |\n| --- | --- |\n| `Opt/Alt + s` | Forced Save (New sheets are saved to Drive) |\n| `Opt/Alt + n` | New Sheet |\n| `Opt/Alt + f` | Show Search Dialog |\n| `Opt/Alt + o` | Open Local File |\n| `Opt/Alt + m` | Sheet Selection Dialog |\n| `Opt/Alt + l` | Toggle Markdown Preview |\n| `Opt/Alt + h` | Show This Help |\n| `Opt/Alt + =` | Increase Font Size |\n| `Opt/Alt + -` | Decrease Font Size |\n| `Esc` | Close Dialog / Preview / Dropdown |",
         }.to_string(),
 
         _ => key.to_string(),
