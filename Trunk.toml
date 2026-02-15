@@ -1,7 +1,7 @@
 [build]
 # Subresource Integrity (SRI) を無効化
 integrity = "none"
-public_url = "/leaf/"
+public_url = "/"
 dist = "dist"
 
 [serve]
