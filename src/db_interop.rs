@@ -22,7 +22,7 @@ pub struct JSCategory {
     pub name: String,
 }
 
-#[wasm_bindgen(module = "./db.js")]
+#[wasm_bindgen(module = "db.js")]
 extern "C" {
     #[wasm_bindgen(catch)]
     pub async fn init_db(db_name: &str) -> Result<(), JsValue>;
