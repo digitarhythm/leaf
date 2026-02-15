@@ -28,9 +28,6 @@
     </filter>
   </defs>
   
-  <!-- Background Circle -->
-  <circle cx="256" cy="256" r="240" fill="#111827" />
-  
   <!-- Leaf Shape -->
   <g filter="url(#shadow)">
     <path d="M256 80 
