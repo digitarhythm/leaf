@@ -28,11 +28,11 @@ pub fn preview(props: &PreviewProps) -> Html {
     let rendered_html = render_markdown(&props.content);
 
     html! {
-        <div class="fixed inset-0 z-[300] bg-gray-950/80 flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200" onclick={props.on_close.reform(|_| ())}>
-            <div class="w-full max-w-4xl max-h-full bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col overflow-hidden" onclick={|e: MouseEvent| e.stop_propagation()}>
+        <div class="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200" onclick={props.on_close.reform(|_| ())}>
+            <div class="w-full max-w-5xl max-h-full bg-[#0d1117] rounded-xl shadow-2xl border border-gray-800 flex flex-col overflow-hidden" onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div 
                     ref={node_ref}
-                    class="markdown-body prose prose-lime max-w-none text-gray-800 overflow-y-auto p-6 sm:p-10"
+                    class="markdown-body max-w-none overflow-y-auto p-6 sm:p-12"
                 >
                     { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
                 </div>
