@@ -1,7 +1,7 @@
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::closure::Closure;
 
-#[wasm_bindgen(module = "editor_interop.js")]
+#[wasm_bindgen(module = "/editor_interop.js")]
 extern "C" {
     pub fn set_window_title(title: &str);
     pub fn init_editor(element_id: &str, callback: &Closure<dyn FnMut(String)>);
