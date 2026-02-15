@@ -59,6 +59,8 @@ struct NameConflictData {
     existing_file_id: String,
 }
 
+const VIM_MODE_KEY: &str = "leaf_vim_mode";
+
 fn generate_random_color() -> String {
     let h = (js_sys::Math::random() * 360.0) as u32;
     let s = 40 + (js_sys::Math::random() * 30.0) as u32;
@@ -73,7 +75,13 @@ pub fn app() -> Html {
     let config: Config = toml::from_str(config_str).expect("Failed to parse application.toml");
     let client_id = option_env!("LEAF_CLIENTID").map(|s| s.to_string()).unwrap_or_else(|| config.google_client_id);
 
-    let vim_mode = use_state(|| true);
+    let vim_mode = use_state(|| {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(VIM_MODE_KEY).ok().flatten())
+            .map(|v| v == "true")
+            .unwrap_or(true)
+    });
     let sheets = use_state(|| Vec::<Sheet>::new());
     let active_sheet_id = use_state(|| None::<String>);
     let network_connected = use_state(|| true);
@@ -132,7 +140,17 @@ pub fn app() -> Html {
     }
 
     let on_login = Callback::from(|_: MouseEvent| { request_access_token(); });
-    let on_toggle_vim = { let vim = vim_mode.clone(); Callback::from(move |_| { vim.set(!*vim); }) };
+    let on_toggle_vim = {
+        let vim = vim_mode.clone();
+        Callback::from(move |_| {
+            let next = !*vim;
+            vim.set(next);
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                let _ = storage.set_item(VIM_MODE_KEY, if next { "true" } else { "false" });
+            }
+            set_vim_mode(next);
+        })
+    };
     let on_change_font_size = Callback::from(|delta: i32| { crate::js_interop::change_font_size(delta); });
     let on_logout = { let ic = is_logout_confirm_visible.clone(); Callback::from(move |_| { ic.set(true); }) };
 
