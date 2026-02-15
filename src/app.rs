@@ -233,15 +233,16 @@ pub fn app() -> Html {
                         let is_new = sheet.drive_id.is_none();
                         if is_new && !sheet.is_modified && !is_manual { return; }
                         if !is_manual && !is_new && !sheet.is_modified && sheet.content == cur_c { return; }
+                        
                         sheet.content = cur_c.clone(); sheet.is_modified = false;
-                        is_saving_h.set(true);
                         
                         if is_manual && sheet.drive_id.is_none() && sheet.guid.is_none() {
                             sheet.guid = Some(generate_uuid());
                         }
                         
-                        // カテゴリーなしの処理
+                        // カテゴリーなしの処理 (ローカルファイル または クラウド未昇格)
                         if sheet.category.is_empty() {
+                            is_saving_h.set(true); // ローカル保存時は表示
                             let content_to_save = cur_c.clone();
                             let is_saving_inner = is_saving_h.clone();
                             let ild_inner = ild_h.clone();
@@ -268,6 +269,7 @@ pub fn app() -> Html {
                                         Timeout::new(300, move || { lf.set(false); l.set(false); il.set(false); }).forget();
                                     }
                                 } else if is_manual_save {
+                                    // 保存中フラグは os_retry によって維持されるのでここでは消さない
                                     let mut us = (*rs_cb_inner.borrow()).clone();
                                     if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) {
                                         s.category = "OTHERS".to_string();
@@ -287,16 +289,16 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        if is_manual || is_new { 
+                        if is_manual { 
                             lmk_h.set("saving");
                             ifo_h.set(false);
                             ild_h.set(true); 
                         } 
                         
                         if !is_online {
+                            // IndexedDBへの一時保存時は is_saving をセットしない（サイレント保存）
                             sheet.temp_content = Some(cur_c.clone()); sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
                             let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: sheet.content.clone(), is_modified: false, drive_id: sheet.drive_id.clone(), temp_content: sheet.temp_content.clone(), temp_timestamp: sheet.temp_timestamp, last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone() };
-                            let is_saving_inner = is_saving_h.clone();
                             let ild_inner = ild_h.clone();
                             let lock_inner = lock_h.clone();
                             let lock_fade_inner = lock_fade_h.clone();
@@ -304,7 +306,6 @@ pub fn app() -> Html {
                             spawn_local(async move { 
                                 let ser = serde_wasm_bindgen::Serializer::json_compatible(); 
                                 if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } 
-                                is_saving_inner.set(false);
                                 // フェードアウト解除
                                 if *lock_inner {
                                     lock_fade_inner.set(true);
@@ -317,6 +318,9 @@ pub fn app() -> Html {
                             });
                             return;
                         }
+                        
+                        // 以降は Google ドライブ保存なのでフラグをセット
+                        is_saving_h.set(true);
                         let ncid_val = (*r_ncid.borrow()).clone();
                         if ncid_val.is_none() { 
                             is_saving_h.set(false); ild_h.set(false); 
@@ -352,6 +356,16 @@ pub fn app() -> Html {
                              if !s_clone.category.is_empty() && s_clone.category != "OTHERS" {
                                  if let Err(_) = get_file_metadata(&s_clone.category).await {
                                      fq_inner.set(vec![s_clone.id.clone()]); *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
+                                     
+                                     // 保存に失敗（カテゴリ紛失等）したので、変更フラグを戻して再試行を可能にする
+                                     let mut u_s = (*rs_async.borrow()).clone();
+                                     if let Some(si) = u_s.iter_mut().find(|x| x.id == s_clone.id) { 
+                                         si.is_modified = true; 
+                                         let js = JSSheet { id: si.id.clone(), guid: si.guid.clone(), category: si.category.clone(), title: si.title.clone(), content: si.content.clone(), is_modified: true, drive_id: si.drive_id.clone(), temp_content: si.temp_content.clone(), temp_timestamp: si.temp_timestamp, last_sync_timestamp: si.last_sync_timestamp, tab_color: si.tab_color.clone() };
+                                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                     }
+                                     *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
+
                                      if *lock_inner {
                                          lock_fade_inner.set(true);
                                          let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
@@ -402,8 +416,13 @@ pub fn app() -> Html {
                                  },
                                  Err(_) => {
                                      nc_inner.set(false);
-                                     let js = JSSheet { id: s_clone.id.clone(), guid: s_clone.guid.clone(), category: s_clone.category.clone(), title: s_clone.title.clone(), content: s_clone.content.clone(), is_modified: false, drive_id: s_clone.drive_id.clone(), temp_content: Some(s_clone.content.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), last_sync_timestamp: s_clone.last_sync_timestamp, tab_color: s_clone.tab_color.clone() };
+                                     let js = JSSheet { id: s_clone.id.clone(), guid: s_clone.guid.clone(), category: s_clone.category.clone(), title: s_clone.title.clone(), content: s_clone.content.clone(), is_modified: true, drive_id: s_clone.drive_id.clone(), temp_content: Some(s_clone.content.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), last_sync_timestamp: s_clone.last_sync_timestamp, tab_color: s_clone.tab_color.clone() };
                                      let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                     
+                                     let mut u_s = (*rs_async.borrow()).clone();
+                                     if let Some(si) = u_s.iter_mut().find(|x| x.id == s_clone.id) { si.is_modified = true; }
+                                     *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
+
                                      *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
                                      if *lock_inner {
                                          lock_fade_inner.set(true);
@@ -492,14 +511,15 @@ pub fn app() -> Html {
                 if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
                     let cur_c_val = get_editor_content();
                     if let Some(cur_c) = cur_c_val.as_string() {
-                        if sheet.is_modified || sheet.content != cur_c {
+                        // テキストが空でない、かつ変更がある場合のみ保存
+                        if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) {
                             needs_save = true;
                         }
                     }
                 }
             }
             if needs_save {
-                os_cb.emit(true);
+                os_cb.emit(false);
             }
 
             sp.set(true); 
@@ -950,9 +970,10 @@ pub fn app() -> Html {
         let oi = on_import_cb.clone(); 
         let ip = is_preview_visible.clone();
         let iv = is_file_open_dialog_visible.clone();
-        let oh = on_help_cb.clone();
+        let ih = is_help_visible.clone();
         let r_prev = is_preview_ref.clone();
         let r_open = is_file_open_ref.clone();
+        let r_help = is_help_ref.clone();
         let is_auth = is_authenticated.clone(); let ast = auto_save_timer.clone(); let s_init = sheets.clone(); 
         let v_init = vim_mode.clone(); let ncid = no_category_folder_id.clone();
         let sp_init = is_suppressing_changes.clone(); let r_s = sheets_ref.clone(); let r_aid = active_id_ref.clone();
@@ -964,10 +985,11 @@ pub fn app() -> Html {
                 let oi_i = oi.clone();
                 let ip_i = ip.clone(); 
                 let iv_i = iv.clone();
-                let oh_i = oh.clone();
+                let ih_i = ih.clone();
+                let s_state = s_init.clone();
                 let r_prev_i = r_prev.clone();
                 let r_open_i = r_open.clone();
-                let s_state = s_init.clone();
+                let r_help_i = r_help.clone();
                 let timer = ast.clone(); let vim_val = *v_init; 
                 let sp_cb = sp_init.clone(); let r_s_i = r_s.clone(); let r_aid_i = r_aid.clone();
                 let callback = Closure::wrap(Box::new(move |cmd: String| {
@@ -979,8 +1001,15 @@ pub fn app() -> Html {
                         sp_cb.set(val); 
                     }
                     else if cmd == "import" { oi_i.emit(()); }
-                    else if cmd == "preview" { ip_i.set(!*r_prev_i.borrow()); }
-                    else if cmd == "help" { oh_i.emit(()); }
+                    else if cmd == "preview" { 
+                        let cur_c_val = get_editor_content();
+                        let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
+                        if !*r_prev_i.borrow() && is_empty {
+                            return;
+                        }
+                        ip_i.set(!*r_prev_i.borrow()); 
+                    }
+                    else if cmd == "help" { ih_i.set(!*r_help_i.borrow()); }
                     else if cmd == "change" {
                         if *sp_cb { return; }
                         let cur_c_val = get_editor_content();
@@ -988,13 +1017,40 @@ pub fn app() -> Html {
                         let aid = (*r_aid_i.borrow()).clone();
                         if let Some(id) = aid {
                             let mut cur_s = (*r_s_i.borrow()).clone();
-                            let mut trigger_auto_save = false; let mut needs_upd = false;
+                            let mut trigger_drive_sync = false; let mut needs_upd = false;
                             if let Some(sheet) = cur_s.iter_mut().find(|s| s.id == id) {
-                                if sheet.content != cur_c { sheet.content = cur_c.clone(); sheet.is_modified = true; needs_upd = true; }
-                                trigger_auto_save = sheet.drive_id.is_some() || sheet.category.is_empty();
+                                if sheet.content != cur_c { 
+                                    sheet.content = cur_c.clone(); 
+                                    sheet.is_modified = true; 
+                                    needs_upd = true; 
+                                    
+                                    // IndexedDBへ即座に非同期保存
+                                    let js = JSSheet { 
+                                        id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), 
+                                        title: sheet.title.clone(), content: sheet.content.clone(), is_modified: true, 
+                                        drive_id: sheet.drive_id.clone(), temp_content: sheet.temp_content.clone(), 
+                                        temp_timestamp: sheet.temp_timestamp, last_sync_timestamp: sheet.last_sync_timestamp, 
+                                        tab_color: sheet.tab_color.clone() 
+                                    };
+                                    spawn_local(async move {
+                                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                        if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                    });
+                                }
+                                // ドライブ同期対象: カテゴリーが設定されている(クラウド) または ローカルファイル(Untitledでない)
+                                trigger_drive_sync = !sheet.category.is_empty() || (sheet.category.is_empty() && !sheet.title.starts_with("Untitled"));
+
+                                // 未保存シート（Untitled 且つ カテゴリーなし）の場合、即座に強制保存（クラウドへ）
+                                if sheet.category.is_empty() && sheet.title.starts_with("Untitled") && needs_upd {
+                                    let osa = os_i.clone();
+                                    osa.emit(true);
+                                }
                             }
                             if needs_upd { *r_s_i.borrow_mut() = cur_s.clone(); s_state.set(cur_s); }
-                            if trigger_auto_save && needs_upd { let osa = os_i.clone(); timer.set(Some(Timeout::new(3000, move || { osa.emit(false); }))); }
+                            if trigger_drive_sync && needs_upd { 
+                                let osa = os_i.clone(); 
+                                timer.set(Some(Timeout::new(3000, move || { osa.emit(false); }))); 
+                            }
                         }
                     }
                 }) as Box<dyn FnMut(String)>);
@@ -1096,22 +1152,62 @@ pub fn app() -> Html {
                     let oi_c = oi_cb.clone();
                     let is_drop_c = is_drop_ev.clone();
                     
-                    let listener = EventListener::new_with_options(&window, "keydown", EventListenerOptions::run_in_capture_phase(), move |e| {
+                    let mut opts = EventListenerOptions::run_in_capture_phase();
+                    opts.passive = false;
+                    let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                         let key = ke.key();
+                        let code = ke.code();
                         
                         let is_dialog_open = file_open || preview || help || has_del || has_conf || has_fall || has_imp || logout_conf || has_nc || drop_open;
                         let is_overlay_active = is_dialog_open || imp_lock;
 
-                        if !is_overlay_active && ke.alt_key() {
+                        if ke.alt_key() {
                             let key_lower = key.to_lowercase();
-                            match key_lower.as_str() {
-                                "o" | "ø" => { e.prevent_default(); oi_c.emit(()); } 
-                                "m" | "µ" => { e.prevent_default(); let val = !*is_file_open_c; is_file_open_c.set(val); sp_c.set(val); }
-                                "p" | "π" => { e.prevent_default(); is_preview_c.set(!*is_preview_c); }
-                                "h" | "˙" => { e.prevent_default(); is_help_c.set(!*is_help_c); }
-                                "f" | "ƒ" => { e.prevent_default(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); }
-                                _ => {}
+                            // デバッグログ: Altキー押下時の全イベントを記録
+                            gloo::console::debug!(format!("[Leaf-KEYS] Alt detected: key='{}', code='{}'", key, code));
+
+                            let is_l = code == "KeyL" || key_lower == "l" || key_lower == "¬";
+                            let is_m = code == "KeyM" || key_lower == "m" || key_lower == "µ";
+                            let is_h = code == "KeyH" || key_lower == "h" || key_lower == "˙";
+                            let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
+                            let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
+                            let is_s = code == "KeyS" || key_lower == "s" || key_lower == "ß";
+                            let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
+
+                            if is_l {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                // テキストが空の場合はプレビューを開かない
+                                let cur_c_val = get_editor_content();
+                                let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
+                                
+                                if !*is_preview_c && is_empty {
+                                    gloo::console::log!("[Leaf-KEYS] Preview suppressed: content is empty");
+                                    return;
+                                }
+
+                                gloo::console::log!("[Leaf-KEYS] Toggling Preview (Alt+L)");
+                                is_preview_c.set(!*is_preview_c);
+                                return;
+                            }
+                            if is_m {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                gloo::console::log!("[Leaf-KEYS] Toggling Sheet Selection (Alt+M)");
+                                let val = !*is_file_open_c; is_file_open_c.set(val); sp_c.set(val);
+                                return;
+                            }
+                            if is_h {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                gloo::console::log!("[Leaf-KEYS] Toggling Help (Alt+H)");
+                                is_help_c.set(!*is_help_c);
+                                return;
+                            }
+                            
+                            if !is_overlay_active {
+                                if is_o { e.prevent_default(); e.stop_immediate_propagation(); oi_c.emit(()); return; }
+                                if is_f { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); return; }
+                                if is_s { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("saveSheet"); return; }
+                                if is_n { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newSheet"); return; }
                             }
                         }
 
