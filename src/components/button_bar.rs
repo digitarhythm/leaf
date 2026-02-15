@@ -6,35 +6,46 @@ pub struct ButtonBarProps {
     pub on_new_sheet: Callback<()>,
     pub on_open: Callback<()>,
     pub on_import: Callback<()>,
-    pub on_toggle_vim: Callback<()>,
     pub on_change_font_size: Callback<i32>,
     pub on_change_category: Callback<String>, 
     pub on_help: Callback<()>,
+    pub on_logout: Callback<()>,
     pub current_category: String,             
-    pub categories: Vec<crate::db_interop::JSCategory>, 
-    pub vim_mode: bool,
+    pub categories: Vec<crate::db_interop::JSCategory>,
+    pub is_new_sheet: bool,
+    pub is_dropdown_open: bool,
+    pub on_toggle_dropdown: Callback<bool>,
 }
 
 #[function_component(ButtonBar)]
 pub fn button_bar(props: &ButtonBarProps) -> Html {
     let lang = Language::detect();
-    let is_dropdown_open = use_state(|| false);
 
     let has_multiple_cats = props.categories.len() > 1;
 
     let on_category_click = {
-        let is_dropdown_open = is_dropdown_open.clone();
+        let on_toggle = props.on_toggle_dropdown.clone();
+        let is_open = props.is_dropdown_open;
+        let current_cat = props.current_category.clone();
         Callback::from(move |_| {
-            if has_multiple_cats {
-                is_dropdown_open.set(!*is_dropdown_open);
+            if has_multiple_cats || current_cat.is_empty() {
+                on_toggle.emit(!is_open);
             }
         })
     };
 
-    let current_cat_name = props.categories.iter()
-        .find(|c| c.id == props.current_category)
-        .map(|c| c.name.clone())
-        .unwrap_or_else(|| "NO_CATEGORY".to_string());
+    let current_cat_name = if props.current_category.is_empty() {
+        if props.is_new_sheet {
+            i18n::t("no_category", lang)
+        } else {
+            i18n::t("local_file", lang)
+        }
+    } else {
+        props.categories.iter()
+            .find(|c| c.id == props.current_category)
+            .map(|c| c.name.clone())
+            .unwrap_or_else(|| i18n::t("OTHERS", lang))
+    };
 
     html! {
         <div class="flex items-center space-x-2 bg-gray-800 py-1 px-2 border-b border-gray-700">
@@ -72,44 +83,52 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     onclick={on_category_click}
                     class={classes!(
                         "ml-2", "px-3", "py-1", "rounded", "bg-gray-700", "text-gray-200", "text-xs", "font-bold", "flex", "items-center", "space-x-1", "transition-colors",
-                        if has_multiple_cats { "hover:bg-gray-600 cursor-pointer" } else { "cursor-default" }
+                        if has_multiple_cats || props.current_category.is_empty() { "hover:bg-gray-600 cursor-pointer" } else { "cursor-default" }
                     )}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
                         <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25V4.75A1.75 1.75 0 0016.25 3H3.75zM10 6.5a.75.75 0 01.75.75v2.5h2.5a.75.75 0 010 1.5h-2.5v2.5a.75.75 0 01-1.5 0v-2.5h-2.5a.75.75 0 010-1.5h2.5v-2.5A.75.75 0 0110 6.5z" />
                     </svg>
                     <span>{ current_cat_name }</span>
-                    if has_multiple_cats {
+                    if has_multiple_cats || props.current_category.is_empty() {
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3 opacity-50">
                             <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
                         </svg>
                     }
                 </button>
 
-                if *is_dropdown_open && has_multiple_cats {
+                if props.is_dropdown_open && (has_multiple_cats || props.current_category.is_empty()) {
                     <>
                         <div 
-                            onclick={let is_dropdown_open = is_dropdown_open.clone(); move |_| is_dropdown_open.set(false)}
+                            onclick={let on_t = props.on_toggle_dropdown.clone(); move |_| on_t.emit(false)}
                             class="fixed inset-0 z-[140]"
                         ></div>
                         <div class="absolute left-2 mt-1 w-48 rounded-md shadow-2xl bg-gray-800 border border-gray-700 z-[150] overflow-hidden animate-in fade-in zoom-in duration-100">
                             <div class="py-1 max-h-60 overflow-y-auto">
+                                if props.current_category.is_empty() {
+                                    <button
+                                        class="w-full text-left px-4 py-2 text-xs bg-blue-600 text-white font-bold cursor-default"
+                                    >
+                                        { if props.is_new_sheet { i18n::t("no_category", lang) } else { i18n::t("local_file", lang) } }
+                                    </button>
+                                }
                                 { for props.categories.iter().map(|cat| {
                                     let id = cat.id.clone();
                                     let name = cat.name.clone();
+                                    let display_name = if name == "OTHERS" { i18n::t("OTHERS", lang) } else { name };
                                     let on_change = props.on_change_category.clone();
-                                    let close_dropdown = is_dropdown_open.clone();
+                                    let on_toggle = props.on_toggle_dropdown.clone();
                                     let is_active = cat.id == props.current_category;
                                     
                                     html! {
                                         <button
-                                            onclick={move |_| { on_change.emit(id.clone()); close_dropdown.set(false); }}
+                                            onclick={if is_active { Callback::from(|_| ()) } else { Callback::from(move |_| { on_change.emit(id.clone()); on_toggle.emit(false); }) }}
                                             class={classes!(
                                                 "w-full", "text-left", "px-4", "py-2", "text-xs", "transition-colors",
-                                                if is_active { "bg-blue-600 text-white font-bold" } else { "text-gray-300 hover:bg-gray-700 hover:text-white" }
+                                                if is_active { "bg-blue-600 text-white font-bold cursor-default" } else { "text-gray-300 hover:bg-gray-700 hover:text-white" }
                                             )}
                                         >
-                                            { name }
+                                            { display_name }
                                         </button>
                                     }
                                 }) }
@@ -134,16 +153,6 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     {"＋"}
                 </button>
             </div>
-            <button
-                onclick={props.on_toggle_vim.reform(|_| ())}
-                class={classes!(
-                    "px-2", "py-0.5", "rounded", "text-xs", "font-medium", "transition-colors",
-                    if props.vim_mode { vec!["bg-green-600", "text-white", "hover:bg-green-700"] } else { vec!["bg-gray-600", "text-gray-300", "hover:bg-gray-500"] }
-                )}
-                title={i18n::t("toggle_vim", lang)}
-            >
-                { if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }
-            </button>
             <div class="flex-1"></div>
             <button
                 onclick={props.on_help.reform(|_| ())}
@@ -154,8 +163,17 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
                 </svg>
             </button>
+            <button
+                onclick={props.on_logout.reform(|_| ())}
+                class="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                title={i18n::t("logout", lang)}
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                </svg>
+            </button>
             <span 
-                class="text-green-500 opacity-30 font-bold px-4 text-xl select-none"
+                class="text-green-500 opacity-60 font-bold px-4 text-xl select-none"
                 style="font-family: 'Petit Formal Script', cursive;"
             >
                 {"Leaf"}

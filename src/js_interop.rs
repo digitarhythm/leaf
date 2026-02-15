@@ -10,11 +10,16 @@ extern "C" {
     pub fn get_editor_content() -> JsValue;
     pub fn resize_editor();
     pub fn focus_editor();
-    pub fn set_gutter_status(unsaved: bool);
+    pub fn set_gutter_status(mode: &str);
     pub fn generate_uuid() -> String;
     pub fn change_font_size(delta: i32);
     pub fn render_markdown(text: &str) -> String;
     pub fn init_mermaid(element: &web_sys::Element);
     pub fn set_preview_active(active: bool);
     pub fn set_editor_mode(filename: &str);
+    pub fn exec_editor_command(command: &str);
+
+    pub async fn open_local_file() -> JsValue;
+    pub async fn save_local_file(content: &str) -> JsValue;
+    pub fn clear_local_handle();
 }

@@ -4,7 +4,50 @@ let pendingContent = null;
 let pendingGutterUnsaved = null; 
 let pendingMode = null; // 追加: モード設定の待機用
 let previewActive = false;
+let localFileHandle = null;
 const FONT_SIZE_KEY = 'leaf_font_size';
+
+export async function open_local_file() {
+    try {
+        const [handle] = await window.showOpenFilePicker({
+            types: [{ description: 'Text Files', accept: { 'text/*': ['.txt', '.md', '.js', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql'] } }],
+            excludeAcceptAllOption: false,
+            multiple: false
+        });
+        localFileHandle = handle;
+        const file = await handle.getFile();
+        const text = await file.text();
+        return { name: file.name, content: text };
+    } catch (e) {
+        if (e.name === 'AbortError') return null;
+        console.error("Local open failed:", e);
+        return null;
+    }
+}
+
+export async function save_local_file(content) {
+    if (!localFileHandle) return false;
+    try {
+        // パーミッションの確認
+        const options = { mode: 'readwrite' };
+        if (await localFileHandle.queryPermission(options) !== 'granted') {
+            if (await localFileHandle.requestPermission(options) !== 'granted') {
+                return false;
+            }
+        }
+        const writable = await localFileHandle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        return true;
+    } catch (e) {
+        console.error("Local save failed:", e);
+        return false;
+    }
+}
+
+export function clear_local_handle() {
+    localFileHandle = null;
+}
 
 export function set_window_title(title) {
     document.title = title ? `${title} - Leaf` : "Leaf";
@@ -50,6 +93,13 @@ export function init_editor(element_id, callback) {
         }
     });
 
+    // カスタムコマンド (検索)
+    editor.commands.addCommand({
+        name: "findInLeaf",
+        bindKey: { win: "Alt-F", mac: "Option-F" },
+        exec: (editor) => { editor.execCommand("find"); }
+    });
+
     // カスタムコマンド (保存)
     editor.commands.addCommand({
         name: "saveSheet",
@@ -64,25 +114,38 @@ export function init_editor(element_id, callback) {
         exec: () => { if (commandCallback) commandCallback("new_sheet"); }
     });
 
-    // カスタムコマンド (開く)
+    // カスタムコマンド (開く - シート選択ダイアログ)
     editor.commands.addCommand({
-        name: "openFileDialog",
-        bindKey: { win: "Alt-O", mac: "Option-O" },
+        name: "openSheetDialog",
+        bindKey: { win: "Alt-M", mac: "Option-M" },
         exec: () => { if (commandCallback) commandCallback("open"); }
     });
 
-    // カスタムコマンド (インポート)
+    // カスタムコマンド (インポート - ローカルファイルを開く)
     editor.commands.addCommand({
-        name: "importFile",
-        bindKey: { win: "Alt-I", mac: "Option-I" },
+        name: "openLocalFile",
+        bindKey: { win: "Alt-O", mac: "Option-O" },
         exec: () => { if (commandCallback) commandCallback("import"); }
     });
 
     // カスタムコマンド (プレビュー)
     editor.commands.addCommand({
         name: "togglePreview",
-        bindKey: { win: "Alt-M", mac: "Option-M" },
-        exec: () => { if (commandCallback) commandCallback("preview"); }
+        bindKey: { win: "Alt-P", mac: "Option-P" },
+        exec: () => { 
+            console.log("[Leaf-VIM] Triggering preview shortcut");
+            if (commandCallback) commandCallback("preview"); 
+        }
+    });
+
+    // カスタムコマンド (ヘルプ)
+    editor.commands.addCommand({
+        name: "showHelp",
+        bindKey: { win: "Alt-H", mac: "Option-H" },
+        exec: () => { 
+            console.log("[Leaf-VIM] Triggering help shortcut");
+            if (commandCallback) commandCallback("help"); 
+        }
     });
 
     // カスタムコマンド (フォントサイズ+)
@@ -123,10 +186,13 @@ export function init_editor(element_id, callback) {
 export function set_vim_mode(enabled) {
     if (!editor) return;
     const container = editor.container;
-    if (enabled) {
+    const currentHandler = editor.getKeyboardHandler();
+    const isVim = currentHandler && currentHandler.$id === "ace/keyboard/vim";
+    
+    if (enabled && !isVim) {
         editor.setKeyboardHandler("ace/keyboard/vim");
         container.classList.add("leaf-vim-enabled");
-    } else {
+    } else if (!enabled && isVim) {
         editor.setKeyboardHandler(null);
         container.classList.remove("leaf-vim-enabled", "leaf-normal-mode", "leaf-insert-mode");
         editor.focus();
@@ -136,12 +202,18 @@ export function set_vim_mode(enabled) {
 export function set_editor_content(content) {
     pendingContent = content;
     if (!editor) return;
-    if (editor.getValue() !== content) {
-        editor.setValue(content || "", -1);
-        editor.clearSelection();
-        editor.session.getUndoManager().reset();
+    
+    const currentVal = editor.getValue();
+    // 内容が完全に一致するか、改行コードの違いを除いて一致する場合は何もしない
+    if (currentVal === content || currentVal.replace(/\r\n/g, "\n") === (content || "").replace(/\r\n/g, "\n")) {
         pendingContent = null;
+        return;
     }
+
+    editor.setValue(content || "", -1);
+    editor.clearSelection();
+    editor.session.getUndoManager().reset();
+    pendingContent = null;
 }
 
 export function get_editor_content() { 
@@ -152,16 +224,19 @@ export function get_editor_content() {
 export function resize_editor() { if (editor) editor.resize(); }
 export function focus_editor() { if (editor) editor.focus(); }
 
-export function set_gutter_status(unsaved) {
+export function set_gutter_status(mode) {
     if (!editor) {
-        pendingGutterUnsaved = unsaved;
+        pendingGutterUnsaved = mode;
         return;
     }
     const container = editor.container;
-    if (unsaved) {
+    // 一旦全てのステータスクラスを削除
+    container.classList.remove("leaf-unsaved-gutter", "leaf-local-gutter");
+    
+    if (mode === "unsaved") {
         container.classList.add("leaf-unsaved-gutter");
-    } else {
-        container.classList.remove("leaf-unsaved-gutter");
+    } else if (mode === "local") {
+        container.classList.add("leaf-local-gutter");
     }
     pendingGutterUnsaved = null;
 }
@@ -208,7 +283,7 @@ export function set_editor_mode(filename) {
     const modeMap = {
         "js": "javascript",
         "ts": "typescript",
-        "coffee": "javascript",
+        "coffee": "coffee",
         "rs": "rust",
         "md": "markdown",
         "markdown": "markdown",
@@ -241,10 +316,18 @@ export function set_editor_mode(filename) {
         mode = "ace/mode/text";
     }
     
-    editor.session.setMode(mode);
-    console.log(`[Leaf-SYSTEM] Editor mode set to ${mode} for extension .${ext}`);
+    if (editor.session.$modeId !== mode) {
+        editor.session.setMode(mode);
+        console.log(`[Leaf-SYSTEM] Editor mode set to ${mode} for extension .${ext}`);
+    }
 }
 
 export function set_preview_active(active) {
     previewActive = active;
+}
+
+export function exec_editor_command(command) {
+    if (editor) {
+        editor.execCommand(command);
+    }
 }

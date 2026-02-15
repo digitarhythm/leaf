@@ -2,6 +2,7 @@
 # Subresource Integrity (SRI) を無効化
 integrity = "none"
 public_url = "/leaf/"
+dist = "dist"
 
 [serve]
 port = 5003
@@ -10,4 +11,4 @@ port = 5003
 # pre_build に変更して、Trunkがアセットを処理する前にCSSを確実に生成する
 stage = "pre_build"
 command = "sh"
-command_arguments = ["-c", "npx @tailwindcss/cli -i input.css -o tailwind.css && sleep 1"]
+command_arguments = ["-c", "npx @tailwindcss/cli -i input.css -o tailwind.css && sleep 2"]

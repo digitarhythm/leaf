@@ -41,15 +41,15 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Ko => "Google 계정으로 로그인",
             Language::Es => "Iniciar sesión con Google",
             Language::De => "Mit Google anmelden",
-            Language::Fr => "Se connecter avec Google",
-            Language::It => "Accedi con Google",
-            Language::Nl => "Inloggen met Google",
+            Language::Fr => "Se connecter with Google",
+            Language::It => "Accedi with Google",
+            Language::Nl => "Inloggen with Google",
             _ => "Sign in with Google",
         }.to_string(),
         "login_required" => match lang {
             Language::Ja => "ファイルにアクセスするにはログインが必要です。",
             Language::Zh => "登录以访问您的文件。",
-            Language::Ko => "파일에 액세스하려면 로그인이 필요합니다.",
+            Language::Ko => "파일에 액세스하려면 로그인이 필요합니다。",
             Language::Es => "Inicie sesión para acceder a sus archivos.",
             Language::De => "Bitte melden Sie sich an, um auf Ihre Dateien zuzugreifen.",
             Language::Fr => "Veuillez vous connecter pour accéder à vos fichiers.",
@@ -57,16 +57,19 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Log in om toegang te krijgen tot uw bestanden.",
             _ => "Please sign in to access your files.",
         }.to_string(),
+        "welcome_headline" => match lang {
+            Language::Ja => "「Leaf」へようこそ。",
+            _ => "Welcome to Leaf.",
+        }.to_string(),
         "app_policy_description" => match lang {
-            Language::Ja => "このエディタは、全てのテキストファイルをGoogleドライブ上に置いて編集する、というポリシーで作られています。\nGoogleアカウントでログインを行うと、「マイドライブ」の下に、\nマイドライブ/ApplicationSupport/LeafData/NO_CATEGORY\nというフォルダが、自動的に作成されます。\n新規に作成されたテキストファイルは「NO_CATEGORY」に保存されます。\n「NO_CATEGORY」はデフォルトカテゴリーとなり、カテゴリーは自由に増やせます。\n\nGoogleドライブにフォルダ／ファイルが自動作成されたくない方は使用しないでください。",
-            Language::Zh => "该编辑器的设计原则是将所有文本文件存储在 Google 云端硬盘上并进行编辑。\n当您使用 Google 帐户登录时，将在您的“我的云端硬盘”下自动创建以下文件夹结构：\n我的云端硬盘/ApplicationSupport/LeafData/NO_CATEGORY\n新创建的文本文件将保存在“NO_CATEGORY”中。\n“NO_CATEGORY”是默认类别，您可以自由添加更多类别。\n\n如果您不希望在 Google 云端硬盘上自动创建文件夹或文件，请不要使用此应用程序。",
-            Language::Ko => "이 에디터는 모든 텍스트 파일을 Google 드라이브에 저장하고 편집하는 정책으로 제작되었습니다.\nGoogle 계정으로 로그인하면 '내 드라이브' 아래에 다음 폴더 구조가 자동으로 생성됩니다:\n내 드라이브/ApplicationSupport/LeafData/NO_CATEGORY\n새로 생성된 텍스트 파일은 '내 드라이브/ApplicationSupport/LeafData/NO_CATEGORY'에 저장됩니다.\n'NO_CATEGORY'는 기본 카테고리이며, 카테고리는 자유롭게 추가할 수 있습니다.\n\nGoogle 드라이브에 폴더나 파일이 자동으로 생성되는 것을 원하지 않는 분은 사용하지 마십시오.",
+            Language::Ja => "全てのテキストをGoogleドライブ上に置き、思考を即座にコードや文章へと変えるためのエディターです。\n\n・<span class=\"text-base font-bold text-white\">Vim Native</span>：デフォルトでVimキーバインドを搭載。プロフェッショナルな編集体験を。\n・<span class=\"text-base font-bold text-white\">ファイル名からの解放</span>：管理の基準は「最初の3行」。名前付けに迷う時間をゼロに。\n・<span class=\"text-base font-bold text-white\">多彩な表現力</span>：主要言語のコードハイライトとMarkdownプレビューで、アウトプットを加速。\n・<span class=\"text-base font-bold text-white\">スマートな分類</span>：カテゴリー（フォルダ）を自由に作成し、膨大なメモも整然と管理。\n・<span class=\"text-base font-bold text-white\">徹底した自動保存</span>：一度保存したファイルは、常に最新の状態がドライブへ同期されます。\n\nログインにより、マイドライブ/ApplicationSupport/LeafData 内に専用の作業環境が自動作成されます。\n※Googleドライブへの自動フォルダ作成を希望されない方は使用しないでください。",
+            Language::Zh => "该编辑器的设计原则是将所有文本文件存储在 Google 云端硬盘上并进行編集。\n当您使用 Google 帐户登录时，将在您的“我的云端硬盘”下自动创建以下文件夹结构：\n我的云端硬盘/ApplicationSupport/LeafData/NO_CATEGORY\n新创建のテキストファイルは「NO_CATEGORY」に保存されます。\n「NO_CATEGORY」はデフォルト类别이며, 类别は自由に追加できます。\n\n如果您不希望在 Google 云端硬盘上自动创建文件夹 or ファイル，请不要使用此应用。",
+            Language::Ko => "이 에디터는 모든 텍스트 파일을 Google 드라이브에 저장하고 편집하는 정책으로 제작되었습니다.\nGoogle 계정으로 로그인하면 '내 드라이브' 아래에 다음 폴더 구조가 자동으로 생성됩니다:\n내 드라이브/ApplicationSupport/LeafData/NO_CATEGORY\n새로 생성된 텍스트 파일은 '내 드라이브/ApplicationSupport/LeafData/NO_CATEGORY'에 저장됩니다.\n'NO_CATEGORY'는 기본 카테고리이며, 카테고리는 자유롭게 추가할 수 있습니다。\n\nGoogle 드라이브에 폴더나 ファイルが自動作成されたくない方は使用しないでください。",
             Language::Es => "Este editor está diseñado con la política de almacenar y editar todos los archivos de texto en Google Drive.\nAl iniciar sesión con su cuenta de Google, se creará automáticamente la siguiente estructura de carpetas en su \"Mi unidad\":\nMi unidad/ApplicationSupport/LeafData/NO_CATEGORY\nLos nuevos archivos de texto se guardarán en \"NO_CATEGORY\".\n\"NO_CATEGORY\" es la categoría predeterminada y puede agregar más categorías libremente.\n\nNo utilice esta aplicación si no desea que se creen carpetas o archivos automáticamente en su Google Drive.",
-            Language::De => "Dieser Editor wurde mit dem Ziel entwickelt, alle Textdateien auf Google Drive zu speichern und zu bearbeiten.\nWenn Sie sich mit Ihrem Google-Konto anmelden, wird unter \"Mein Ablage\" automatisch die folgende Ordnerstruktur erstellt:\nMein Ablage/ApplicationSupport/LeafData/NO_CATEGORY\nNeu erstellte Textdateien werden in \"NO_CATEGORY\" gespeichert.\n\"NO_CATEGORY\" ist die Standardkategorie, und Sie können frei weitere Kategorien hinzufügen.\n\nBitte verwenden Sie diese Anwendung nicht, wenn Sie nicht möchten, dass automatisch Ordner oder Dateien auf Ihrem Google Drive erstellt werden.",
+            Language::De => "Dieser Editor wurde mit dem Ziel entwickelt, alle Textdateien auf Google Drive zu speichern und zu bearbeiten.\nWenn Sie sich con Ihrem Google-Konto anmelden, wird unter \"Mein Ablage\" automatisch die folgende Ordnerstruktur erstellt:\nMein Ablage/ApplicationSupport/LeafData/NO_CATEGORY\nNeu erstellte Textdateien werden in \"NO_CATEGORY\" gespeichert.\n\"NO_CATEGORY\" ist die Standardkategorie, und Sie können frei weitere Kategorien hinzufügen.\n\nBitte verwenden Sie diese Anwendung nicht, wenn Sie nicht möchten, dass automatisch Ordner oder Dateien auf Ihrem Google Drive erstellt werden.",
             Language::Fr => "Cet éditeur est conçu avec la politique de stocker et de modifier tous les fichiers texte sur Google Drive.\nLorsque vous vous connectez with votre compte Google, la structure de dossiers suivante sera automatiquement créée sous votre \"Mon Drive\" :\nMon Drive/ApplicationSupport/LeafData/NO_CATEGORY\nLes fichiers texte nouvellement créés seront enregistrés dans \"NO_CATEGORY\".\n\"NO_CATEGORY\" est la catégorie par défaut, et vous pouvez librement ajouter d'autres catégories.\n\nVeuillez ne pas utiliser cette application si vous ne souhaitez pas que des dossiers ou des fichiers soient créés automatiquement sur votre Google Drive.",
-            Language::It => "Questo editor è progettato con la politica di archiviare e modificare tutti i file di testo su Google Drive.\nQuando accedi con il tuo account Google, verrà creata automaticamente la seguente struttura di cartelle nel tuo \"Il mio Drive\":\nIl mio Drive/ApplicationSupport/LeafData/NO_CATEGORY\nI file di testo appena creati verranno salvati in \"NO_CATEGORY\".\n\"NO_CATEGORY\" è la categoria predefinita e puoi aggiungere liberamente altre categorie.\n\nSi prega di non utilizzare questa applicazione se non si desidera che cartelle o file vengano creati automaticamente sul proprio Google Drive.",
-            Language::Nl => "Deze editor is ontworpen met het beleid om alle tekstbestanden op Google Drive op te slaan en te bewerken.\nWanneer u inlogt met uw Google-account, wordt de volgende mappenstructuur automatisch aangemaakt onder uw \"Mijn Drive\":\nMijn Drive/ApplicationSupport/LeafData/NO_CATEGORY\nNieuw gemaakte tekstbestanden worden opgeslagen in \"NO_CATEGORY\".\n\"NO_CATEGORY\" is de standaardcategorie en u kunt vrij meer categorieën toevoegen.\n\nGebruik deze applicatie niet als u niet wilt dat er automatisch mappen of bestanden op uw Google Drive worden aangemaakt.",
-            _ => "This editor is designed with the policy of storing and editing all text files on Google Drive.\nWhen you log in with your Google account, the following folder structure will be automatically created under your \"My Drive\":\nMy Drive/ApplicationSupport/LeafData/NO_CATEGORY\nNewly created text files will be saved in \"NO_CATEGORY\".\n\"NO_CATEGORY\" is the default category, and you can freely add more categories.\n\nPlease do not use this application if you do not want folders or files to be automatically created on your Google Drive.",
+            Language::It => "Questo editor è progettato con la politica di archiviare e modificare tutti i file di testo su Google Drive.\nQuando accedi con il tuo account Google, verrà creata automaticamente la seguente struttura di cartelle nel tuo \"Il mio Drive\":\nIl mio Drive/ApplicationSupport/LeafData/NO_CATEGORY\nI file di testo appena creati verranno salvati in \"NO_CATEGORY\".\n\"NO_CATEGORY\" est la catégorie par défaut, et vous pouvez librement aggiungere altre conegorie.\n\nSi prega di non utilizzare questa applicazione si non si desidera que cartelle o file vengano creati automaticamente sul proprio Google Drive.",
+            _ => "An editor built for focus, designed to live entirely on your Google Drive.\n\n- <span class=\"text-base font-bold text-white\">Vim by Default</span>: Native Vim keybindings for a professional, keyboard-driven experience.\n- <span class=\"text-base font-bold text-white\">Content-First Management</span>: No more naming files. The first three lines identify your thoughts.\n- <span class=\"text-base font-bold text-white\">Rich Highlighting & Preview</span>: Support for major programming languages and instant Markdown preview.\n- <span class=\"text-base font-bold text-white\">Category Organization</span>: Organize your notes and code into custom folders (categories).\n- <span class=\"text-base font-bold text-white\">Reliable Auto-Save</span>: Once saved, your work is continuously synchronized to Google Drive.\n\nLogging in will create a dedicated workspace under My Drive/ApplicationSupport/LeafData.\nPlease do not use this app if you prefer not to have folders created automatically.",
         }.to_string(),
         "synchronizing" => match lang {
             Language::Ja => "同期中...",
@@ -93,7 +96,7 @@ pub fn t(key: &str, lang: Language) -> String {
         "category_not_found_title" => match lang {
             Language::Ja => "カテゴリが見つかりません",
             Language::Zh => "找不到类别",
-            Language::Ko => "카테고리를 찾을 수 없습니다",
+            Language::Ko => "카테고りを 찾을 수 없습니다",
             Language::Es => "Categoría no encontrada",
             Language::De => "Kategorie nicht gefunden",
             Language::Fr => "Catégorie non trouvée",
@@ -104,7 +107,7 @@ pub fn t(key: &str, lang: Language) -> String {
         "category_not_found_fallback" => match lang {
             Language::Ja => "指定されたカテゴリのディレクトリがGoogleドライブに見つかりません。NO_CATEGORYへ保存します。",
             Language::Zh => "在 Google 云端硬盘上找不到指定的类别目录。将保存到 NO_CATEGORY。",
-            Language::Ko => "Google 드라이브에서 지정된 카테고리 디렉토리를 찾을 수 없습니다. NO_CATEGORY에 저장합니다.",
+            Language::Ko => "Google 드라이브에서 지정된 카테고리 디렉토리를 찾을 수 없습니다. NO_CATEGORY에 저장합니다。",
             Language::Es => "No se encuentra el directorio de la categoría especificada en Google Drive. Se guardará en NO_CATEGORY.",
             Language::De => "Das angegebene Kategorieverzeichnis wurde auf Google Drive nicht gefunden. Es wird unter NO_CATEGORY gespeichert.",
             Language::Fr => "Le répertoire de la catégorie spécifiée est introuvable sur Google Drive. Enregistrement dans NO_CATEGORY.",
@@ -139,7 +142,7 @@ pub fn t(key: &str, lang: Language) -> String {
         "conflict_message" => match lang {
             Language::Ja => "Googleドライブ上により新しいバージョンが見つかりました。実行するアクションを選択してください。",
             Language::Zh => "Google 云端硬盘上发现了更新版本。请选择一个操作。",
-            Language::Ko => "Google 드라이브에서 최신 버전이 발견되었습니다. 작업을 선택하십시오.",
+            Language::Ko => "Google 드라이브에서 최신 버전이 발견되었습니다. 작업을 선택하십시오。",
             Language::Es => "Se encontró una versión más reciente en Google Drive. Seleccione una acción.",
             Language::De => "Auf Google Drive wurde eine neuere Version gefunden. Wählen Sie eine Aktion aus.",
             Language::Fr => "Une version plus récente a été trouvée sur Google Drive. Sélectionnez une action.",
@@ -150,10 +153,10 @@ pub fn t(key: &str, lang: Language) -> String {
         "missing_file_message" => match lang {
             Language::Ja => "Googleドライブ上にファイルが見つかりませんでした。アクションを選択してください。",
             Language::Zh => "Google 云端硬盘上未找到该文件。请选择一个操作。",
-            Language::Ko => "Google 드라이브에서 파일을 찾을 수 없습니다. 작업을 선택하십시오.",
+            Language::Ko => "Google 드라이브에서 파일을 찾을 수 없습니다. 작업을 선택하십시오。",
             Language::Es => "No se encontró el archivo en Google Drive. Seleccione una acción.",
             Language::De => "Die Datei wurde auf Google Drive nicht gefunden. Wählen Sie eine Aktion aus.",
-            Language::Fr => "Le fichier n'a pas été trouvé sur Google Drive. Sélectionnez une action.",
+            Language::Fr => "Le fichier n'a pas été trouvé sur Google Drive. Sélectionnez una action.",
             Language::It => "Il file non è stato trovato su Google Drive. Seleziona un'azione.",
             Language::Nl => "Bestand niet gevonden op Google Drive. Selecteer een actie.",
             _ => "File was not found on Google Drive. Select an action.",
@@ -240,10 +243,10 @@ pub fn t(key: &str, lang: Language) -> String {
         "confirm_delete_category" => match lang {
             Language::Ja => "カテゴリーを削除してよろしいですか？\nカテゴリー内のファイルは全てNO_CATEGORYに移動されます。",
             Language::Zh => "您確定要删除该类别吗？\n该类别中的所有文件都将移至 NO_CATEGORY。",
-            Language::Ko => "카테고리를 삭제하시겠습니까?\n카테고리 내의 모든 파일은 NO_CATEGORY로 이동됩니다.",
-            Language::Es => "¿Está seguro de que desea eliminar la categoría?\nTodos los archivos se moverán a NO_CATEGORY.",
+            Language::Ko => "카테고리를 삭제하시겠습니까？\n카테고리 내의 모든 파일은 NO_CATEGORY로 이동됩니다。",
+            Language::Es => "¿Está seguro de que desea eliminar la categoría?\nTodos los archivos se moverán a NO_CATEGORY。",
             Language::De => "Sind Sie sicher, dass Sie diese Kategorie löschen möchten?\nAlle Dateien werden nach NO_CATEGORY verschoben.",
-            Language::Fr => "Êtes-vous sûr de vouloir supprimer la catégorie ?\nTous les fichiers seront déplacés vers NO_CATEGORY.",
+            Language::Fr => "Êtes-vous sûr de vouloir supprimer la catégorie ?\nTous les fichiers seront déplacés vers NO_CATEGORY。",
             Language::It => "Sei sicuro di voler eliminare la categoria?\nTutti i file verranno spostati in NO_CATEGORY.",
             Language::Nl => "Weet u zeker dat u deze categorie wilt verwijderen?\nAlle bestanden worden verplaatst naar NO_CATEGORY.",
             _ => "Are you sure you want to delete this category?\nAll files in this category will be moved to NO_CATEGORY.",
@@ -251,7 +254,7 @@ pub fn t(key: &str, lang: Language) -> String {
         "confirm_delete_file" => match lang {
             Language::Ja => "削除してよろしいですか？\n",
             Language::Zh => "您確定要删除吗？\n",
-            Language::Ko => "정말 삭제하시겠습니까?\n",
+            Language::Ko => "정말 삭제하시겠습니까？\n",
             Language::Es => "¿Está seguro de que desea eliminarlo?\n",
             Language::De => "Sind Sie sicher, dass Sie dies löschen möchten?\n",
             Language::Fr => "Êtes-vous sûr de vouloir supprimer ?\n",
@@ -259,16 +262,64 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Weet u zeker dat u dit wilt verwijderen?\n",
             _ => "Are you sure you want to delete this?\n",
         }.to_string(),
+        "confirm_logout" => match lang {
+            Language::Ja => "ログアウトしますか？",
+            Language::Zh => "您确定要注销吗？",
+            Language::Ko => "로그아웃하시겠습니까?",
+            Language::Es => "¿Está seguro de que desea cerrar sesión?",
+            Language::De => "Möchten Sie sich wirklich abmelden?",
+            Language::Fr => "Voulez-vous vraiment vous déconnecter ?",
+            Language::It => "Sei sicuro di voler uscire?",
+            Language::Nl => "Weet u zeker dat u wilt uitloggen?",
+            _ => "Are you sure you want to logout?",
+        }.to_string(),
+        "filename_conflict_title" => match lang {
+            Language::Ja => "同名のファイルが存在します",
+            _ => "File already exists",
+        }.to_string(),
+        "filename_conflict_message" => match lang {
+            Language::Ja => "保存先のカテゴリーに同名のファイル（{}）が存在します。処理を選択してください。",
+            _ => "A file with the same name ({}) exists in this category. Please choose an action.",
+        }.to_string(),
+        "opt_overwrite" => match lang {
+            Language::Ja => "上書き保存",
+            _ => "Overwrite",
+        }.to_string(),
+        "opt_save_as_guid" => match lang {
+            Language::Ja => "別名で保存（GUIDファイル名）",
+            _ => "Save with different name (GUID)",
+        }.to_string(),
+        "opt_specify_name" => match lang {
+            Language::Ja => "新規ファイル名：",
+            _ => "New filename:",
+        }.to_string(),
+        "enter_new_filename" => match lang {
+            Language::Ja => "新しいファイル名を入力してください",
+            _ => "Enter new filename",
+        }.to_string(),
         "confirm_conversion" => match lang {
             Language::Ja => "ファイルをBOM付きUTF-8、改行コードLFに変換しますか？\n",
-            Language::Zh => "您要将文件转换为带 BOM 的 UTF-8 和 LF 换行符吗？\n",
-            Language::Ko => "파일을 BOM이 있는 UTF-8 및 LF 줄 바꿈으로 변환하시겠습니까?\n",
-            Language::Es => "¿Desea convertir el archivo a UTF-8 con BOM y saltos de línea LF?\n",
-            Language::De => "Möchten Sie die Datei in UTF-8 mit BOM und LF-Zeilenumbrüche konvertieren?\n",
-            Language::Fr => "Voulez-vous convertir le fichier en UTF-8 avec BOM et sauts de ligne LF ?\n",
-            Language::It => "Vuoi convertire il file in UTF-8 con BOM e interruzioni di riga LF?\n",
-            Language::Nl => "Wilt u het bestand converteren naar UTF-8 met BOM en LF-regelafbrekingen?\n",
             _ => "Do you want to convert the file to UTF-8 with BOM and LF line endings?\n",
+        }.to_string(),
+        "btn_convert" => match lang {
+            Language::Ja => "変換",
+            _ => "Convert",
+        }.to_string(),
+        "btn_no_conversion" => match lang {
+            Language::Ja => "無変換",
+            _ => "No conversion",
+        }.to_string(),
+        "local_file" => match lang {
+            Language::Ja => "ローカルファイル",
+            _ => "Local File",
+        }.to_string(),
+        "no_category" => match lang {
+            Language::Ja => "カテゴリーなし",
+            _ => "No Category",
+        }.to_string(),
+        "OTHERS" => match lang {
+            Language::Ja => "その他",
+            _ => "Others",
         }.to_string(),
         "delete" => match lang {
             Language::Ja => "削除",
@@ -284,7 +335,7 @@ pub fn t(key: &str, lang: Language) -> String {
         "enter_category_name_message" => match lang {
             Language::Ja => "新規カテゴリー名を入力してください。",
             Language::Zh => "请输入新类别名称。",
-            Language::Ko => "새 카테고리 이름을 입력하십시오.",
+            Language::Ko => "새 카테고리 이름을 입력하십시오。",
             Language::Es => "Ingrese el nombre de la nueva categoría.",
             Language::De => "Bitte geben Sie einen Namen für die neue Kategorie ein.",
             Language::Fr => "Veuillez saisir le nom de la nouvelle catégorie.",
@@ -311,7 +362,7 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::De => "Lokale Datei importieren",
             Language::Fr => "Importer un fichier local",
             Language::It => "Importa file locale",
-            Language::Nl => "Lokaal bestand importeren",
+            Language::Nl => "Lokaal bestand importieren",
             _ => "Import local file",
         }.to_string(),
         "refresh_categories" => match lang {
@@ -383,13 +434,25 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Toggle Vim Mode",
         }.to_string(),
 
+        "logout" => match lang {
+            Language::Ja => "ログアウト",
+            Language::Zh => "注销",
+            Language::Ko => "ログ아웃",
+            Language::Es => "Cerrar sesión",
+            Language::De => "Abmelden",
+            Language::Fr => "Déconnexion",
+            Language::It => "Disconnetti",
+            Language::Nl => "Uitloggen",
+            _ => "Logout",
+        }.to_string(),
+
         // --- Status Bar ---
         "network_connected" => match lang {
             Language::Ja => "ネットワーク接続中",
             Language::Zh => "网络已连接",
             Language::Ko => "네트워크 연결됨",
             Language::Es => "Red conectada",
-            Language::De => "Netzwerk verbunden",
+            Language::De => "Netズwerk verbunden",
             Language::Fr => "Réseau connecté",
             Language::It => "Rete connessa",
             Language::Nl => "Netwerk verbonden",
@@ -415,9 +478,8 @@ pub fn t(key: &str, lang: Language) -> String {
         }.to_string(),
 
         "help_shortcuts" => match lang {
-            Language::Ja => "# ショートカット一覧\n\n| キー | 機能 |\n| --- | --- |\n| `Opt/Alt + s` | 強制保存 |\n| `Opt/Alt + n` | 新規シート作成 |\n| `Opt/Alt + o` | ファイルを開く |\n| `Opt/Alt + i` | ローカルファイル取り込み |\n| `Opt/Alt + m` | Markdownプレビュー表示 |\n| `Opt/Alt + =` | フォントサイズを大きくする |\n| `Opt/Alt + -` | フォントサイズを小さくする |\n| `Esc` | ダイアログ/プレビューを閉じる |",
-            Language::Zh => "# 快捷键列表\n\n| 按键 | 功能 |\n| --- | --- |\n| `Opt/Alt + s` | 强制保存 |\n| `Opt/Alt + n` | 新建工作表 |\n| `Opt/Alt + o` | 打开文件 |\n| `Opt/Alt + i` | 导入本地文件 |\n| `Opt/Alt + m` | Markdown 预览 |\n| `Opt/Alt + =` | 增大字体 |\n| `Opt/Alt + -` | 减小字体 |\n| `Esc` | 关闭对话框/预览 |",
-            _ => "# Keyboard Shortcuts\n\n| Key | Action |\n| --- | --- |\n| `Opt/Alt + s` | Forced Save |\n| `Opt/Alt + n` | New Sheet |\n| `Opt/Alt + o` | Open File Dialog |\n| `Opt/Alt + i` | Import Local File |\n| `Opt/Alt + m` | Toggle Markdown Preview |\n| `Opt/Alt + =` | Increase Font Size |\n| `Opt/Alt + -` | Decrease Font Size |\n| `Esc` | Close Dialog / Preview |",
+            Language::Ja => "# ショートカット一覧\n\n| キー | 機能 |\n| --- | --- |\n| `Opt/Alt + s` | 強制保存（新規シートはGoogleドライブへ新規保存） |\n| `Opt/Alt + n` | 新規シート作成 |\n| `Opt/Alt + f` | 検索ダイアログ表示 |\n| `Opt/Alt + o` | ローカルファイルを開く |\n| `Opt/Alt + m` | 編集シート選択ダイアログ |\n| `Opt/Alt + p` | Markdownプレビュー表示 |\n| `Opt/Alt + h` | このヘルプを表示 |\n| `Opt/Alt + =` | フォントサイズを大きくする |\n| `Opt/Alt + -` | フォントサイズを小さくする |\n| `Esc` | ダイアログ/プレビュー/ドロップダウンを閉じる |",
+            _ => "# Keyboard Shortcuts\n\n| Key | Action |\n| --- | --- |\n| `Opt/Alt + s` | Forced Save (New sheets are saved to Drive) |\n| `Opt/Alt + n` | New Sheet |\n| `Opt/Alt + f` | Show Search Dialog |\n| `Opt/Alt + o` | Open Local File |\n| `Opt/Alt + m` | Sheet Selection Dialog |\n| `Opt/Alt + p` | Toggle Markdown Preview |\n| `Opt/Alt + h` | Show This Help |\n| `Opt/Alt + =` | Increase Font Size |\n| `Opt/Alt + -` | Decrease Font Size |\n| `Esc` | Close Dialog / Preview / Dropdown |",
         }.to_string(),
 
         _ => key.to_string(),
