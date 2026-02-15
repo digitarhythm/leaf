@@ -6,9 +6,15 @@
   }
 }
 
-/* 未保存状態の行番号の色 */
+/* 未保存状態の行番号の色（新規シート） */
 .leaf-unsaved-gutter .ace_gutter-cell {
   color: #fb923c !important; /* orange-400 */
+  transition: color 0.3s ease;
+}
+
+/* ローカルファイルの行番号の色 */
+.leaf-local-gutter .ace_gutter-cell {
+  color: #22c55e !important; /* green-500 */
   transition: color 0.3s ease;
 }
 

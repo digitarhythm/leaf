@@ -141,9 +141,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let id_clone = id.clone();
                             let signal_inner = signal_for_list.clone();
                             download_futures.push(async move {
-                                let content = if let Ok(c_val) = download_file(&id_clone, Some("0-1024"), Some(signal_inner)).await {
-                                    c_val.as_string().unwrap_or_default()
-                                } else { "".to_string() };
+                                let content = match download_file(&id_clone, Some("0-1024"), Some(signal_inner)).await {
+                                    Ok(c_val) => c_val.as_string().unwrap_or_default(),
+                                    Err(_) => "".to_string(),
+                                };
                                 FilePreview { id, name, content }
                             });
                         }
@@ -165,11 +166,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
+    // カテゴリのソート (OTHERSを最上部へ)
+    let sorted_categories = {
+        let mut cats = props.categories.clone();
+        cats.sort_by(|a, b| {
+            if a.name == "OTHERS" { std::cmp::Ordering::Less }
+            else if b.name == "OTHERS" { std::cmp::Ordering::Greater }
+            else { a.name.cmp(&b.name) }
+        });
+        cats
+    };
+
     {
-        let props_cats = props.categories.clone();
+        let sorted_cats = sorted_categories.clone();
         let load_files = load_files.clone();
         let selected_cat_idx = selected_cat_idx.clone();
-        use_effect_with(props_cats.clone(), move |cats: &Vec<JSCategory>| {
+        use_effect_with(sorted_cats.clone(), move |cats: &Vec<JSCategory>| {
             if !cats.is_empty() {
                 let last_cat_id = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
@@ -178,7 +190,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let target_idx = if let Some(id) = last_cat_id {
                     cats.iter().position(|c| c.id == id).unwrap_or(0)
                 } else {
-                    cats.iter().position(|c| c.name == "NO_CATEGORY").unwrap_or(0)
+                    cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0)
                 };
 
                 selected_cat_idx.set(target_idx);
@@ -228,7 +240,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let focused_area = focused_area.clone();
         let selected_cat_idx = selected_cat_idx.clone();
         let selected_file_idx = selected_file_idx.clone();
-        let categories = props.categories.clone();
+        let categories = sorted_categories.clone();
         let files_c = files.clone();
         let load_files = load_files.clone();
         let on_ok = on_ok_click.clone();
@@ -405,17 +417,18 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                 <div class="flex-1 flex overflow-hidden">
                     <div class="w-[30%] border-r border-gray-700 flex flex-col overflow-y-auto p-2 space-y-1 bg-gray-900/30">
-                        { for props.categories.iter().enumerate().map(|(idx, cat)| {
+                        { for sorted_categories.iter().enumerate().map(|(idx, cat)| {
                             let is_selected = *selected_cat_idx == idx;
                             let area_active = *focused_area == FocusedArea::Categories && *is_root_focused;
                             let is_focused = is_selected && area_active;
                             
                             let id_for_change = cat.id.clone();
                             let name = cat.name.clone();
+                            let display_name = if name == "OTHERS" { i18n::t("OTHERS", lang) } else { name.clone() };
                             let load_files = load_files.clone();
                             let selected_cat_idx = selected_cat_idx.clone();
                             let on_delete = props.on_delete_category.clone();
-                            let is_no_cat = cat.name == "NO_CATEGORY";
+                            let is_no_cat = cat.name == "OTHERS";
 
                             html! {
                                 <div class={classes!(
@@ -431,7 +444,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         onclick={move |_| { selected_cat_idx.set(idx); load_files.emit((id_for_change.clone(), name.clone(), false)); }}
                                         class="flex-1 text-left px-4 truncate h-full flex items-center outline-none"
                                     >
-                                        <span class="truncate">{ &cat.name }</span>
+                                        <span class="truncate">{ display_name }</span>
                                     </button>
                                     if !is_no_cat {
                                         <button
@@ -509,11 +522,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                             </button>
                                             if is_drop_open {
                                                 <div ref={dropdown_ref.clone()} class="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-xl z-50 overflow-hidden py-1">
-                                                    { for props.categories.iter().map(|c| {
+                                                    { for sorted_categories.iter().map(|c| {
                                                         let id = c.id.clone();
                                                         let fid = file_id.clone();
                                                         let on_m = on_move.clone();
                                                         let is_curr = id == current_cid;
+                                                        let display_name = if c.name == "OTHERS" { i18n::t("OTHERS", lang) } else { c.name.clone() };
                                                         html! {
                                                             <button 
                                                                 onclick={if is_curr { 
@@ -533,7 +547,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                                     else { "text-gray-300 hover:bg-blue-600 hover:text-white" }
                                                                 )}
                                                             >
-                                                                { &c.name }
+                                                                { display_name }
                                                             </button>
                                                         }
                                                     }) }

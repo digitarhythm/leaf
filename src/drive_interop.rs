@@ -30,6 +30,9 @@ extern "C" {
     pub async fn delete_file(file_id: &str) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch)]
+    pub async fn find_file_by_name(filename: &str, folder_id: &str) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(catch)]
     pub async fn get_file_metadata(file_id: &str) -> Result<JsValue, JsValue>;
 
     pub fn parse_date(date_str: &str) -> f64;
