@@ -10,8 +10,13 @@ const FILE_MIME_TYPE = 'text/plain';
  * 認証付きフェッチ。401エラー時に自動でリフレッシュしてリトライする。
  */
 async function authenticatedFetch(url, options = {}, retry = true) {
-    const token = get_access_token();
-    if (!token) throw new Error("No access token available");
+    const token = await get_access_token();
+    if (!token) {
+        console.error("[Drive] No token available after checking expiry.");
+        // ここで即座にエラーにするのではなく、一度だけ手動リフレッシュを試みるか、
+        // あるいは呼び出し元にエラーを返してログイン画面へ戻す
+        throw new Error("UNAUTHORIZED");
+    }
 
     const headers = {
         'Authorization': `Bearer ${token}`,
