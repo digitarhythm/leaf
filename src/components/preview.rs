@@ -66,6 +66,54 @@ pub fn preview(props: &PreviewProps) -> Html {
         });
     }
 
+    // キーボード操作
+    {
+        let node_ref = node_ref.clone();
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
+            opts.passive = false;
+            let listener = gloo::events::EventListener::new_with_options(&window, "keydown", opts, move |e| {
+                let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
+                let key = ke.key();
+                
+                // ナビゲーションキーの判定
+                let is_up = key == "PageUp" || key == "RollUp";
+                let is_down = key == "PageDown" || key == "RollDown";
+                let is_arrow_up = key == "ArrowUp";
+                let is_arrow_down = key == "ArrowDown";
+                let is_space = key == " ";
+                let is_home = key == "Home";
+                let is_end = key == "End";
+
+                if is_up || is_down || is_arrow_up || is_arrow_down || is_space || is_home || is_end {
+                    if let Some(el) = node_ref.cast::<web_sys::Element>() {
+                        e.prevent_default();
+                        e.stop_immediate_propagation();
+
+                        let client_height = el.client_height();
+                        let current_scroll = el.scroll_top();
+                        
+                        if is_up {
+                            el.set_scroll_top(current_scroll - client_height / 2);
+                        } else if is_down || is_space {
+                            el.set_scroll_top(current_scroll + client_height / 2);
+                        } else if is_arrow_up {
+                            el.set_scroll_top(current_scroll - 40);
+                        } else if is_arrow_down {
+                            el.set_scroll_top(current_scroll + 40);
+                        } else if is_home {
+                            el.set_scroll_top(0);
+                        } else if is_end {
+                            el.set_scroll_top(el.scroll_height());
+                        }
+                    }
+                }
+            });
+            move || { drop(listener); }
+        });
+    }
+
     let rendered_html = render_markdown(&props.content);
 
     html! {
