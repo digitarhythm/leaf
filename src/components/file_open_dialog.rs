@@ -3,17 +3,44 @@ use crate::drive_interop::{list_files, download_file, move_file, delete_file};
 use crate::db_interop::JSCategory;
 use crate::i18n::{self, Language};
 use crate::components::dialog::{InputDialog, ConfirmDialog};
+use crate::components::preview::Preview;
 use wasm_bindgen::{JsValue, JsCast};
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{KeyboardEvent, AbortController, HtmlElement};
 use gloo::timers::callback::Timeout;
-use gloo::events::EventListener;
+use gloo::events::{EventListener, EventListenerOptions};
 
 #[derive(Clone, PartialEq)]
 pub struct FilePreview {
     pub id: String,
     pub name: String,
     pub content: String,
+}
+
+fn get_highlight_lang(filename: &str) -> Option<&str> {
+    let ext = filename.split('.').last()?.to_lowercase();
+    match ext.as_str() {
+        "js" => Some("javascript"),
+        "ts" => Some("typescript"),
+        "coffee" => Some("coffee"),
+        "rs" => Some("rust"),
+        "md" | "markdown" => Some("markdown"),
+        "html" => Some("html"),
+        "css" => Some("css"),
+        "json" => Some("json"),
+        "py" => Some("python"),
+        "sh" | "bash" | "zsh" => Some("sh"),
+        "pl" => Some("perl"),
+        "php" => Some("php"),
+        "rb" => Some("ruby"),
+        "cs" => Some("csharp"),
+        "cpp" | "c" | "h" | "m" => Some("cpp"),
+        "toml" => Some("toml"),
+        "yaml" | "yml" => Some("yaml"),
+        "xml" => Some("xml"),
+        "sql" => Some("sql"),
+        _ => None,
+    }
 }
 
 #[derive(Properties, PartialEq)]
@@ -26,6 +53,8 @@ pub struct FileOpenDialogProps {
     pub on_delete_category: Callback<String>,
     #[prop_or_default]
     pub on_start_processing: Callback<()>,
+    #[prop_or_default]
+    pub on_preview_toggle: Callback<bool>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -51,9 +80,60 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let current_category_id = use_state(|| "".to_string());
     let current_category_name = use_state(|| "".to_string());
     let active_dropdown_file_id = use_state(|| None::<String>); // 上に移動
+    let preview_data = use_state(|| None::<FilePreview>);
     let abort_controller = use_state(|| None::<AbortController>);
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
+
+    // プレビュー状態を親に通知
+    {
+        let p_data = preview_data.clone();
+        let on_toggle = props.on_preview_toggle.clone();
+        use_effect_with((*p_data).clone(), move |preview| {
+            on_toggle.emit(preview.is_some());
+            || ()
+        });
+    }
+
+    // プレビュー表示中のキーイベント制御（キャプチャフェーズでapp.rsのリスナーより先に捕まえる）
+    {
+        let p_data = preview_data.clone();
+        use_effect_with((*p_data).clone(), move |preview| {
+            if preview.is_none() { return Box::new(|| ()) as Box<dyn FnOnce()>; }
+            
+            let p_data = p_data.clone();
+            let window = web_sys::window().unwrap();
+            let mut opts = EventListenerOptions::run_in_capture_phase();
+            opts.passive = false;
+            
+            let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
+                let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
+                let key = ke.key();
+                if key == "Escape" || key == " " {
+                    e.prevent_default();
+                    e.stop_immediate_propagation();
+                    p_data.set(None);
+                } else if key == "ArrowUp" || key == "ArrowDown" {
+                    e.prevent_default();
+                    e.stop_immediate_propagation();
+                    
+                    // プレビューのスクロール要素（.markdown-body）を探してスクロールさせる
+                    let doc = web_sys::window().unwrap().document().unwrap();
+                    if let Ok(Some(el)) = doc.query_selector(".markdown-body") {
+                        let scroll_amount = 40;
+                        let current_scroll = el.scroll_top();
+                        if key == "ArrowUp" {
+                            el.set_scroll_top(current_scroll - scroll_amount);
+                        } else {
+                            el.set_scroll_top(current_scroll + scroll_amount);
+                        }
+                    }
+                }
+            });
+            
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
+    }
 
     // 外側クリックでドロップダウンを閉じる
     {
@@ -249,15 +329,52 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let dropdown_active = active_dropdown_file_id.clone();
         let is_creating_cat = is_creating_category.clone();
         let is_deleting_file = pending_delete_file.clone();
+        let preview_data = preview_data.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area;
+            // プレビュー表示中は全てのキー入力を無視（キャプチャフェーズで処理済み）
+            if preview_data.is_some() {
+                return;
+            }
+
             // サブダイアログ表示中、またはフェードアウト中、ドロップダウン表示中は入力を無視
             if *is_fading_out || dropdown_active.is_some() || *is_creating_cat || is_deleting_file.is_some() { 
                 return; 
             }
             
             match e.key().as_str() {
+                " " => {
+                    e.prevent_default();
+                    if current_focus == FocusedArea::Files && !files_c.is_empty() {
+                        let file = &files_c[*selected_file_idx];
+                        let file_id = file.id.clone();
+                        let file_name = file.name.clone();
+                        let is_loading = loading_handle.clone();
+                        let p_data = preview_data.clone();
+
+                        is_loading.set(true);
+                        spawn_local(async move {
+                            if let Ok(js_val) = download_file(&file_id, None, None).await {
+                                if let Some(content) = js_val.as_string() {
+                                    let ext = file_name.split('.').last().unwrap_or("").to_lowercase();
+                                    let preview_content = if ext == "md" || ext == "markdown" {
+                                        content
+                                    } else {
+                                        let lang = get_highlight_lang(&file_name).unwrap_or("");
+                                        format!("```{}\n{}\n```", lang, content)
+                                    };
+                                    p_data.set(Some(FilePreview {
+                                        id: file_id,
+                                        name: file_name,
+                                        content: preview_content,
+                                    }));
+                                }
+                            }
+                            is_loading.set(false);
+                        });
+                    }
+                }
                 "Tab" => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Categories {
@@ -622,6 +739,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     message={i18n::t("confirm_delete_file", lang)} 
                     on_confirm={on_delete_file_confirm} 
                     on_cancel={let pending = pending_delete_file.clone(); move |_| pending.set(None)} 
+                />
+            }
+            if let Some(p) = (*preview_data).clone() {
+                <Preview 
+                    content={p.content} 
+                    on_close={let p_data = preview_data.clone(); Callback::from(move |_| p_data.set(None))} 
                 />
             }
         </div>

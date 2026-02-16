@@ -105,6 +105,7 @@ pub fn app() -> Html {
     let pending_import_data = use_state(|| None::<(String, String)>); // (filename, content)
     let is_logout_confirm_visible = use_state(|| false);
     let is_file_open_dialog_visible = use_state(|| false);
+    let is_dialog_preview_open = use_state(|| false);
     let is_preview_visible = use_state(|| false);
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
@@ -1187,9 +1188,10 @@ pub fn app() -> Html {
                 let is_imp_lock = is_import_lock.clone();
                 let oi_cb = on_import_cb.clone();
                 let is_drop_ev = is_category_dropdown_open.clone();
+                let is_dialog_prev = is_dialog_preview_open.clone();
                 
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some(), !(*ncq_esc).is_empty())), move |deps| {
-                    let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open), (has_del, has_conf, has_fall, has_imp, has_nc)) = *deps;
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_dialog_prev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some(), !(*ncq_esc).is_empty())), move |deps| {
+                    let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, dialog_prev), (has_del, has_conf, has_fall, has_imp, has_nc)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     
                     let window = web_sys::window().unwrap();
@@ -1271,6 +1273,8 @@ pub fn app() -> Html {
                             let is_target_body = target.as_ref().map(|t| t.tag_name().to_lowercase() == "body").unwrap_or(false);
 
                             if key == "Escape" {
+                                if dialog_prev { return; }
+
                                 e.stop_immediate_propagation();
                                 e.prevent_default();
                                 if drop_open { is_drop_c.set(false); }
@@ -1459,6 +1463,7 @@ pub fn app() -> Html {
                                 on_refresh={on_refresh_cats_cb.clone()} 
                                 on_delete_category={on_delete_category_cb}
                                 on_start_processing={let il = is_loading.clone(); let ifo = is_fading_out.clone(); let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); il.set(true); ifo.set(false); }} 
+                                on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))}
                             />
                         </div>
                     }
@@ -1540,7 +1545,26 @@ pub fn app() -> Html {
                         <ConfirmDialog 
                             title={i18n::t("logout", lang)} 
                             message={i18n::t("confirm_logout", lang)} 
-                            on_confirm={move |_| { crate::auth_interop::sign_out(); web_sys::window().unwrap().location().reload().unwrap(); }} 
+                            on_confirm={
+                                let ic = is_logout_confirm_visible.clone();
+                                let il = is_loading.clone();
+                                let lmk = loading_message_key.clone();
+                                let ifo = is_fading_out.clone();
+                                move |_| { 
+                                    ic.set(false); 
+                                    lmk.set("logging_out");
+                                    il.set(true);
+                                    ifo.set(false);
+                                    
+                                    spawn_local(async move {
+                                        crate::auth_interop::sign_out();
+                                        // ユーザーにログアウト中であることを示すために少し待つ
+                                        Timeout::new(800, move || {
+                                            web_sys::window().unwrap().location().reload().unwrap();
+                                        }).forget();
+                                    });
+                                }
+                            } 
                             on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} 
                         />
                     </div>
