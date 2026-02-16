@@ -37,7 +37,7 @@ export function is_webkit_or_safari() {
 export async function open_local_file() {
     try {
         const [handle] = await window.showOpenFilePicker({
-            types: [{ description: 'Text Files', accept: { 'text/*': ['.txt', '.md', '.js', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql'] } }],
+            types: [{ description: 'Text Files', accept: { 'text/*': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml'] } }],
             excludeAcceptAllOption: false,
             multiple: false
         });
@@ -312,6 +312,7 @@ export function set_editor_mode(filename) {
         "c": "c_cpp",
         "h": "c_cpp",
         "m": "c_cpp",
+        "java": "java",
         "toml": "toml",
         "yaml": "yaml",
         "yml": "yaml",
