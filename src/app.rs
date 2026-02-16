@@ -211,8 +211,6 @@ pub fn app() -> Html {
         let r_aid = active_id_ref.clone(); let r_s = sheets_ref.clone(); let s_state = sheets.clone();
         let r_ncid = no_category_id_ref.clone(); let nc_h = network_connected.clone();
         let ild_h = is_loading.clone();
-        let ifo_h = is_fading_out.clone();
-        let lmk_h = loading_message_key.clone();
         let lock_h = is_import_lock.clone();
         let lock_fade_h = is_import_fading_out.clone();
         let ris_h = is_saving_ref.clone(); let is_saving_h = is_saving.clone();
@@ -224,19 +222,12 @@ pub fn app() -> Html {
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
             let r_ncid = r_ncid.clone(); let nc_h = nc_h.clone();
             let ild_h = ild_h.clone();
-            let ifo_h = ifo_h.clone();
-            let lmk_h = lmk_h.clone();
             let lock_h = lock_h.clone();
             let lock_fade_h = lock_fade_h.clone();
             let ris_h = ris_h.clone(); let is_saving_h = is_saving_h.clone();
             let fq_h = fq_h.clone(); let ncq_h = ncq_h.clone();
             let os_retry_h = os_self.clone();
             
-            if is_manual {
-                ifo_h.set(false); // リセット
-                ild_h.set(true);
-            }
-
             Timeout::new(0, move || {
                 let aid_opt = (*r_aid.borrow()).clone();
                 let rs_cb = r_s.clone();
@@ -308,16 +299,10 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        if is_manual { 
-                            lmk_h.set("saving");
-                            ifo_h.set(false);
-                            ild_h.set(true); 
-                        } 
-                        
                         if !is_online {
                             // IndexedDBへの一時保存時は is_saving をセットしない（サイレント保存）
                             sheet.temp_content = Some(cur_c.clone()); sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
-                            let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: sheet.content.clone(), is_modified: false, drive_id: sheet.drive_id.clone(), temp_content: sheet.temp_content.clone(), temp_timestamp: sheet.temp_timestamp, last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone() };
+                            let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: cur_c.clone(), is_modified: false, drive_id: sheet.drive_id.clone(), temp_content: sheet.temp_content.clone(), temp_timestamp: sheet.temp_timestamp, last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone() };
                             let ild_inner = ild_h.clone();
                             let lock_inner = lock_h.clone();
                             let lock_fade_inner = lock_fade_h.clone();
@@ -457,7 +442,17 @@ pub fn app() -> Html {
                              let js = JSSheet { id: s_clone.id.clone(), guid: s_clone.guid.clone(), category: s_clone.category.clone(), title: s_clone.title.clone(), content: s_clone.content.clone(), is_modified: false, drive_id: n_did.clone(), temp_content: None, temp_timestamp: None, last_sync_timestamp: stime, tab_color: s_clone.tab_color.clone() };
                              let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                              let mut u_s = (*rs_async.borrow()).clone();
-                             if let Some(si) = u_s.iter_mut().find(|x| x.id == s_clone.id) { si.drive_id = n_did; si.content = s_clone.content.clone(); si.is_modified = false; si.temp_content = None; si.temp_timestamp = None; si.last_sync_timestamp = stime; }
+                             if let Some(si) = u_s.iter_mut().find(|x| x.id == s_clone.id) { 
+                                 si.drive_id = n_did; 
+                                 // 保存中に編集された可能性を考慮し、contentは上書きしない
+                                 // 保存開始時の内容(s_clone.content)と現在の内容が一致する場合のみ is_modified を false にする
+                                 if si.content == s_clone.content {
+                                     si.is_modified = false; 
+                                 }
+                                 si.temp_content = None; 
+                                 si.temp_timestamp = None; 
+                                 si.last_sync_timestamp = stime; 
+                             }
                              *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
                              set_gutter_status("none"); 
                              *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
@@ -485,11 +480,8 @@ pub fn app() -> Html {
     let on_name_conflict_cfm = {
         let ncq = name_conflict_queue.clone(); let s_state = sheets.clone();
         let rs = sheets_ref.clone(); let os = on_save_cb.clone();
-        let il_handle = is_loading.clone();
         Callback::from(move |(sel, input_name): (usize, String)| {
             let mut q = (*ncq).clone(); if q.is_empty() { return; }
-            let il = il_handle.clone();
-            il.set(true); 
             let conflict = q.remove(0); let mut us = (*s_state).clone();
             if let Some(s) = us.iter_mut().find(|x| x.id == conflict.sheet_id) {
                 match sel {
@@ -1492,8 +1484,7 @@ pub fn app() -> Html {
                     let message = if conflict.is_missing_on_drive { i18n::t("missing_file_message", lang).replace("{}", &conflict.title) } else { i18n::t("conflict_message", lang).replace("{}", &conflict.title) };
                     let options = if conflict.is_missing_on_drive { vec![DialogOption { id: 1, label: i18n::t("opt_reupload", lang) }, DialogOption { id: 3, label: i18n::t("opt_delete_local", lang) }] } else { vec![DialogOption { id: 0, label: i18n::t("opt_load_drive", lang) }, DialogOption { id: 1, label: i18n::t("opt_overwrite_drive", lang) }, DialogOption { id: 2, label: i18n::t("opt_save_new", lang) }] };
                     let cq = conflict_queue.clone(); let on_cfm = on_conf_cfm.clone();
-                    let lmk = loading_message_key.clone(); let il = is_loading.clone(); let ifo = is_fading_out.clone();
-                    Some(html! { <CustomDialog title={title} message={message} options={options} on_confirm={on_cfm} on_cancel={let cq = cq.clone(); Some(Callback::from(move |_| { cq.set(Vec::new()); }))} on_start_processing={move |_| { lmk.set("saving"); il.set(true); ifo.set(false); }} /> })
+                    Some(html! { <CustomDialog title={title} message={message} options={options} on_confirm={on_cfm} on_cancel={let cq = cq.clone(); Some(Callback::from(move |_| { cq.set(Vec::new()); }))} /> })
                 } else { None } { <div class="pointer-events-auto">{ conf_diag }</div> }
 
                 if let Some(fb_alert) = if let Some(_) = fallback_queue.first() {

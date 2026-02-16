@@ -2,6 +2,7 @@ description = "git commit & git push origin main"
 prompt = """
 * "{{args}}"が"minor"だった場合は、package.jsonのバージョンを「0.1」上げ、3つ目の数値を「0」にする（例：元が0.1.2だった場合は、0.2.0）
 * "{{args}}"が"patch"だった場合は、package.jsonのバージョンを「0.0.1」上げる
+* "{{args}}"が空だった場合は、package.jsonのバージョンはそのままを維持する
 * このコマンドが実行された時点までの作業をコミットする
 * バージョン番号のtagを付ける
 * 作業ブランチがmainでなかった場合はmainにmergeする
