@@ -82,6 +82,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Synchroniseren...",
             _ => "Synchronizing...",
         }.to_string(),
+        "logging_out" => match lang {
+            Language::Ja => "ログアウト中...",
+            Language::Zh => "正在注销...",
+            Language::Ko => "로그아웃 중...",
+            Language::Es => "Cerrando sesión...",
+            Language::De => "Abmelden...",
+            Language::Fr => "Déconnexion en cours...",
+            Language::It => "Disconnessione in corso...",
+            Language::Nl => "Uitloggen...",
+            _ => "Logging out...",
+        }.to_string(),
         "saving" => match lang {
             Language::Ja => "保存中...",
             Language::Zh => "正在保存...",

@@ -1,13 +1,5 @@
 description = "Application deploy prompt for Leaf."
 prompt = """
-* 機能追加や大きな機能修正を行った場合は、package.jsonのバージョンを「0.1.0」上げる
-* バグ修正や細かい修正を行った場合は、package.jsonのバージョンを「0.0.1」上げる
-* このコマンドが実行された時点までの作業をコミットする
-* バージョン番号のtagを付ける
-* 作業ブランチがmainでなかった場合はmainにmergeする
-* mainにmergeした後に、GitHubにmainブランチをpushする
-* 新しいバージョンで付けたtagもpushする
-
 # アプリをデプロイする
 * `trunk build --release --public-url /leaf/` を実行して本番用アセットを生成する
 * サーバー「kow@192.168.200.2:22001」の「/home/kow/work_area/usr/develop/leaf」にミラーリングする
