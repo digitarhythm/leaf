@@ -616,6 +616,22 @@ pub fn app() -> Html {
         })
     };
 
+    let on_rename_category_cb = {
+        let il = is_loading.clone(); let ifo = is_fading_out.clone();
+        let lmk = loading_message_key.clone(); let on_refresh = on_refresh_cats_cb.clone();
+        Callback::from(move |(id, new_name): (String, String)| {
+            let il_inner = il.clone(); let ifo_inner = ifo.clone();
+            let lmk_inner = lmk.clone(); let on_refresh_inner = on_refresh.clone();
+            lmk_inner.set("synchronizing"); il_inner.set(true); ifo_inner.set(false);
+            spawn_local(async move {
+                if let Ok(_) = crate::drive_interop::rename_folder(&id, &new_name).await {
+                    on_refresh_inner.emit(());
+                }
+                ifo_inner.set(true); Timeout::new(300, move || { il_inner.set(false); }).forget();
+            });
+        })
+    };
+
     let on_conf_cfm = {
         let cq = conflict_queue.clone(); let ss = sheets.clone(); let il = is_loading.clone();
         let ifo = is_fading_out.clone(); let ncid = no_category_folder_id.clone();
@@ -1452,8 +1468,9 @@ pub fn app() -> Html {
                                 on_select={on_file_sel_cb} 
                                 leaf_data_id={ldid} 
                                 categories={(*categories).clone()} 
-                                on_refresh={on_refresh_cats_cb.clone()} 
+                                on_refresh={on_refresh_cats_cb}
                                 on_delete_category={on_delete_category_cb}
+                                on_rename_category={on_rename_category_cb}
                                 on_start_processing={let il = is_loading.clone(); let ifo = is_fading_out.clone(); let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); il.set(true); ifo.set(false); }} 
                                 on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))}
                             />

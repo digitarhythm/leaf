@@ -27,6 +27,9 @@ extern "C" {
     pub async fn move_file(file_id: &str, old_parent_id: &str, new_parent_id: &str) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch)]
+    pub async fn rename_folder(folder_id: &str, new_name: &str) -> Result<JsValue, JsValue>;
+
+    #[wasm_bindgen(catch)]
     pub async fn delete_file(file_id: &str) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch)]
