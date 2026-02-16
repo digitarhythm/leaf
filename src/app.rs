@@ -255,7 +255,6 @@ pub fn app() -> Html {
         let ris_h = is_saving_ref.clone(); let is_saving_h = is_saving.clone();
         let fq_h = fallback_queue.clone();
         let ncq_h = name_conflict_queue.clone();
-        let os_self = os_handle.clone();
         Callback::from(move |is_manual: bool| {
             if *ris_h.borrow() { return; }
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
@@ -265,7 +264,6 @@ pub fn app() -> Html {
             let lock_fade_h = lock_fade_h.clone();
             let ris_h = ris_h.clone(); let is_saving_h = is_saving_h.clone();
             let fq_h = fq_h.clone(); let ncq_h = ncq_h.clone();
-            let os_retry_h = os_self.clone();
             
             Timeout::new(0, move || {
                 let aid_opt = (*r_aid.borrow()).clone();
@@ -297,11 +295,6 @@ pub fn app() -> Html {
                             let ild_inner = ild_h.clone();
                             let lock_inner = lock_h.clone();
                             let lock_fade_inner = lock_fade_h.clone();
-                            let is_manual_save = is_manual;
-                            let sheet_id = sheet.id.clone();
-                            let s_state_inner = s_state.clone();
-                            let rs_cb_inner = rs_cb.clone();
-                            let os_h_inner = os_retry_h.clone();
 
                             s_state.set(cur_s.clone());
                             spawn_local(async move {
@@ -317,22 +310,15 @@ pub fn app() -> Html {
                                         let il = ild_inner.clone();
                                         Timeout::new(300, move || { lf.set(false); l.set(false); il.set(false); }).forget();
                                     }
-                                } else if is_manual_save {
-                                    // 保存中フラグは os_retry によって維持されるのでここでは消さない
-                                    let mut us = (*rs_cb_inner.borrow()).clone();
-                                    if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) {
-                                        s.category = "OTHERS".to_string();
-                                        if s.guid.is_none() { s.guid = Some(generate_uuid()); }
-                                        clear_local_handle();
-                                        let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
-                                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                                        if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                                    }
-                                    *rs_cb_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
-                                    if let Some(cb) = &*os_h_inner.borrow() { cb.emit(true); }
                                 } else {
+                                    // キャンセルまたは失敗時は何もしない
                                     is_saving_inner.set(false);
                                     ild_inner.set(false);
+                                    if *lock_inner {
+                                        lock_fade_inner.set(true);
+                                        let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
+                                        Timeout::new(300, move || { lf.set(false); l.set(false); }).forget();
+                                    }
                                 }
                             });
                             return;
