@@ -194,12 +194,19 @@ pub struct InputDialogProps {
     pub on_cancel: Callback<()>,
 }
 
+#[derive(PartialEq, Clone, Copy)]
+enum InputDialogFocus {
+    Input,
+    Ok,
+    Cancel,
+}
+
 #[function_component(InputDialog)]
 pub fn input_dialog(props: &InputDialogProps) -> Html {
     let text = use_state(|| "".to_string());
     let root_ref = use_node_ref();
     let input_ref = use_node_ref();
-    let is_ok_focused = use_state(|| false);
+    let focused = use_state(|| InputDialogFocus::Input);
 
     {
         let root = root_ref.clone();
@@ -216,26 +223,38 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
         let on_confirm = props.on_confirm.clone();
         let on_cancel = props.on_cancel.clone();
         let text = text.clone();
-        let is_ok = is_ok_focused.clone();
+        let focused = focused.clone();
         let input_r = input_ref.clone();
         Callback::from(move |e: KeyboardEvent| {
             e.stop_propagation();
             match e.key().as_str() {
-                "Tab" | "ArrowLeft" | "ArrowRight" => {
+                "Tab" => {
                     e.prevent_default();
-                    if !*is_ok {
-                        is_ok.set(true);
-                    } else {
-                        is_ok.set(false);
-                        if let Some(el) = input_r.cast::<web_sys::HtmlElement>() { let _ = el.focus(); }
+                    match *focused {
+                        InputDialogFocus::Input => focused.set(InputDialogFocus::Ok),
+                        _ => {
+                            focused.set(InputDialogFocus::Input);
+                            if let Some(el) = input_r.cast::<web_sys::HtmlElement>() { let _ = el.focus(); }
+                        }
+                    }
+                }
+                "ArrowRight" => {
+                    if *focused != InputDialogFocus::Input {
+                        e.prevent_default();
+                        focused.set(InputDialogFocus::Ok);
+                    }
+                }
+                "ArrowLeft" => {
+                    if *focused != InputDialogFocus::Input {
+                        e.prevent_default();
+                        focused.set(InputDialogFocus::Cancel);
                     }
                 }
                 "Enter" => {
                     e.prevent_default();
-                    if *is_ok { on_confirm.emit((*text).clone()); }
-                    else { 
-                        // 入力中ならOKにフォーカスを移すだけにするか、確定させるか
-                        on_confirm.emit((*text).clone());
+                    match *focused {
+                        InputDialogFocus::Cancel => on_cancel.emit(()),
+                        _ => on_confirm.emit((*text).clone()),
                     }
                 }
                 "Escape" => {
@@ -260,8 +279,15 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                         ref={input_ref}
                         type="text" 
                         value={(*text).clone()}
-                        oninput={let t = text.clone(); move |ev: InputEvent| { let input: web_sys::HtmlInputElement = ev.target_unchecked_into(); t.set(input.value()); }}
-                        class="w-full bg-gray-900 border border-gray-700 rounded-md px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        oninput={let t = text.clone(); let f = focused.clone(); move |ev: InputEvent| { 
+                            let input: web_sys::HtmlInputElement = ev.target_unchecked_into(); 
+                            t.set(input.value()); 
+                            f.set(InputDialogFocus::Input);
+                        }}
+                        class={classes!(
+                            "w-full", "bg-gray-900", "border", "rounded-md", "px-4", "py-2", "text-white", "focus:outline-none", "transition-all",
+                            if *focused == InputDialogFocus::Input { "border-lime-400 ring-2 ring-lime-400" } else { "border-gray-700" }
+                        )}
                     />
                 </div>
 
@@ -269,7 +295,11 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                     <button 
                         tabindex="-1"
                         onclick={props.on_cancel.reform(|_| ())}
-                        class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-md transition-colors"
+                        class={classes!(
+                            "px-6", "py-2", "rounded-md", "transition-colors", "border-[3px]",
+                            if *focused == InputDialogFocus::Cancel { vec!["bg-gray-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
+                            else { vec!["bg-gray-700", "text-gray-300", "border-transparent"] }
+                        )}
                     >
                         { "Cancel" }
                     </button>
@@ -278,7 +308,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                         onclick={let oc = props.on_confirm.clone(); let t = text.clone(); move |_| oc.emit((*t).clone())}
                         class={classes!(
                             "px-6", "py-2", "rounded-md", "transition-colors", "shadow-lg", "border-[3px]",
-                            if *is_ok_focused { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
+                            if *focused == InputDialogFocus::Ok { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
                             else { vec!["bg-blue-600", "text-white", "border-transparent"] }
                         )}
                     >
