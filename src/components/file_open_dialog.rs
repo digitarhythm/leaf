@@ -139,6 +139,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     e.prevent_default();
                     e.stop_immediate_propagation();
                     p_data.set(None);
+                    return;
                 } else if key == "ArrowUp" || key == "ArrowDown" {
                     e.prevent_default();
                     e.stop_immediate_propagation();
@@ -930,6 +931,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             on_load_more={on_load_more_preview.clone()}
                             has_more={has_more}
                             is_loading={is_loading_preview}
+                            disable_space_scroll={true}
                         />
                     }
                 } else { html! { <></> } }
