@@ -13,6 +13,8 @@ pub struct PreviewProps {
     pub on_load_more: Option<Callback<()>>,
     #[prop_or_default]
     pub has_more: bool,
+    #[prop_or_default]
+    pub is_loading: bool,
 }
 
 #[function_component(Preview)]
@@ -68,13 +70,19 @@ pub fn preview(props: &PreviewProps) -> Html {
 
     html! {
         <div class="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200" onclick={props.on_close.reform(|_| ())}>
-            <div class="w-full max-w-5xl max-h-full bg-[#0d1117] rounded-xl shadow-2xl border border-gray-800 flex flex-col overflow-hidden" onclick={|e: MouseEvent| e.stop_propagation()}>
+            <div class="w-full max-w-5xl max-h-full bg-[#0d1117] rounded-xl shadow-2xl border border-gray-800 flex flex-col overflow-hidden relative" onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div 
                     ref={node_ref}
                     class="markdown-body max-w-none overflow-y-auto p-6 sm:p-12"
                 >
                     { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
                 </div>
+                
+                if props.is_loading {
+                    <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/30">
+                        <div class="w-12 h-12 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                }
                 
                 if let Some(on_install) = &props.on_install {
                     <div class="px-6 py-4 bg-gray-900/50 border-t border-gray-800 flex justify-center">

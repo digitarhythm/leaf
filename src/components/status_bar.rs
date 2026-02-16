@@ -10,27 +10,68 @@ pub struct StatusBarProps {
     pub version: String,
     pub category_name: String,
     pub file_name: String,
+    pub file_extension: String,
+    pub on_change_extension: Callback<String>,
 }
 
 #[function_component(StatusBar)]
 pub fn status_bar(props: &StatusBarProps) -> Html {
     let lang = Language::detect();
 
+    let extensions = vec![
+        ("txt", "Plain Text"),
+        ("md", "Markdown"),
+        ("js", "JavaScript"),
+        ("ts", "TypeScript"),
+        ("rs", "Rust"),
+        ("toml", "TOML"),
+        ("json", "JSON"),
+        ("html", "HTML"),
+        ("css", "CSS"),
+        ("py", "Python"),
+        ("sql", "SQL"),
+        ("yaml", "YAML"),
+    ];
+
     html! {
         <div class="flex items-center justify-between px-4 py-1 bg-gray-800 border-t border-gray-700 text-xs text-gray-400 select-none">
             <div class="flex items-center space-x-4">
                 <span class="font-mono">{ format!("ver{}", props.version) }</span>
                 
-                <button
-                    onclick={props.on_toggle_vim.reform(|_| ())}
-                    class={classes!(
-                        "px-2", "py-0.5", "rounded", "text-[10px]", "font-bold", "transition-colors",
-                        if props.vim_mode { vec!["bg-green-600", "text-white", "hover:bg-green-700"] } else { vec!["bg-gray-600", "text-gray-300", "hover:bg-gray-500"] }
-                    )}
-                    title={i18n::t("toggle_vim", lang)}
-                >
-                    { if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }
-                </button>
+                <div class="flex items-center space-x-2">
+                    <button
+                        onclick={props.on_toggle_vim.reform(|_| ())}
+                        class={classes!(
+                            "px-2", "py-0.5", "rounded", "text-[10px]", "font-bold", "transition-colors",
+                            if props.vim_mode { vec!["bg-green-600", "text-white", "hover:bg-green-700"] } else { vec!["bg-gray-600", "text-gray-300", "hover:bg-gray-500"] }
+                        )}
+                        title={i18n::t("toggle_vim", lang)}
+                    >
+                        { if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }
+                    </button>
+
+                    if !props.category_name.is_empty() {
+                        <select 
+                            value={props.file_extension.clone()}
+                            onchange={
+                                let on_change = props.on_change_extension.clone();
+                                Callback::from(move |e: Event| {
+                                    let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                                    on_change.emit(select.value());
+                                })
+                            }
+                            class="bg-gray-700 text-gray-300 text-[10px] font-bold py-0.5 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-blue-500 transition-colors cursor-pointer"
+                        >
+                            { for extensions.iter().map(|(ext, label)| {
+                                html! {
+                                    <option value={*ext} selected={*ext == props.file_extension}>
+                                        { format!("{}: .{}", label, ext) }
+                                    </option>
+                                }
+                            }) }
+                        </select>
+                    }
+                </div>
 
                 if !props.file_name.is_empty() {
                     <span class="flex items-center space-x-2 border-l border-gray-700 ml-4 pl-4 py-0.5 font-mono">

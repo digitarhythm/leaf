@@ -399,6 +399,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_creating_cat = is_creating_category.clone();
         let is_deleting_file = pending_delete_file.clone();
         let preview_data = preview_data.clone();
+        let is_loading_more_preview = is_loading_more_preview.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area;
@@ -421,7 +422,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         let file_name = file.name.clone();
                         let total_size = file.total_size;
                         let loaded_bytes = file.loaded_bytes;
-                        let is_loading = loading_handle.clone();
+                        let is_loading_more = is_loading_more_preview.clone();
                         let p_data = preview_data.clone();
 
                         // すでに 256KB 以上、またはファイル全体が読み込み済みであれば即座に表示
@@ -442,7 +443,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             return;
                         }
 
-                        is_loading.set(true);
+                        is_loading_more.set(true);
                         spawn_local(async move {
                             // すでにリスト取得時に total_size を持っているので即座にダウンロード開始
                             let (range, loaded) = if total_size > 256 * 1024 {
@@ -468,7 +469,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     }));
                                 }
                             }
-                            is_loading.set(false);
+                            is_loading_more.set(false);
                         });
                     }
                 }
@@ -603,34 +604,33 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 )}
                 style="width: 60vw; height: 70vh;"
             >
-                <div class="px-6 py-3 border-b border-gray-700 bg-gray-900 flex justify-between items-center">
+                <div class="px-6 py-2 border-b border-gray-700 bg-gray-900 flex justify-between items-center">
                     <h3 class="text-lg font-bold text-white">{ i18n::t("file_selection", lang) }</h3>
-                </div>
-
-                <div class="px-4 py-2 border-b border-gray-700 bg-gray-800/50 flex justify-end space-x-2">
-                    <button 
-                        onclick={let is_creating = is_creating_category.clone(); move |_| is_creating.set(true)}
-                        class="p-2 rounded-[6px] bg-gray-700 hover:bg-gray-600 shadow-md transition-all text-white flex items-center space-x-2"
-                        title={ i18n::t("new_category", lang) }
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                        </svg>
-                        <span class="text-xs font-bold px-1">{ i18n::t("new_category", lang) }</span>
-                    </button>
-                    <button 
-                        onclick={let cb = props.on_refresh.clone(); move |_| cb.emit(())}
-                        class="p-2 rounded-[6px] bg-gray-700 hover:bg-gray-600 shadow-md transition-all text-white"
-                        title={ i18n::t("refresh_categories", lang) }
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                        </svg>
-                    </button>
                 </div>
 
                 <div class="flex-1 flex overflow-hidden">
                     <div class="w-[30%] border-r border-gray-700 flex flex-col overflow-y-auto p-2 space-y-1 bg-gray-900/30">
+                        <div class="flex space-x-1 mb-2">
+                            <button 
+                                onclick={let is_creating = is_creating_category.clone(); move |_| is_creating.set(true)}
+                                class="flex-1 p-2 rounded-[6px] bg-gray-700 hover:bg-gray-600 shadow-md transition-all text-white flex items-center justify-center space-x-1"
+                                title={ i18n::t("new_category", lang) }
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                                </svg>
+                                <span class="text-[10px] font-bold">{ i18n::t("new_category", lang) }</span>
+                            </button>
+                            <button 
+                                onclick={let cb = props.on_refresh.clone(); move |_| cb.emit(())}
+                                class="p-2 rounded-[6px] bg-gray-700 hover:bg-gray-600 shadow-md transition-all text-white"
+                                title={ i18n::t("refresh_categories", lang) }
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                                </svg>
+                            </button>
+                        </div>
                         { for sorted_categories.iter().enumerate().map(|(idx, cat)| {
                             let is_selected = *selected_cat_idx == idx;
                             let is_editing = (*editing_category_id).as_ref() == Some(&cat.id);
@@ -922,12 +922,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         format!("```{}\n{}\n```", p.lang, p.content)
                     };
                     let has_more = p.loaded_bytes < p.total_size;
+                    let is_loading_preview = *is_loading_more_preview;
                     html! {
                         <Preview 
                             content={content} 
                             on_close={let p_data = preview_data.clone(); Callback::from(move |_| p_data.set(None))} 
                             on_load_more={on_load_more_preview.clone()}
                             has_more={has_more}
+                            is_loading={is_loading_preview}
                         />
                     }
                 } else { html! { <></> } }
