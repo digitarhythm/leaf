@@ -1509,7 +1509,9 @@ pub fn app() -> Html {
                     let c = i18n::t("help_shortcuts", lang);
                     let is_conf = is_install_confirm_visible.clone();
                     let is_man = is_install_manual_visible.clone();
+                    let ih_for_install = ih.clone();
                     let on_install = Callback::from(move |_: ()| {
+                        ih_for_install.set(false);
                         if crate::js_interop::can_install_pwa() {
                             is_conf.set(true);
                         } else {
