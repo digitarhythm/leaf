@@ -12,11 +12,23 @@
     <link rel="manifest" href="manifest.json" />
     
     <link data-trunk rel="copy-file" href="editor_interop.js" />
+    <link data-trunk rel="copy-file" href="sw.js" />
     <link data-trunk rel="copy-file" href="auth.js" />
     <link data-trunk rel="copy-file" href="db.js" />
     <link data-trunk rel="copy-file" href="drive.js" />
     <link data-trunk rel="copy-file" href="icon.svg" />
+    <link data-trunk rel="copy-file" href="icon-192.png" />
+    <link data-trunk rel="copy-file" href="icon-512.png" />
     <link rel="icon" type="image/svg+xml" href="icon.svg" />
+
+    <script>
+      // PWA インストールプロンプトを早期に捕捉
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        window.leafDeferredPrompt = e;
+        console.log("[Leaf-PWA] beforeinstallprompt captured in index.html");
+      });
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
@@ -251,6 +263,17 @@
         },
         langPrefix: 'hljs language-'
       });
+
+      // Service Worker 登録
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('sw.js').then(reg => {
+            console.log('[Leaf-PWA] Service Worker registered.', reg.scope);
+          }).catch(err => {
+            console.error('[Leaf-PWA] Service Worker registration failed:', err);
+          });
+        });
+      }
     </script>
   </head>
   <body>
