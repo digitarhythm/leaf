@@ -1260,14 +1260,15 @@ pub fn app() -> Html {
                                         if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                     });
                                 }
+
+                                // 未保存シート（Untitled 且つ カテゴリーなし）の場合、自動的に GUID を発行し OTHERS カテゴリへ昇格
+                                if sheet.category.is_empty() && sheet.title.starts_with("Untitled") && needs_upd {
+                                    sheet.guid = Some(generate_uuid());
+                                    sheet.category = "OTHERS".to_string();
+                                }
+
                                 // ドライブ同期対象: カテゴリーが設定されている(クラウド) または ローカルファイル(Untitledでない)
                                 trigger_drive_sync = !sheet.category.is_empty() || (sheet.category.is_empty() && !sheet.title.starts_with("Untitled"));
-
-                                // 未保存シート（Untitled 且つ カテゴリーなし）の場合、即座に強制保存（クラウドへ）
-                                if sheet.category.is_empty() && sheet.title.starts_with("Untitled") && needs_upd {
-                                    let osa = os_i.clone();
-                                    osa.emit(true);
-                                }
                             }
                             if needs_upd { *r_s_i.borrow_mut() = cur_s.clone(); s_state.set(cur_s); }
                             if trigger_drive_sync && needs_upd { 
