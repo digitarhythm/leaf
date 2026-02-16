@@ -1053,6 +1053,19 @@ pub fn app() -> Html {
 
     {
         let is_auth = is_authenticated.clone();
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let is_auth_c = is_auth.clone();
+            let listener = EventListener::new(&window, "leaf-auth-expired", move |_| {
+                gloo::console::warn!("[Leaf-SYSTEM] Auth expired event received. Logging out...");
+                is_auth_c.set(false);
+            });
+            move || { drop(listener); }
+        });
+    }
+
+    {
+        let is_auth = is_authenticated.clone();
         let is_ld = is_loading.clone(); let is_fo = is_fading_out.clone(); let is_init = is_initial_load.clone();
         use_effect_with((), move |_| {
             let is_auth_c = is_auth.clone();

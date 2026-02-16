@@ -40,6 +40,23 @@ export function init_google_auth(clientId, onSuccessCallback) {
                 }
             },
         });
+
+        // 定期的にトークン期限をチェックして、期限が近ければリフレッシュするタイマー
+        setInterval(async () => {
+            const expiry = localStorage.getItem(EXPIRY_KEY);
+            if (expiry) {
+                const timeLeft = parseInt(expiry) - Date.now();
+                // 残り10分を切っていたらリフレッシュ
+                if (timeLeft < 10 * 60 * 1000) {
+                    console.log("[Auth] Token nearing expiry. Proactive refresh starting...");
+                    try {
+                        await try_silent_refresh();
+                    } catch (e) {
+                        console.warn("[Auth] Proactive refresh failed. Will retry on next activity.");
+                    }
+                }
+            }
+        }, 60 * 1000); // 1分ごとにチェック
         
         const existingToken = localStorage.getItem(STORAGE_KEY);
         const expiry = localStorage.getItem(EXPIRY_KEY);
@@ -89,12 +106,16 @@ export function request_access_token() {
     }
 }
 
-export function get_access_token() {
+export async function get_access_token() {
     const expiry = localStorage.getItem(EXPIRY_KEY);
     if (expiry && parseInt(expiry) < Date.now()) {
-        console.warn("[Auth] Token expired. Need refresh.");
-        // ここでは非同期で開始するが、戻り値は古いトークンのまま
-        try_silent_refresh().catch(() => {});
+        console.warn("[Auth] Token expired. Attempting silent refresh...");
+        try {
+            return await try_silent_refresh();
+        } catch (e) {
+            console.error("[Auth] Background refresh failed:", e);
+            return null;
+        }
     }
     return accessToken;
 }
@@ -109,4 +130,6 @@ export function sign_out() {
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(EXPIRY_KEY);
     console.log("Signed out and session cleared");
+    // アプリ側に通知
+    window.dispatchEvent(new CustomEvent('leaf-auth-expired'));
 }
