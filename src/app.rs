@@ -1399,43 +1399,43 @@ pub fn app() -> Html {
                             // デバッグログ: Altキー押下時の全イベントを記録
                             gloo::console::debug!(format!("[Leaf-KEYS] Alt detected: key='{}', code='{}'", key, code));
 
-                            let is_l = code == "KeyL" || key_lower == "l" || key_lower == "¬";
-                            let is_m = code == "KeyM" || key_lower == "m" || key_lower == "µ";
-                            let is_h = code == "KeyH" || key_lower == "h" || key_lower == "˙";
-                            let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
-                            let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
-                            let is_s = code == "KeyS" || key_lower == "s" || key_lower == "ß";
-                            let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
+                            if !is_overlay_active {
+                                let is_l = code == "KeyL" || key_lower == "l" || key_lower == "¬";
+                                let is_m = code == "KeyM" || key_lower == "m" || key_lower == "µ";
+                                let is_h = code == "KeyH" || key_lower == "h" || key_lower == "˙";
+                                let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
+                                let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
+                                let is_s = code == "KeyS" || key_lower == "s" || key_lower == "ß";
+                                let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
 
-                            if is_l {
-                                e.prevent_default(); e.stop_immediate_propagation();
-                                // テキストが空の場合はプレビューを開かない
-                                let cur_c_val = get_editor_content();
-                                let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
-                                
-                                if !*is_preview_c && is_empty {
-                                    gloo::console::log!("[Leaf-KEYS] Preview suppressed: content is empty");
+                                if is_l {
+                                    e.prevent_default(); e.stop_immediate_propagation();
+                                    // テキストが空の場合はプレビューを開かない
+                                    let cur_c_val = get_editor_content();
+                                    let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
+                                    
+                                    if !*is_preview_c && is_empty {
+                                        gloo::console::log!("[Leaf-KEYS] Preview suppressed: content is empty");
+                                        return;
+                                    }
+
+                                    gloo::console::log!("[Leaf-KEYS] Toggling Preview (Alt+L)");
+                                    is_preview_c.set(!*is_preview_c);
                                     return;
                                 }
-
-                                gloo::console::log!("[Leaf-KEYS] Toggling Preview (Alt+L)");
-                                is_preview_c.set(!*is_preview_c);
-                                return;
-                            }
-                            if is_m {
-                                e.prevent_default(); e.stop_immediate_propagation();
-                                gloo::console::log!("[Leaf-KEYS] Toggling Sheet Selection (Alt+M)");
-                                let val = !*is_file_open_c; is_file_open_c.set(val); sp_c.set(val);
-                                return;
-                            }
-                            if is_h {
-                                e.prevent_default(); e.stop_immediate_propagation();
-                                gloo::console::log!("[Leaf-KEYS] Toggling Help (Alt+H)");
-                                is_help_c.set(!*is_help_c);
-                                return;
-                            }
-                            
-                            if !is_overlay_active {
+                                if is_m {
+                                    e.prevent_default(); e.stop_immediate_propagation();
+                                    gloo::console::log!("[Leaf-KEYS] Toggling Sheet Selection (Alt+M)");
+                                    let val = !*is_file_open_c; is_file_open_c.set(val); sp_c.set(val);
+                                    return;
+                                }
+                                if is_h {
+                                    e.prevent_default(); e.stop_immediate_propagation();
+                                    gloo::console::log!("[Leaf-KEYS] Toggling Help (Alt+H)");
+                                    is_help_c.set(!*is_help_c);
+                                    return;
+                                }
+                                
                                 if is_o { e.prevent_default(); e.stop_immediate_propagation(); oi_c.emit(()); return; }
                                 if is_f { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); return; }
                                 if is_s { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("saveSheet"); return; }
