@@ -1133,7 +1133,7 @@ pub fn app() -> Html {
                             if needs_upd { *r_s_i.borrow_mut() = cur_s.clone(); s_state.set(cur_s); }
                             if trigger_drive_sync && needs_upd { 
                                 let osa = os_i.clone(); 
-                                timer.set(Some(Timeout::new(3000, move || { osa.emit(false); }))); 
+                                timer.set(Some(Timeout::new(1000, move || { osa.emit(false); }))); 
                             }
                         }
                     }
