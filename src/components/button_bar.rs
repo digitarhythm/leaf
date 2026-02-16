@@ -47,6 +47,14 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
             .unwrap_or_else(|| i18n::t("OTHERS", lang))
     };
 
+    // カテゴリを「OTHERS」が先頭に来るようにソート
+    let mut sorted_categories = props.categories.clone();
+    sorted_categories.sort_by(|a, b| {
+        if a.name == "OTHERS" { std::cmp::Ordering::Less }
+        else if b.name == "OTHERS" { std::cmp::Ordering::Greater }
+        else { std::cmp::Ordering::Equal }
+    });
+
     html! {
         <div class="flex items-center space-x-2 bg-gray-800 py-1 px-2 border-b border-gray-700">
             <button
@@ -112,7 +120,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                                         { if props.is_new_sheet { i18n::t("no_category", lang) } else { i18n::t("local_file", lang) } }
                                     </button>
                                 }
-                                { for props.categories.iter().map(|cat| {
+                                { for sorted_categories.into_iter().map(|cat| {
                                     let id = cat.id.clone();
                                     let name = cat.name.clone();
                                     let display_name = if name == "OTHERS" { i18n::t("OTHERS", lang) } else { name };
