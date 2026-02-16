@@ -221,7 +221,25 @@ pub fn app() -> Html {
                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     } else if deleted { let nid = us.last().unwrap().id.clone(); aid_inner.set(Some(nid)); }
                     ss_inner.set(us.clone()); 
-                    if q.is_empty() { ifod.set(true); let ild = ild_final.clone(); let aid = aid_inner.clone(); let u_final = us.clone(); Timeout::new(350, move || { ild.set(false); if let Some(id) = (*aid).clone() { if let Some(s) = u_final.iter().find(|x| x.id == id) { set_editor_content(&s.content); let mode = if s.category.is_empty() { if s.title.starts_with("Untitled") { "unsaved" } else { "local" } } else if s.drive_id.is_none() { "unsaved" } else { "none" }; set_gutter_status(mode); } } focus_editor(); }).forget(); }
+                    if q.is_empty() { 
+                        ifod.set(true); 
+                        let ild = ild_final.clone(); 
+                        let aid = aid_inner.clone(); 
+                        let u_final = us.clone(); 
+                        let ifo_final = ifod.clone();
+                        Timeout::new(350, move || { 
+                            ild.set(false); 
+                            ifo_final.set(false);
+                            if let Some(id) = (*aid).clone() { 
+                                if let Some(s) = u_final.iter().find(|x| x.id == id) { 
+                                    set_editor_content(&s.content); 
+                                    let mode = if s.category.is_empty() { if s.title.starts_with("Untitled") { "unsaved" } else { "local" } } else if s.drive_id.is_none() { "unsaved" } else { "none" }; 
+                                    set_gutter_status(mode); 
+                                } 
+                            } 
+                            focus_editor(); 
+                        }).forget(); 
+                    }
                 });
             }
         })
@@ -631,7 +649,12 @@ pub fn app() -> Html {
                         }
                         *rs_inner.borrow_mut() = us.clone(); ss.set(us);
                     }
-                    pending_inner.set(None); on_refresh_inner.emit(()); ifo_inner.set(true); Timeout::new(300, move || { il_inner.set(false); }).forget();
+                    pending_inner.set(None); on_refresh_inner.emit(()); ifo_inner.set(true); 
+                    let ifo_final = ifo_inner.clone();
+                    Timeout::new(300, move || { 
+                        il_inner.set(false);
+                        ifo_final.set(false);
+                    }).forget();
                 });
             }
         })
@@ -648,7 +671,12 @@ pub fn app() -> Html {
                 if let Ok(_) = crate::drive_interop::rename_folder(&id, &new_name).await {
                     on_refresh_inner.emit(());
                 }
-                ifo_inner.set(true); Timeout::new(300, move || { il_inner.set(false); }).forget();
+                ifo_inner.set(true); 
+                let ifo_final = ifo_inner.clone();
+                Timeout::new(300, move || { 
+                    il_inner.set(false);
+                    ifo_final.set(false);
+                }).forget();
             });
         })
     };
@@ -696,7 +724,25 @@ pub fn app() -> Html {
                     let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                 } else if deleted { let nid = us.last().unwrap().id.clone(); aid_inner.set(Some(nid)); }
                 ss_inner.set(us.clone()); qs.set(q.clone());
-                if q.is_empty() { ifod.set(true); let ild = ild_final.clone(); let aid = aid_inner.clone(); let u_final = us.clone(); Timeout::new(350, move || { ild.set(false); if let Some(id) = (*aid).clone() { if let Some(s) = u_final.iter().find(|x| x.id == id) { set_editor_content(&s.content); let mode = if s.category.is_empty() { if s.title.starts_with("Untitled") { "unsaved" } else { "local" } } else if s.drive_id.is_none() { "unsaved" } else { "none" }; set_gutter_status(mode); } } focus_editor(); }).forget(); }
+                if q.is_empty() { 
+                    ifod.set(true); 
+                    let ild = ild_final.clone(); 
+                    let aid = aid_inner.clone(); 
+                    let u_final = us.clone(); 
+                    let ifo_final = ifod.clone();
+                    Timeout::new(350, move || { 
+                        ild.set(false); 
+                        ifo_final.set(false);
+                        if let Some(id) = (*aid).clone() { 
+                            if let Some(s) = u_final.iter().find(|x| x.id == id) { 
+                                set_editor_content(&s.content); 
+                                let mode = if s.category.is_empty() { if s.title.starts_with("Untitled") { "unsaved" } else { "local" } } else if s.drive_id.is_none() { "unsaved" } else { "none" }; 
+                                set_gutter_status(mode); 
+                            } 
+                        } 
+                        focus_editor(); 
+                    }).forget(); 
+                }
             });
         })
     };
@@ -706,6 +752,7 @@ pub fn app() -> Html {
         let ss = sheets.clone(); let il = is_loading.clone(); let ifo = is_fading_out.clone();
         let rs = sheets_ref.clone(); let sp = is_suppressing_changes.clone();
         let os = on_save_cb.clone();
+        let lmk = loading_message_key.clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
             let aid_val = (*aid).clone();
             let mut needs_save = false;
@@ -724,7 +771,8 @@ pub fn app() -> Html {
                 os.emit(false);
             }
 
-            iv.set(false); il.set(true); ifo.set(false); sp.set(true); 
+            iv.set(false); 
+            lmk.set("synchronizing"); il.set(true); ifo.set(false); sp.set(true); 
             let ss_inner = ss.clone(); let aid_inner = aid.clone(); let sp_inner = sp.clone();
             let il_inner = il.clone(); let ifo_inner = ifo.clone(); let rs_inner = rs.clone();
             spawn_local(async move {
@@ -738,12 +786,25 @@ pub fn app() -> Html {
                         set_editor_content(&c); set_gutter_status("none");
                         if let Some(idx) = tidx { cs[idx] = ns.clone(); } else { cs = vec![ns.clone()]; }
                         *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
-                        focus_editor(); Timeout::new(500, move || { sp_inner.set(false); }).forget();
+                        focus_editor(); 
+                        
                         let js = JSSheet { id: nid, guid, category: cat_id, title, content: c, is_modified: false, drive_id: Some(did), temp_content: None, temp_timestamp: None, last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: ns.tab_color };
                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                        ifo_inner.set(true); Timeout::new(300, move || { il_inner.set(false); }).forget();
+                        
+                        // テキストがセットされた後、描画を待ってからフェードアウト開始
+                        Timeout::new(50, move || {
+                            ifo_inner.set(true);
+                            let ifo_final = ifo_inner.clone();
+                            Timeout::new(300, move || {
+                                il_inner.set(false);
+                                sp_inner.set(false);
+                                ifo_final.set(false);
+                            }).forget();
+                        }).forget();
                     }
-                } else { il_inner.set(false); sp_inner.set(false); }
+                } else { 
+                    il_inner.set(false); sp_inner.set(false); 
+                }
             });
         })
     };
@@ -828,8 +889,17 @@ pub fn app() -> Html {
                     let ser = serde_wasm_bindgen::Serializer::json_compatible();
                     if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     
-                    lock_cb.set(false); il_cb.set(false);
-                    Timeout::new(100, move || { sp_state_c.set(false); }).forget();
+                    // テキストセット後の描画待ち
+                    Timeout::new(50, move || {
+                        ifo_cb.set(true);
+                        let il = il_cb.clone(); let sp = sp_state_c.clone(); let ifo_final = ifo_cb.clone();
+                        Timeout::new(300, move || {
+                            il.set(false);
+                            sp.set(false);
+                            ifo_final.set(false);
+                        }).forget();
+                    }).forget();
+                    lock_cb.set(false); 
                 }
             });
         })
@@ -882,7 +952,12 @@ pub fn app() -> Html {
                                 }
                                 *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                             }
-                            ifo_inner.set(true); Timeout::new(300, move || { il_inner.set(false); }).forget();
+                            ifo_inner.set(true); 
+                            let ifo_final = ifo_inner.clone();
+                            Timeout::new(300, move || { 
+                                il_inner.set(false);
+                                ifo_final.set(false);
+                            }).forget();
                         });
                     } else {
                         let mut us = current_sheets; us[pos].category = new_cat_id;
@@ -891,6 +966,60 @@ pub fn app() -> Html {
                         spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
                         *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                     }
+                }
+            }
+        })
+    };
+
+    let on_change_extension_cb = {
+        let s_state = sheets.clone(); let aid_state = active_sheet_id.clone();
+        let il = is_loading.clone(); let ifo = is_fading_out.clone();
+        let lmk = loading_message_key.clone(); let r_s = sheets_ref.clone();
+        Callback::from(move |new_ext: String| {
+            let aid = (*aid_state).clone();
+            if let Some(id) = aid {
+                let current_sheets = (*s_state).clone();
+                if let Some(pos) = current_sheets.iter().position(|s| s.id == id) {
+                    let sheet = current_sheets[pos].clone();
+                    if sheet.drive_id.is_none() { return; } // Google Drive保存済みのみ
+
+                    let old_name = sheet.title.clone();
+                    let name_parts: Vec<&str> = old_name.split('.').collect();
+                    let base_name = if name_parts.len() > 1 {
+                        name_parts[..name_parts.len()-1].join(".")
+                    } else {
+                        old_name.clone()
+                    };
+                    let new_name = format!("{}.{}", base_name, new_ext);
+                    
+                    if old_name == new_name { return; }
+
+                    let s_state_inner = s_state.clone(); let il_inner = il.clone(); 
+                    let ifo_inner = ifo.clone(); let lmk_inner = lmk.clone(); 
+                    let r_s_inner = r_s.clone();
+                    let drive_id = sheet.drive_id.clone().unwrap();
+
+                    lmk_inner.set("synchronizing"); il_inner.set(true); ifo_inner.set(false);
+                    spawn_local(async move {
+                        // ファイル名変更も rename_folder (PATCH {name}) と同じ
+                        if let Ok(_) = crate::drive_interop::rename_folder(&drive_id, &new_name).await {
+                            let mut us = (*s_state_inner).clone();
+                            if let Some(s) = us.iter_mut().find(|x| x.id == id) {
+                                s.title = new_name.clone();
+                                let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                                let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                crate::js_interop::set_editor_mode(&new_name);
+                            }
+                            *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
+                        }
+                        ifo_inner.set(true); 
+                        let ifo_final = ifo_inner.clone();
+                        Timeout::new(300, move || { 
+                            il_inner.set(false); 
+                            ifo_final.set(false);
+                        }).forget();
+                    });
                 }
             }
         })
@@ -943,8 +1072,8 @@ pub fn app() -> Html {
             let is_auth_c = is_auth.clone();
             let t = Timeout::new(1500, move || { 
                 if !*is_auth_c {
-                    is_fo.set(true); let ild = is_ld.clone(); let is_init_inner = is_init.clone();
-                    Timeout::new(300, move || { ild.set(false); is_init_inner.set(false); }).forget();
+                    is_fo.set(true); let ild = is_ld.clone(); let is_init_inner = is_init.clone(); let ifo_inner = is_fo.clone();
+                    Timeout::new(300, move || { ild.set(false); is_init_inner.set(false); ifo_inner.set(false); }).forget();
                 }
             });
             move || { drop(t); }
@@ -1032,14 +1161,25 @@ pub fn app() -> Html {
                                                 }
                                             }
                                             ifo_inner.set(true);
-                                            Timeout::new(300, move || { ild_inner.set(false); is_init_inner.set(false); }).forget();
+                                            let ifo_final = ifo_inner.clone();
+                                            Timeout::new(300, move || { 
+                                                ild_inner.set(false); 
+                                                is_init_inner.set(false); 
+                                                ifo_final.set(false);
+                                            }).forget();
                                         });
                                     }
                                 }
                             },
                             Err(_) => { 
                                 is_auth_err.set(false); 
-                                ifo_inner.set(true); Timeout::new(300, move || { ild_inner.set(false); is_init_inner.set(false); }).forget();
+                                ifo_inner.set(true); 
+                                let ifo_final = ifo_inner.clone();
+                                Timeout::new(300, move || { 
+                                    ild_inner.set(false); 
+                                    is_init_inner.set(false); 
+                                    ifo_final.set(false);
+                                }).forget();
                             },
                         }
                     });
@@ -1218,9 +1358,11 @@ pub fn app() -> Html {
                 let oi_cb = on_import_cb.clone();
                 let is_drop_ev = is_category_dropdown_open.clone();
                 let is_dialog_prev = is_dialog_preview_open.clone();
+                let is_ld_ev = is_loading.clone();
+                let is_fo_ev = is_fading_out.clone();
                 
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_dialog_prev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some(), !(*ncq_esc).is_empty())), move |deps| {
-                    let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, dialog_prev), (has_del, has_conf, has_fall, has_imp, has_nc)) = *deps;
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_dialog_prev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some(), !(*ncq_esc).is_empty())), move |deps| {
+                    let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, dialog_prev, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_imp, has_nc)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     
                     let window = web_sys::window().unwrap();
@@ -1244,8 +1386,13 @@ pub fn app() -> Html {
                         let key = ke.key();
                         let code = ke.code();
                         
-                        let is_dialog_open = file_open || preview || help || has_del || has_conf || has_fall || has_imp || logout_conf || has_nc || drop_open;
+                        let is_dialog_open = file_open || preview || help || has_del || has_conf || has_fall || has_imp || logout_conf || has_nc || drop_open || is_loading || is_fading_out;
                         let is_overlay_active = is_dialog_open || imp_lock;
+
+                        if is_loading || is_fading_out {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            return;
+                        }
 
                         if ke.alt_key() {
                             let key_lower = key.to_lowercase();
@@ -1342,7 +1489,7 @@ pub fn app() -> Html {
 
     let current_cat = active_sheet_id.as_ref().and_then(|id| sheets.iter().find(|s| s.id == *id)).map(|s| s.category.clone()).unwrap_or_else(|| (*no_category_folder_id).clone().unwrap_or_else(|| "NO_CATEGORY".to_string()));
     
-    let (current_cat_name, current_file_name) = if let Some(aid) = active_sheet_id.as_ref() {
+    let (current_cat_name, current_file_name, current_file_ext) = if let Some(aid) = active_sheet_id.as_ref() {
         let rs = sheets_ref.borrow();
         if let Some(sheet) = rs.iter().find(|s| s.id == *aid) {
             let cn = if sheet.category.is_empty() {
@@ -1350,19 +1497,21 @@ pub fn app() -> Html {
             } else {
                 categories.iter()
                     .find(|c| c.id == sheet.category)
-                    .map(|c| c.name.clone())
-                    .unwrap_or_else(|| "OTHERS".to_string())
+                    .map(|c| if c.name == "OTHERS" { i18n::t("OTHERS", lang) } else { c.name.clone() })
+                    .unwrap_or_else(|| i18n::t("OTHERS", lang))
             };
             let mut file_name = sheet.title.clone();
+            let mut file_ext = file_name.split('.').last().unwrap_or("txt").to_string();
             if file_name.starts_with("Untitled") {
                 file_name = "----".to_string();
+                file_ext = "txt".to_string();
             }
-            (cn, file_name)
+            (cn, file_name, file_ext)
         } else {
-            ("".to_string(), "".to_string())
+            ("".to_string(), "".to_string(), "txt".to_string())
         }
     } else {
-        ("".to_string(), "".to_string())
+        ("".to_string(), "".to_string(), "txt".to_string())
     };
 
     let is_current_new_sheet = if let Some(aid) = active_sheet_id.as_ref() {
@@ -1410,6 +1559,8 @@ pub fn app() -> Html {
                     on_toggle_vim={on_toggle_vim}
                     category_name={current_cat_name}
                     file_name={current_file_name}
+                    file_extension={current_file_ext}
+                    on_change_extension={on_change_extension_cb}
                     version={env!("CARGO_PKG_VERSION").to_string()} 
                 />
             </main>
@@ -1492,7 +1643,7 @@ pub fn app() -> Html {
                                 on_refresh={on_refresh_cats_cb}
                                 on_delete_category={on_delete_category_cb}
                                 on_rename_category={on_rename_category_cb}
-                                on_start_processing={let il = is_loading.clone(); let ifo = is_fading_out.clone(); let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); il.set(true); ifo.set(false); }} 
+                                on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} 
                                 on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))}
                             />
                         </div>

@@ -43,7 +43,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
     } else {
         props.categories.iter()
             .find(|c| c.id == props.current_category)
-            .map(|c| c.name.clone())
+            .map(|c| if c.name == "OTHERS" { i18n::t("OTHERS", lang) } else { c.name.clone() })
             .unwrap_or_else(|| i18n::t("OTHERS", lang))
     };
 
