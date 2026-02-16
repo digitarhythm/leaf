@@ -586,7 +586,44 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     };
     let on_focus_out = {
         let is_root_focused = is_root_focused.clone();
-        Callback::from(move |_| is_root_focused.set(false))
+        let root_ref = root_ref.clone();
+        let focused_area = focused_area.clone();
+        let selected_cat_idx = selected_cat_idx.clone();
+        let load_files = load_files.clone();
+        let categories = sorted_categories.clone();
+        let preview_active = preview_data.is_some();
+        
+        Callback::from(move |e: FocusEvent| {
+            is_root_focused.set(false);
+            if preview_active { return; } // プレビュー表示中はそちらにフォーカスを任せる
+
+            let related_target = e.related_target();
+            let is_outside = if let Some(target) = related_target {
+                if let Some(root_el) = root_ref.cast::<web_sys::Node>() {
+                    !root_el.contains(Some(&target.unchecked_into::<web_sys::Node>()))
+                } else { true }
+            } else { true };
+
+            if is_outside {
+                // 強制的にフォーカスを戻す
+                let root_ref_c = root_ref.clone();
+                let f_area = focused_area.clone();
+                let s_idx = selected_cat_idx.clone();
+                let l_files = load_files.clone();
+                let cats = categories.clone();
+                
+                Timeout::new(10, move || {
+                    if let Some(div) = root_ref_c.cast::<web_sys::HtmlElement>() {
+                        let _ = div.focus();
+                        f_area.set(FocusedArea::Categories);
+                        s_idx.set(0);
+                        if !cats.is_empty() {
+                            l_files.emit((cats[0].id.clone(), cats[0].name.clone(), false));
+                        }
+                    }
+                }).forget();
+            }
+        })
     };
 
     html! {
