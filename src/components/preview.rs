@@ -15,6 +15,8 @@ pub struct PreviewProps {
     pub has_more: bool,
     #[prop_or_default]
     pub is_loading: bool,
+    #[prop_or_default]
+    pub disable_space_scroll: bool,
 }
 
 #[function_component(Preview)]
@@ -69,7 +71,9 @@ pub fn preview(props: &PreviewProps) -> Html {
     // キーボード操作
     {
         let node_ref = node_ref.clone();
-        use_effect_with((), move |_| {
+        let disable_space = props.disable_space_scroll;
+        use_effect_with(disable_space, move |ds| {
+            let disable_space = *ds;
             let window = web_sys::window().unwrap();
             let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
             opts.passive = false;
@@ -82,7 +86,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                 let is_down = key == "PageDown" || key == "RollDown";
                 let is_arrow_up = key == "ArrowUp";
                 let is_arrow_down = key == "ArrowDown";
-                let is_space = key == " ";
+                let is_space = key == " " && !disable_space;
                 let is_home = key == "Home";
                 let is_end = key == "End";
 
