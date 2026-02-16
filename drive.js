@@ -165,7 +165,7 @@ export async function upload_file(filename, content, folderId, fileId = null) {
 
 export async function list_files(folderId, signal = null) {
     const query = `'${folderId}' in parents and mimeType != '${FOLDER_MIME_TYPE}' and trashed=false`;
-    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name, modifiedTime)`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name, size, modifiedTime)`;
     const response = await authenticatedFetch(url, { signal });
     if (!response.ok) throw new Error(`List files failed: ${response.status}`);
     return await response.json();
@@ -219,7 +219,7 @@ export async function download_file(fileId, range = null, signal = null) {
 }
 
 export async function get_file_metadata(fileId) {
-    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,modifiedTime,trashed,parents`;
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,size,modifiedTime,trashed,parents`;
     const response = await authenticatedFetch(url);
     if (!response.ok) throw new Error(`Get metadata failed: ${response.status}`);
     return await response.json();
