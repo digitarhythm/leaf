@@ -1,6 +1,7 @@
 use yew::prelude::*;
 use crate::js_interop::{render_markdown, init_mermaid};
 use crate::i18n::{self, Language};
+use wasm_bindgen::JsCast;
 
 #[derive(Properties, PartialEq)]
 pub struct PreviewProps {
@@ -8,6 +9,10 @@ pub struct PreviewProps {
     pub on_close: Callback<()>,
     #[prop_or_default]
     pub on_install: Option<Callback<()>>,
+    #[prop_or_default]
+    pub on_load_more: Option<Callback<()>>,
+    #[prop_or_default]
+    pub has_more: bool,
 }
 
 #[function_component(Preview)]
@@ -26,6 +31,36 @@ pub fn preview(props: &PreviewProps) -> Html {
                 }).forget();
             }
             || ()
+        });
+    }
+
+    // スクロール監視
+    {
+        let node_ref = node_ref.clone();
+        let on_load_more = props.on_load_more.clone();
+        let has_more = props.has_more;
+        use_effect_with((node_ref, has_more), move |(node, more)| {
+            let mut _listener = None;
+            if *more {
+                if let Some(el) = node.get() {
+                    let on_load = on_load_more.clone();
+                    _listener = Some(gloo::events::EventListener::new(&el, "scroll", move |e| {
+                        if let Some(target_el) = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+                            let scroll_top = target_el.scroll_top();
+                            let scroll_height = target_el.scroll_height();
+                            let client_height = target_el.client_height();
+                            
+                            // 下端から 200px 以内になったら追加読み込み
+                            if scroll_top + client_height >= scroll_height - 200 {
+                                if let Some(cb) = &on_load {
+                                    cb.emit(());
+                                }
+                            }
+                        }
+                    }));
+                }
+            }
+            move || { drop(_listener); }
         });
     }
 

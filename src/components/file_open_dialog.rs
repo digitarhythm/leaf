@@ -15,6 +15,10 @@ pub struct FilePreview {
     pub id: String,
     pub name: String,
     pub content: String,
+    pub total_size: u64,
+    pub loaded_bytes: u64,
+    pub is_markdown: bool,
+    pub lang: String,
 }
 
 fn get_highlight_lang(filename: &str) -> Option<&str> {
@@ -84,6 +88,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let current_category_name = use_state(|| "".to_string());
     let active_dropdown_file_id = use_state(|| None::<String>); // 上に移動
     let preview_data = use_state(|| None::<FilePreview>);
+    let is_loading_more_preview = use_state(|| false);
     let abort_controller = use_state(|| None::<AbortController>);
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
@@ -239,14 +244,24 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let v = array.get(i);
                             let id = js_sys::Reflect::get(&v, &JsValue::from_str("id")).unwrap().as_string().unwrap();
                             let name = js_sys::Reflect::get(&v, &JsValue::from_str("name")).unwrap().as_string().unwrap();
+                            let size_val = js_sys::Reflect::get(&v, &JsValue::from_str("size")).unwrap_or(JsValue::UNDEFINED);
+                            let total_size = size_val.as_string().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                            
                             let id_clone = id.clone();
                             let signal_inner = signal_for_list.clone();
                             download_futures.push(async move {
-                                let content = match download_file(&id_clone, Some("0-1024"), Some(signal_inner)).await {
+                                // 256KB をプリフェッチ
+                                let (range, loaded) = if total_size > 256 * 1024 {
+                                    (Some("0-262143"), 256 * 1024)
+                                } else {
+                                    (None, total_size)
+                                };
+                                
+                                let content = match download_file(&id_clone, range, Some(signal_inner)).await {
                                     Ok(c_val) => c_val.as_string().unwrap_or_default(),
                                     Err(_) => "".to_string(),
                                 };
-                                FilePreview { id, name, content }
+                                FilePreview { id, name, content, total_size, loaded_bytes: loaded, is_markdown: false, lang: "".to_string() }
                             });
                         }
                         let previews = futures::future::join_all(download_futures).await;
@@ -337,6 +352,39 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
+    // 追加読み込みロジック
+    let on_load_more_preview = {
+        let p_data = preview_data.clone();
+        let is_loading_more = is_loading_more_preview.clone();
+        Callback::from(move |_: ()| {
+            if *is_loading_more { return; }
+            let p_data = p_data.clone();
+            let is_loading_more = is_loading_more.clone();
+            
+            if let Some(preview) = (*p_data).clone() {
+                if preview.loaded_bytes >= preview.total_size { return; }
+                
+                let file_id = preview.id.clone();
+                let start = preview.loaded_bytes;
+                let end = std::cmp::min(start + 1024 * 1024, preview.total_size) - 1;
+                let range = format!("{}-{}", start, end);
+                
+                is_loading_more.set(true);
+                spawn_local(async move {
+                    if let Ok(js_val) = download_file(&file_id, Some(&range), None).await {
+                        if let Some(new_content) = js_val.as_string() {
+                            let mut updated_preview = preview.clone();
+                            updated_preview.content.push_str(&new_content);
+                            updated_preview.loaded_bytes = end + 1;
+                            p_data.set(Some(updated_preview));
+                        }
+                    }
+                    is_loading_more.set(false);
+                });
+            }
+        })
+    };
+
     let on_keydown = {
         let focused_area = focused_area.clone();
         let selected_cat_idx = selected_cat_idx.clone();
@@ -371,24 +419,52 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         let file = &files_c[*selected_file_idx];
                         let file_id = file.id.clone();
                         let file_name = file.name.clone();
+                        let total_size = file.total_size;
+                        let loaded_bytes = file.loaded_bytes;
                         let is_loading = loading_handle.clone();
                         let p_data = preview_data.clone();
 
+                        // すでに 256KB 以上、またはファイル全体が読み込み済みであれば即座に表示
+                        if loaded_bytes >= 256 * 1024 || loaded_bytes >= total_size {
+                            let ext = file_name.split('.').last().unwrap_or("").to_lowercase();
+                            let is_markdown = ext == "md" || ext == "markdown";
+                            let lang = get_highlight_lang(&file_name).unwrap_or("").to_string();
+                            
+                            p_data.set(Some(FilePreview {
+                                id: file_id,
+                                name: file_name,
+                                content: file.content.clone(),
+                                total_size,
+                                loaded_bytes,
+                                is_markdown,
+                                lang,
+                            }));
+                            return;
+                        }
+
                         is_loading.set(true);
                         spawn_local(async move {
-                            if let Ok(js_val) = download_file(&file_id, None, None).await {
+                            // すでにリスト取得時に total_size を持っているので即座にダウンロード開始
+                            let (range, loaded) = if total_size > 256 * 1024 {
+                                (Some("0-262143".to_string()), 256 * 1024)
+                            } else {
+                                (None, total_size)
+                            };
+
+                            if let Ok(js_val) = download_file(&file_id, range.as_deref(), None).await {
                                 if let Some(content) = js_val.as_string() {
                                     let ext = file_name.split('.').last().unwrap_or("").to_lowercase();
-                                    let preview_content = if ext == "md" || ext == "markdown" {
-                                        content
-                                    } else {
-                                        let lang = get_highlight_lang(&file_name).unwrap_or("");
-                                        format!("```{}\n{}\n```", lang, content)
-                                    };
+                                    let is_markdown = ext == "md" || ext == "markdown";
+                                    let lang = get_highlight_lang(&file_name).unwrap_or("").to_string();
+                                    
                                     p_data.set(Some(FilePreview {
                                         id: file_id,
                                         name: file_name,
-                                        content: preview_content,
+                                        content,
+                                        total_size,
+                                        loaded_bytes: loaded,
+                                        is_markdown,
+                                        lang,
                                     }));
                                 }
                             }
@@ -835,11 +911,23 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     on_cancel={let pending = pending_delete_file.clone(); move |_| pending.set(None)} 
                 />
             }
-            if let Some(p) = (*preview_data).clone() {
-                <Preview 
-                    content={p.content} 
-                    on_close={let p_data = preview_data.clone(); Callback::from(move |_| p_data.set(None))} 
-                />
+            {
+                if let Some(p) = (*preview_data).clone() {
+                    let content = if p.is_markdown {
+                        p.content.clone()
+                    } else {
+                        format!("```{}\n{}\n```", p.lang, p.content)
+                    };
+                    let has_more = p.loaded_bytes < p.total_size;
+                    html! {
+                        <Preview 
+                            content={content} 
+                            on_close={let p_data = preview_data.clone(); Callback::from(move |_| p_data.set(None))} 
+                            on_load_more={on_load_more_preview.clone()}
+                            has_more={has_more}
+                        />
+                    }
+                } else { html! { <></> } }
             }
         </div>
     }
