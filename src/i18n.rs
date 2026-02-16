@@ -62,14 +62,14 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Welcome to Leaf.",
         }.to_string(),
         "app_policy_description" => match lang {
-            Language::Ja => "全てのテキストをGoogleドライブ上に置き、思考を即座にコードや文章へと変えるためのエディターです。\n\n・<span class=\"text-base font-bold text-white\">Vim Native</span>：デフォルトでVimキーバインドを搭載。プロフェッショナルな編集体験を。\n・<span class=\"text-base font-bold text-white\">ファイル名からの解放</span>：管理の基準は「最初の3行」。名前付けに迷う時間をゼロに。\n・<span class=\"text-base font-bold text-white\">多彩な表現力</span>：主要言語のコードハイライトとMarkdownプレビューで、アウトプットを加速。\n・<span class=\"text-base font-bold text-white\">スマートな分類</span>：カテゴリー（フォルダ）を自由に作成し、膨大なメモも整然と管理。\n・<span class=\"text-base font-bold text-white\">徹底した自動保存</span>：一度保存したファイルは、常に最新の状態がドライブへ同期されます。\n\nログインにより、マイドライブ/ApplicationSupport/LeafData 内に専用の作業環境が自動作成されます。\n※Googleドライブへの自動フォルダ作成を希望されない方は使用しないでください。",
+            Language::Ja => "「保存」という概念を意識させない、思考のためのメモ帳です。\n\n・<span class=\"text-base font-bold text-white\">自動保存</span>：新規メモを作成して書き込むだけで、即座に保存が開始されます。\n・<span class=\"text-base font-bold text-white\">スマート管理</span>：カテゴリー分けによる整理や、ファイル形式指定によるコードハイライトが可能。\n・<span class=\"text-base font-bold text-white\">クラウド同期</span>：データはGoogleドライブに保存。同じアカウントならどこからでも編集できます。\n・<span class=\"text-base font-bold text-white\">オフライン対応</span>：オフライン時の編集も、オンライン復帰時に自動で同期されます。\n・<span class=\"text-base font-bold text-white\">プロの編集体験</span>：デフォルトでVimキーバインドを搭載。Markdownプレビューも快適です。\n\nログインにより、マイドライブ/ApplicationSupport/LeafData 内に専用の作業環境が自動作成されます。\n※Googleドライブへの自動フォルダ作成を希望されない方は使用しないでください。",
             Language::Zh => "该编辑器的设计原则是将所有文本文件存储在 Google 云端硬盘上并进行編集。\n当您使用 Google 帐户登录时，将在您的“我的云端硬盘”下自动创建以下文件夹结构：\n我的云端硬盘/ApplicationSupport/LeafData/NO_CATEGORY\n新创建のテキストファイルは「NO_CATEGORY」に保存されます。\n「NO_CATEGORY」はデフォルト类别이며, 类别は自由に追加できます。\n\n如果您不希望在 Google 云端硬盘上自动创建文件夹 or ファイル，请不要使用此应用。",
             Language::Ko => "이 에디터는 모든 텍스트 파일을 Google 드라이브에 저장하고 편집하는 정책으로 제작되었습니다.\nGoogle 계정으로 로그인하면 '내 드라이브' 아래에 다음 폴더 구조가 자동으로 생성됩니다:\n내 드라이브/ApplicationSupport/LeafData/NO_CATEGORY\n새로 생성된 텍스트 파일은 '내 드라이브/ApplicationSupport/LeafData/NO_CATEGORY'에 저장됩니다.\n'NO_CATEGORY'는 기본 카테고리이며, 카테고리는 자유롭게 추가할 수 있습니다。\n\nGoogle 드라이브에 폴더나 ファイルが自動作成されたくない方は使用しないでください。",
             Language::Es => "Este editor está diseñado con la política de almacenar y editar todos los archivos de texto en Google Drive.\nAl iniciar sesión con su cuenta de Google, se creará automáticamente la siguiente estructura de carpetas en su \"Mi unidad\":\nMi unidad/ApplicationSupport/LeafData/NO_CATEGORY\nLos nuevos archivos de texto se guardarán en \"NO_CATEGORY\".\n\"NO_CATEGORY\" es la categoría predeterminada y puede agregar más categorías libremente.\n\nNo utilice esta aplicación si no desea que se creen carpetas o archivos automáticamente en su Google Drive.",
             Language::De => "Dieser Editor wurde mit dem Ziel entwickelt, alle Textdateien auf Google Drive zu speichern und zu bearbeiten.\nWenn Sie sich con Ihrem Google-Konto anmelden, wird unter \"Mein Ablage\" automatisch die folgende Ordnerstruktur erstellt:\nMein Ablage/ApplicationSupport/LeafData/NO_CATEGORY\nNeu erstellte Textdateien werden in \"NO_CATEGORY\" gespeichert.\n\"NO_CATEGORY\" ist die Standardkategorie, und Sie können frei weitere Kategorien hinzufügen.\n\nBitte verwenden Sie diese Anwendung nicht, wenn Sie nicht möchten, dass automatisch Ordner oder Dateien auf Ihrem Google Drive erstellt werden.",
             Language::Fr => "Cet éditeur est conçu avec la politique de stocker et de modifier tous les fichiers texte sur Google Drive.\nLorsque vous vous connectez with votre compte Google, la structure de dossiers suivante sera automatiquement créée sous votre \"Mon Drive\" :\nMon Drive/ApplicationSupport/LeafData/NO_CATEGORY\nLes fichiers texte nouvellement créés seront enregistrés dans \"NO_CATEGORY\".\n\"NO_CATEGORY\" est la catégorie par défaut, et vous pouvez librement ajouter d'autres catégories.\n\nVeuillez ne pas utiliser cette application si vous ne souhaitez pas que des dossiers ou des fichiers soient créés automatiquement sur votre Google Drive.",
             Language::It => "Questo editor è progettato con la politica di archiviare e modificare tutti i file di testo su Google Drive.\nQuando accedi con il tuo account Google, verrà creata automaticamente la seguente struttura di cartelle nel tuo \"Il mio Drive\":\nIl mio Drive/ApplicationSupport/LeafData/NO_CATEGORY\nI file di testo appena creati verranno salvati in \"NO_CATEGORY\".\n\"NO_CATEGORY\" est la catégorie par défaut, et vous pouvez librement aggiungere altre conegorie.\n\nSi prega di non utilizzare questa applicazione si non si desidera que cartelle o file vengano creati automaticamente sul proprio Google Drive.",
-            _ => "An editor built for focus, designed to live entirely on your Google Drive.\n\n- <span class=\"text-base font-bold text-white\">Vim by Default</span>: Native Vim keybindings for a professional, keyboard-driven experience.\n- <span class=\"text-base font-bold text-white\">Content-First Management</span>: No more naming files. The first three lines identify your thoughts.\n- <span class=\"text-base font-bold text-white\">Rich Highlighting & Preview</span>: Support for major programming languages and instant Markdown preview.\n- <span class=\"text-base font-bold text-white\">Category Organization</span>: Organize your notes and code into custom folders (categories).\n- <span class=\"text-base font-bold text-white\">Reliable Auto-Save</span>: Once saved, your work is continuously synchronized to Google Drive.\n\nLogging in will create a dedicated workspace under My Drive/ApplicationSupport/LeafData.\nPlease do not use this app if you prefer not to have folders created automatically.",
+            _ => "A notepad designed for focus, making the concept of \"saving\" a thing of the past.\n\n- <span class=\"text-base font-bold text-white\">Auto-Save</span>: Just create a new note and start writing. Everything is saved automatically.\n- <span class=\"text-base font-bold text-white\">Smart Organization</span>: Keep notes tidy with categories and enjoy code highlighting by setting file types.\n- <span class=\"text-base font-bold text-white\">Sync Anywhere</span>: Your data lives on Google Drive. Edit the same files from any device with the same account.\n- <span class=\"text-base font-bold text-white\">Offline Support</span>: Edit without a connection. Your changes sync automatically when you're back online.\n- <span class=\"text-base font-bold text-white\">Pro Editing</span>: Professional experience with default Vim keybindings and rich Markdown preview.\n\nLogging in will create a dedicated workspace under My Drive/ApplicationSupport/LeafData.\nPlease do not use this app if you prefer not to have folders created automatically.",
         }.to_string(),
         "synchronizing" => match lang {
             Language::Ja => "同期中...",
@@ -455,6 +455,37 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::It => "Disconnetti",
             Language::Nl => "Uitloggen",
             _ => "Logout",
+        }.to_string(),
+
+        "install_title" => match lang {
+            Language::Ja => "アプリをインストール",
+            _ => "Install App",
+        }.to_string(),
+        "install_confirm" => match lang {
+            Language::Ja => "Leaf をデスクトップまたはホーム画面にインストールしますか？",
+            _ => "Do you want to install Leaf to your desktop or home screen?",
+        }.to_string(),
+        "install_manual_title" => match lang {
+            Language::Ja => "アプリの保存方法",
+            _ => "How to Save App",
+        }.to_string(),
+        "install_manual_message" => match lang {
+            Language::Ja => "このブラウザでは直接インストールできません。\n以下の手順でアプリとして保存できます：\n\n1. ブラウザの共有ボタン、またはメニューをタップ\n2. 「ホーム画面に追加」を選択",
+            _ => "Direct installation is not supported in this browser.\nYou can save it as an app by:\n\n1. Tap the Share button or Menu\n2. Select \"Add to Home Screen\"",
+        }.to_string(),
+
+        "install_app_button" => match lang {
+            Language::Ja => "Leaf をインストール",
+            _ => "Install Leaf App",
+        }.to_string(),
+
+        "scroll_for_install" => match lang {
+            Language::Ja => "下にスクロールしてインストール",
+            _ => "Scroll down for Install button",
+        }.to_string(),
+        "close_guide" => match lang {
+            Language::Ja => "ESC または枠外クリックで閉じる",
+            _ => "ESC or Click outside to close",
         }.to_string(),
 
         // --- Status Bar ---

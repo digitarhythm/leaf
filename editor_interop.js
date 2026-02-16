@@ -7,6 +7,33 @@ let previewActive = false;
 let localFileHandle = null;
 const FONT_SIZE_KEY = 'leaf_font_size';
 
+export function can_install_pwa() {
+    const prompt = window.leafDeferredPrompt;
+    console.log("[Leaf-PWA] can_install_pwa checked. Status:", !!prompt);
+    return !!prompt;
+}
+
+export async function trigger_pwa_install() {
+    const prompt = window.leafDeferredPrompt;
+    if (!prompt) {
+        console.warn("[Leaf-PWA] trigger_pwa_install called but prompt is null.");
+        return false;
+    }
+    console.log("[Leaf-PWA] Triggering installation prompt...");
+    prompt.prompt();
+    const { outcome } = await prompt.userChoice;
+    console.log("[Leaf-PWA] Installation prompt outcome:", outcome);
+    window.leafDeferredPrompt = null;
+    return outcome === 'accepted';
+}
+
+export function is_webkit_or_safari() {
+    const ua = window.navigator.userAgent.toLowerCase();
+    const isSafari = ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1;
+    const isMobileSafari = (ua.indexOf('iphone') !== -1 || ua.indexOf('ipad') !== -1) && ua.indexOf('safari') !== -1;
+    return isSafari || isMobileSafari;
+}
+
 export async function open_local_file() {
     try {
         const [handle] = await window.showOpenFilePicker({

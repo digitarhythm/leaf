@@ -110,6 +110,8 @@ pub fn app() -> Html {
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
+    let is_install_confirm_visible = use_state(|| false);
+    let is_install_manual_visible = use_state(|| false);
 
     let sheets_ref = use_mut_ref(|| Vec::<Sheet>::new());
     let active_id_ref = use_mut_ref(|| None::<String>);
@@ -120,6 +122,25 @@ pub fn app() -> Html {
     let is_preview_ref = use_mut_ref(|| false);
     let is_file_open_ref = use_mut_ref(|| false);
     let is_help_ref = use_mut_ref(|| false);
+
+    const STORAGE_KEY_FIRST_LAUNCH: &str = "leaf_first_launch_v1";
+
+    // 初回起動判定
+    {
+        let is_auth = is_authenticated.clone();
+        let is_help = is_help_visible.clone();
+        use_effect_with(is_auth, move |auth| {
+            if **auth {
+                let storage = web_sys::window().and_then(|w| w.local_storage().ok().flatten());
+                let first_launch = storage.as_ref().and_then(|s| s.get_item(STORAGE_KEY_FIRST_LAUNCH).ok().flatten()).is_none();
+                if first_launch {
+                    is_help.set(true);
+                    if let Some(s) = storage { let _ = s.set_item(STORAGE_KEY_FIRST_LAUNCH, "done"); }
+                }
+            }
+            || ()
+        });
+    }
 
     // Ref sync
     {
@@ -1486,8 +1507,48 @@ pub fn app() -> Html {
                 } else if *is_help_visible {
                     let ih = is_help_visible.clone();
                     let c = i18n::t("help_shortcuts", lang);
-                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} /> })
+                    let is_conf = is_install_confirm_visible.clone();
+                    let is_man = is_install_manual_visible.clone();
+                    let on_install = Callback::from(move |_: ()| {
+                        if crate::js_interop::can_install_pwa() {
+                            is_conf.set(true);
+                        } else {
+                            is_man.set(true);
+                        }
+                    });
+                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} /> })
                 } else { None } { <div class="pointer-events-auto">{ preview }</div> }
+
+                if *is_install_confirm_visible {
+                    <div class="pointer-events-auto">
+                        <ConfirmDialog 
+                            title={i18n::t("install_title", lang)}
+                            message={i18n::t("install_confirm", lang)}
+                            on_confirm={
+                                let ic = is_install_confirm_visible.clone();
+                                move |_| {
+                                    ic.set(false);
+                                    spawn_local(async move {
+                                        crate::js_interop::trigger_pwa_install().await;
+                                    });
+                                }
+                            }
+                            on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)}
+                        />
+                    </div>
+                }
+
+                if *is_install_manual_visible {
+                    <div class="pointer-events-auto">
+                        <ConfirmDialog 
+                            title={i18n::t("install_manual_title", lang)}
+                            message={i18n::t("install_manual_message", lang)}
+                            ok_label={"OK"}
+                            on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)}
+                            on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)}
+                        />
+                    </div>
+                }
 
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category {
                     let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang);
