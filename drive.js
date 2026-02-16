@@ -128,6 +128,17 @@ export async function move_file(fileId, oldParentId, newParentId) {
     return await response.json();
 }
 
+export async function rename_folder(folderId, newName) {
+    const url = `https://www.googleapis.com/drive/v3/files/${folderId}`;
+    const response = await authenticatedFetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+    });
+    if (!response.ok) throw new Error(`Rename folder failed: ${response.status}`);
+    return await response.json();
+}
+
 export async function upload_file(filename, content, folderId, fileId = null) {
     if (fileId) {
         const url = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=id,name,modifiedTime`;

@@ -51,6 +51,7 @@ pub struct FileOpenDialogProps {
     pub categories: Vec<JSCategory>,
     pub on_refresh: Callback<()>,
     pub on_delete_category: Callback<String>,
+    pub on_rename_category: Callback<(String, String)>, // (category_id, new_name)
     #[prop_or_default]
     pub on_start_processing: Callback<()>,
     #[prop_or_default]
@@ -76,6 +77,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let files = use_state(|| Vec::<FilePreview>::new());
     let is_loading_files = use_state(|| false);
     let is_creating_category = use_state(|| false);
+    let editing_category_id = use_state(|| None::<String>);
+    let edit_name_input = use_state(|| "".to_string());
     let is_fading_out = use_state(|| false);
     let current_category_id = use_state(|| "".to_string());
     let current_category_name = use_state(|| "".to_string());
@@ -84,6 +87,24 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let abort_controller = use_state(|| None::<AbortController>);
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
+    let edit_input_ref = use_node_ref();
+
+    // 編集モード開始時に入力フィールドへフォーカス
+    {
+        let edit_ref = edit_input_ref.clone();
+        let editing_id = editing_category_id.clone();
+        use_effect_with((*editing_id).clone(), move |id| {
+            if id.is_some() {
+                Timeout::new(10, move || {
+                    if let Some(el) = edit_ref.cast::<web_sys::HtmlInputElement>() {
+                        let _ = el.focus();
+                        let _ = el.select();
+                    }
+                }).forget();
+            }
+            || ()
+        });
+    }
 
     // プレビュー状態を親に通知
     {
@@ -536,8 +557,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     <div class="w-[30%] border-r border-gray-700 flex flex-col overflow-y-auto p-2 space-y-1 bg-gray-900/30">
                         { for sorted_categories.iter().enumerate().map(|(idx, cat)| {
                             let is_selected = *selected_cat_idx == idx;
+                            let is_editing = (*editing_category_id).as_ref() == Some(&cat.id);
                             let area_active = *focused_area == FocusedArea::Categories && *is_root_focused;
-                            let is_focused = is_selected && area_active;
+                            let is_focused = is_selected && area_active && !is_editing;
                             
                             let id_for_change = cat.id.clone();
                             let name = cat.name.clone();
@@ -545,7 +567,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let load_files = load_files.clone();
                             let selected_cat_idx = selected_cat_idx.clone();
                             let on_delete = props.on_delete_category.clone();
+                            let on_rename = props.on_rename_category.clone();
                             let is_no_cat = cat.name == "OTHERS";
+
+                            let editing_id = editing_category_id.clone();
+                            let edit_input = edit_name_input.clone();
 
                             html! {
                                 <div class={classes!(
@@ -557,22 +583,90 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 )}
                                 style="height: 6.2%; min-height: 32px; margin-bottom: 0.4%;"
                                 >
-                                    <button 
-                                        onclick={move |_| { selected_cat_idx.set(idx); load_files.emit((id_for_change.clone(), name.clone(), false)); }}
-                                        class="flex-1 text-left px-4 truncate h-full flex items-center outline-none"
-                                    >
-                                        <span class="truncate">{ display_name }</span>
-                                    </button>
-                                    if !is_no_cat {
-                                        <button
-                                            onclick={let id = cat.id.clone(); move |e: MouseEvent| { e.stop_propagation(); on_delete.emit(id.clone()); }}
-                                            class="p-2 text-gray-500 hover:text-red-400 opacity-0 group-hover/cat:opacity-100 transition-opacity outline-none"
-                                            title={i18n::t("delete", lang)}
+                                    if is_editing {
+                                        <div class="flex-1 flex items-center px-2 space-x-1 h-full">
+                                            <input 
+                                                ref={edit_input_ref.clone()}
+                                                type="text"
+                                                value={(*edit_input).clone()}
+                                                oninput={let edit_input = edit_input.clone(); Callback::from(move |e: InputEvent| {
+                                                    let input: web_sys::HtmlInputElement = e.target_unchecked_into();
+                                                    edit_input.set(input.value());
+                                                })}
+                                                onkeydown={let editing_id = editing_id.clone(); let edit_input = edit_input.clone(); let on_rename = on_rename.clone(); let id = cat.id.clone(); Callback::from(move |e: KeyboardEvent| {
+                                                    e.stop_propagation();
+                                                    if e.key() == "Enter" && !e.is_composing() {
+                                                        let new_name = (*edit_input).trim().to_string();
+                                                        if !new_name.is_empty() {
+                                                            on_rename.emit((id.clone(), new_name));
+                                                        }
+                                                        editing_id.set(None);
+                                                    } else if e.key() == "Escape" {
+                                                        editing_id.set(None);
+                                                    }
+                                                })}
+                                                class="flex-1 bg-gray-900 border border-gray-600 rounded px-2 py-0.5 text-xs text-white outline-none focus:border-blue-500"
+                                            />
+                                            <button 
+                                                onclick={let editing_id = editing_id.clone(); let edit_input = edit_input.clone(); let on_rename = on_rename.clone(); let id = cat.id.clone(); move |e: MouseEvent| {
+                                                    e.stop_propagation();
+                                                    let new_name = (*edit_input).trim().to_string();
+                                                    if !new_name.is_empty() {
+                                                        on_rename.emit((id.clone(), new_name));
+                                                    }
+                                                    editing_id.set(None);
+                                                }}
+                                                class="p-1 hover:bg-gray-600 rounded transition-colors"
+                                                title={i18n::t("save", lang)}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 text-green-500">
+                                                    <path fill-rule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                            <button 
+                                                onclick={let editing_id = editing_id.clone(); move |e: MouseEvent| { e.stop_propagation(); editing_id.set(None); }}
+                                                class="p-1 hover:bg-gray-600 rounded transition-colors"
+                                                title={i18n::t("cancel", lang)}
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 text-red-500">
+                                                    <path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    } else {
+                                        <button 
+                                            onclick={move |_| { selected_cat_idx.set(idx); load_files.emit((id_for_change.clone(), name.clone(), false)); }}
+                                            class="flex-1 text-left px-4 truncate h-full flex items-center outline-none"
                                         >
-                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
-                                                <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.244 1.487l.263-.041.608 11.137A2.75 2.75 0 007.5 19h5a2.75 2.75 0 002.747-2.597l.608-11.137.263.041a.75.75 0 10.244-1.487A48.112 48.112 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.498-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.498-.06l-.3 7.5a.75.75 0 001.5.06l.3-7.5z" clip-rule="evenodd" />
-                                            </svg>
+                                            <span class="truncate">{ display_name }</span>
                                         </button>
+                                        if !is_no_cat {
+                                            <div class="flex items-center opacity-0 group-hover/cat:opacity-100 transition-opacity">
+                                                <button
+                                                    onclick={let id = cat.id.clone(); let name = cat.name.clone(); let editing_id = editing_id.clone(); let edit_input = edit_input.clone(); move |e: MouseEvent| { 
+                                                        e.stop_propagation(); 
+                                                        editing_id.set(Some(id.clone())); 
+                                                        edit_input.set(name.clone());
+                                                    }}
+                                                    class="p-1.5 text-gray-500 hover:text-blue-400 outline-none"
+                                                    title={i18n::t("edit", lang)}
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                                                        <path d="M5.433 13.917l1.262-3.155A4 4 0 017.58 9.42l6.92-6.918a2.121 2.121 0 013 3l-6.92 6.918c-.383.383-.84.685-1.343.886l-3.154 1.262a.5.5 0 01-.65-.65z" />
+                                                        <path d="M3.5 5.75c0-.69.56-1.25 1.25-1.25H10A.75.75 0 0010 3H4.75A2.75 2.75 0 002 5.75v9.5A2.75 2.75 0 004.75 18h9.5A2.75 2.75 0 0017 15.25V10a.75.75 0 00-1.5 0v5.25c0 .69-.56 1.25-1.25 1.25h-9.5c-.69 0-1.25-.56-1.25-1.25v-9.5z" />
+                                                    </svg>
+                                                </button>
+                                                <button
+                                                    onclick={let id = cat.id.clone(); move |e: MouseEvent| { e.stop_propagation(); on_delete.emit(id.clone()); }}
+                                                    class="p-1.5 text-gray-500 hover:text-red-400 outline-none"
+                                                    title={i18n::t("delete", lang)}
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                                                        <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.244 1.487l.263-.041.608 11.137A2.75 2.75 0 007.5 19h5a2.75 2.75 0 002.747-2.597l.608-11.137.263.041a.75.75 0 10.244-1.487A48.112 48.112 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.498-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.498-.06l-.3 7.5a.75.75 0 001.5.06l.3-7.5z" clip-rule="evenodd" />
+                                                    </svg>
+                                                </button>
+                                            </div>
+                                        }
                                     }
                                 </div>
                             }
