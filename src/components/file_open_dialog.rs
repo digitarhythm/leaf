@@ -775,8 +775,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                             html! {
                                 <div class={classes!(
-                                    "relative", "group/item", "transition-all", "duration-300", "h-1/5", "w-full", "p-1.5",
-                                    if is_fading_item { "opacity-0 scale-95 pointer-events-none" } else { "opacity-100" }
+                                    "relative", "group/fileitem", "h-1/5", "w-full", "p-1.5",
+                                    if is_fading_item { "opacity-0 scale-95 pointer-events-none" } else { "opacity-100" },
+                                    if is_drop_open { "z-30" } else { "z-0" }
                                 )}>
                                     <button 
                                         onclick={move |_| if !*is_loading_files { s_idx_1.set(idx) }}
@@ -795,11 +796,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         </div>
                                     </button>
                                     
-                                    <div class="absolute top-3 right-3 flex space-x-1 opacity-0 group-hover/item:opacity-100 transition-opacity">
+                                    <div class={classes!(
+                                        "absolute", "top-3", "right-3", "flex", "space-x-1", "z-20", "pointer-events-auto"
+                                    )}>
                                         <div class="relative">
                                             <button 
                                                 onclick={let active = active_drop.clone(); let id = file_id.clone(); move |e: MouseEvent| { e.stop_propagation(); if (*active).as_ref() == Some(&id) { active.set(None); } else { active.set(Some(id.clone())); } }}
-                                                class="p-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white shadow-sm"
+                                                class="p-1.5 rounded bg-gray-600 hover:bg-gray-500 text-white shadow-md border border-gray-500 transition-opacity duration-200 opacity-30 group-hover/fileitem:opacity-80"
                                                 title={i18n::t("change_category", lang)}
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
@@ -807,12 +810,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 </svg>
                                             </button>
                                             if is_drop_open {
-                                                <div ref={dropdown_ref.clone()} class="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-xl z-50 overflow-hidden py-1">
+                                                <div ref={dropdown_ref.clone()} class="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-xl z-50 overflow-hidden py-1 opacity-100">
                                                     { for sorted_categories.iter().map(|c| {
-                                                        let id = c.id.clone();
+                                                        let cat_id = c.id.clone();
                                                         let fid = file_id.clone();
                                                         let on_m = on_move.clone();
-                                                        let is_curr = id == current_cid;
+                                                        let is_curr = cat_id == current_cid;
                                                         let display_name = if c.name == "OTHERS" { i18n::t("OTHERS", lang) } else { c.name.clone() };
                                                         html! {
                                                             <button 
@@ -821,10 +824,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                                 } else { 
                                                                     let on_m = on_m.clone();
                                                                     let fid = fid.clone();
-                                                                    let id = id.clone();
+                                                                    let cat_id = cat_id.clone();
                                                                     Callback::from(move |e: MouseEvent| { 
                                                                         e.stop_propagation(); 
-                                                                        on_m.emit((fid.clone(), id.clone())); 
+                                                                        on_m.emit((fid.clone(), cat_id.clone())); 
                                                                     }) 
                                                                 }}
                                                                 class={classes!(
@@ -842,7 +845,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         </div>
                                         <button 
                                             onclick={let fid = file_id.clone(); let fname = file_name.clone(); move |e: MouseEvent| { e.stop_propagation(); pending_del.set(Some((fid.clone(), fname.clone()))); }}
-                                            class="p-1.5 rounded bg-gray-600 hover:bg-red-600 text-white shadow-sm"
+                                            class="p-1.5 rounded bg-gray-600 hover:bg-red-600 text-white shadow-md border border-gray-500 transition-opacity duration-200 opacity-30 group-hover/fileitem:opacity-80"
                                             title={i18n::t("delete", lang)}
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-4 h-4">
