@@ -1678,14 +1678,26 @@ pub fn app() -> Html {
                     .unwrap_or_else(|| i18n::t("OTHERS", lang))
             };
             let mut file_name = sheet.title.clone();
-            let mut file_ext = file_name.split('.').last().unwrap_or("txt").to_string();
+            let mut file_ext = file_name.split('.').last().unwrap_or("txt").to_string().to_lowercase();
+            
+            // サポートされている拡張子リスト（StatusBarと同期）
+            let supported_exts = vec![
+                "txt", "md", "js", "ts", "rs", "c", "cpp", "h", "m", "cs", "java", "php", 
+                "rb", "pl", "py", "sh", "coffee", "toml", "json", "xml", "html", "css", "sql", "yaml"
+            ];
+            
+            if !supported_exts.contains(&file_ext.as_str()) {
+                file_ext = "txt".to_string();
+            }
+
             if sheet.drive_id.is_none() && sheet.guid.is_none() {
-                if sheet.category == "__LOCAL__" && file_name == "Untitled" {
+                if sheet.category == "__LOCAL__" && file_name == "Untitled.txt" {
                     file_name = i18n::t("filename_not_specified", lang);
+                    file_ext = "txt".to_string();
                 } else if sheet.category != "__LOCAL__" && file_name.starts_with("Untitled") {
                     file_name = "----".to_string();
+                    file_ext = "txt".to_string();
                 }
-                file_ext = "txt".to_string();
             }
             (cn, file_name, file_ext)
         } else {
