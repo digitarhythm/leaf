@@ -112,6 +112,19 @@ export function init_editor(element_id, callback) {
         if (commandCallback) commandCallback("change");
     });
 
+    // スクロールイベント (インクリメンタル読み込み用)
+    editor.session.on("changeScrollTop", (scrollTop) => {
+        const session = editor.session;
+        const renderer = editor.renderer;
+        
+        // 現在の表示内容の高さと、全体の高さを比較
+        // 下端から 200px 以内になったら通知
+        if (scrollTop + renderer.getHeight() > session.getScreenLength() * renderer.lineHeight - 200) {
+            console.log("[Leaf-SYSTEM] Triggering load_more (scrollTop: " + scrollTop + ")");
+            if (commandCallback) commandCallback("load_more");
+        }
+    });
+
     // Vim モードの状態監視
     editor.on("vimModeChange", (e) => {
         const container = editor.container;
@@ -340,6 +353,14 @@ export function set_editor_mode(filename) {
 
 export function set_preview_active(active) {
     previewActive = active;
+}
+
+export function append_editor_content(content) {
+    if (!editor) return;
+    const session = editor.session;
+    const lastRow = session.getLength();
+    const lastCol = session.getLine(lastRow - 1).length;
+    session.insert({ row: lastRow, column: lastCol }, content);
 }
 
 export function exec_editor_command(command) {

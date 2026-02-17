@@ -14,6 +14,10 @@ pub struct JSSheet {
     pub temp_timestamp: Option<u64>,
     pub last_sync_timestamp: Option<u64>,
     pub tab_color: String,
+    #[serde(default)]
+    pub total_size: u64,
+    #[serde(default)]
+    pub loaded_bytes: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]

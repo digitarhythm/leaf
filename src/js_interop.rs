@@ -7,6 +7,7 @@ extern "C" {
     pub fn init_editor(element_id: &str, callback: &Closure<dyn FnMut(String)>);
     pub fn set_vim_mode(enabled: bool);
     pub fn set_editor_content(content: &str);
+    pub fn append_editor_content(content: &str);
     pub fn get_editor_content() -> JsValue;
     pub fn resize_editor();
     pub fn focus_editor();
