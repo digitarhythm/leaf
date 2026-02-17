@@ -83,7 +83,10 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 title={i18n::t("import_file", lang)}
             >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
+                    // 円筒形 (Storage/Database)
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75" />
+                    // 下向き矢印 (位置を下に調整、縦棒を長く)
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75l2.25-2.25M12 18.75l-2.25-2.25M12 18.75V9" />
                 </svg>
             </button>
 
