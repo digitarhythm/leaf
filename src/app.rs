@@ -875,6 +875,7 @@ pub fn app() -> Html {
     let il_for_import = is_loading.clone();
     let ifo_for_import = is_fading_out.clone();
     let lock_fade_for_import = is_import_fading_out.clone();
+    let lmk_for_import = loading_message_key.clone();
     let on_import_cb = {
         let s_state = sheets.clone(); let aid_state = active_sheet_id.clone();
         let sp_state = is_suppressing_changes.clone(); let r_s = sheets_ref.clone();
@@ -882,6 +883,7 @@ pub fn app() -> Html {
         let il_h = il_for_import;
         let ifo_h = ifo_for_import;
         let lock_fade_h = lock_fade_for_import;
+        let lmk_h = lmk_for_import;
         let os = on_save_cb.clone();
         Callback::from(move |_| {
             let aid_val = (*aid_state).clone();
@@ -908,17 +910,19 @@ pub fn app() -> Html {
             let ifo_cb = ifo_h.clone();
             let lock_fade_cb = lock_fade_h.clone();
             
+            let lmk_cb = lmk_h.clone();
             spawn_local(async move {
                 let res = open_local_file().await;
                 if res.is_null() || res.is_undefined() { return; }
                 
+                lmk_cb.set("synchronizing");
+                ifo_cb.set(false); lock_fade_cb.set(false);
+                il_cb.set(true); lock_cb.set(true);
+
                 if let (Some(name), Some(content)) = (
                     js_sys::Reflect::get(&res, &JsValue::from_str("name")).ok().and_then(|v| v.as_string()),
                     js_sys::Reflect::get(&res, &JsValue::from_str("content")).ok().and_then(|v| v.as_string())
                 ) {
-                    ifo_cb.set(false); lock_fade_cb.set(false);
-                    il_cb.set(true); lock_cb.set(true);
-                    
                     let nid = js_sys::Date::now().to_string();
                     let ns = Sheet { 
                         id: nid.clone(), 
@@ -948,18 +952,18 @@ pub fn app() -> Html {
                     let js = ns.to_js();
                     let ser = serde_wasm_bindgen::Serializer::json_compatible();
                     if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                    
-                    // テキストセット後の描画待ち
-                    Timeout::new(50, move || {
-                        ifo_cb.set(true);
-                        let il = il_cb.clone(); let sp = sp_state_c.clone(); let ifo_final = ifo_cb.clone();
+
+                    // エディタへの反映を待ってからフェードアウト開始
+                    Timeout::new(100, move || {
+                        lock_fade_cb.set(true);
+                        let l = lock_cb.clone(); let lf = lock_fade_cb.clone();
+                        let il = il_cb.clone(); let sp = sp_state_c.clone();
                         Timeout::new(300, move || {
-                            il.set(false);
-                            sp.set(false);
-                            ifo_final.set(false);
+                            lf.set(false); l.set(false); il.set(false); sp.set(false);
                         }).forget();
                     }).forget();
-                    lock_cb.set(false); 
+                } else {
+                    il_cb.set(false); lock_cb.set(false);
                 }
             });
         })
