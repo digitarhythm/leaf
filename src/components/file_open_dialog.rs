@@ -737,7 +737,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     if is_drop_open { "z-30" } else { "z-0" }
                                 )}>
                                     <button 
-                                        onclick={move |_| if !*is_loading_files { s_idx_1.set(idx) }}
+                                        onclick={let focused_area = focused_area.clone(); move |_| { if !*is_loading_files { s_idx_1.set(idx); focused_area.set(FocusedArea::Files); } }}
                                         ondblclick={let on_ok = on_ok.clone(); move |_| { s_idx_2.set(idx); on_ok.emit(()); }}
                                         class={classes!(
                                             "w-full", "h-full", "text-left", "px-4", "py-2", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",

@@ -1679,8 +1679,12 @@ pub fn app() -> Html {
             };
             let mut file_name = sheet.title.clone();
             let mut file_ext = file_name.split('.').last().unwrap_or("txt").to_string();
-            if file_name.starts_with("Untitled") && sheet.drive_id.is_none() && sheet.guid.is_none() && sheet.category != "__LOCAL__" {
-                file_name = "----".to_string();
+            if sheet.drive_id.is_none() && sheet.guid.is_none() {
+                if sheet.category == "__LOCAL__" && file_name == "Untitled" {
+                    file_name = i18n::t("filename_not_specified", lang);
+                } else if sheet.category != "__LOCAL__" && file_name.starts_with("Untitled") {
+                    file_name = "----".to_string();
+                }
                 file_ext = "txt".to_string();
             }
             (cn, file_name, file_ext)

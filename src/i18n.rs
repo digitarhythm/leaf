@@ -308,11 +308,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Ja => "新規ファイル名：",
             _ => "New filename:",
         }.to_string(),
-        "enter_new_filename" => match lang {
-            Language::Ja => "新しいファイル名を入力してください",
-            _ => "Enter new filename",
-        }.to_string(),
-        "confirm_conversion" => match lang {
+                "enter_new_filename" => match lang {
+                    Language::Ja => "新しいファイル名を入力してください",
+                    _ => "Enter new filename",
+                }.to_string(),
+        
+                "filename_not_specified" => match lang {
+                    Language::Ja => "ファイル名未指定",
+                    _ => "Filename not specified",
+                }.to_string(),
+        
+                "confirm_conversion" => match lang {
             Language::Ja => "ファイルをBOM付きUTF-8、改行コードLFに変換しますか？\n",
             _ => "Do you want to convert the file to UTF-8 with BOM and LF line endings?\n",
         }.to_string(),
