@@ -979,6 +979,15 @@ pub fn app() -> Html {
                     let lmk_inner = lmk.clone(); let r_s_inner = r_s.clone();
                     let os_inner = os.clone();
 
+                    // ローカルファイルへの変更時：即座に保存ダイアログを表示
+                    if new_cat_id == "__LOCAL__" {
+                        sheet.category = "__LOCAL__".to_string();
+                        let mut us = current_sheets; us[pos] = sheet;
+                        *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
+                        Timeout::new(0, move || { os_inner.emit(true); }).forget();
+                        return;
+                    }
+
                     // カテゴリーなしからの昇格
                     if old_cat_id.is_empty() && !new_cat_id.is_empty() {
                         sheet.guid = Some(generate_uuid());
