@@ -122,7 +122,10 @@ function buildMultipartBody(filename, content, folderId, boundary) {
     const part2 = `--${boundary}\r\nContent-Type: ${FILE_MIME_TYPE}\r\n\r\n`;
     const end = `\r\n--${boundary}--`;
 
-    return new Blob([encoder.encode(part1), encoder.encode(part2), encoder.encode(content), encoder.encode(end)], 
+    // BOMを付与
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    
+    return new Blob([encoder.encode(part1), encoder.encode(part2), bom, content, encoder.encode(end)], 
                     { type: `multipart/related; boundary=${boundary}` });
 }
 
@@ -145,12 +148,16 @@ export async function rename_folder(folderId, newName) {
 }
 
 export async function upload_file(filename, content, folderId, fileId = null) {
+    // BOMを付与したBlobを作成
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+    const contentWithBom = new Blob([bom, content], { type: FILE_MIME_TYPE });
+
     if (fileId) {
         const url = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media&fields=id,name,modifiedTime`;
         const response = await authenticatedFetch(url, {
             method: 'PATCH',
             headers: { 'Content-Type': FILE_MIME_TYPE },
-            body: content
+            body: contentWithBom
         });
 
         if (response.ok) return await response.json();

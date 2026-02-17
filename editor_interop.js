@@ -5,6 +5,7 @@ let pendingGutterUnsaved = null;
 let pendingMode = null; // 追加: モード設定の待機用
 let previewActive = false;
 let localFileHandle = null;
+let internalChange = false;
 const FONT_SIZE_KEY = 'leaf_font_size';
 
 export function can_install_pwa() {
@@ -19,32 +20,25 @@ export async function trigger_pwa_install() {
         console.warn("[Leaf-PWA] trigger_pwa_install called but prompt is null.");
         return false;
     }
-    console.log("[Leaf-PWA] Triggering installation prompt...");
     prompt.prompt();
     const { outcome } = await prompt.userChoice;
-    console.log("[Leaf-PWA] Installation prompt outcome:", outcome);
+    console.log(`[Leaf-PWA] User response to the install prompt: ${outcome}`);
     window.leafDeferredPrompt = null;
     return outcome === 'accepted';
 }
 
 export function is_webkit_or_safari() {
-    const ua = window.navigator.userAgent.toLowerCase();
-    const isSafari = ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1;
-    const isMobileSafari = (ua.indexOf('iphone') !== -1 || ua.indexOf('ipad') !== -1) && ua.indexOf('safari') !== -1;
-    return isSafari || isMobileSafari;
+    const ua = navigator.userAgent.toLowerCase();
+    return (ua.indexOf('webkit') !== -1 && ua.indexOf('chrome') === -1 && ua.indexOf('safari') !== -1);
 }
 
 export async function open_local_file() {
     try {
         const [handle] = await window.showOpenFilePicker({
-            types: [{ 
-                description: 'Code and Text Files', 
-                accept: { 
-                    'text/plain': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml'] 
-                } 
-            }],
-            excludeAcceptAllOption: false,
-            multiple: false
+            types: [{
+                description: 'Text Files',
+                accept: {'text/plain': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml']}
+            }]
         });
         localFileHandle = handle;
         const file = await handle.getFile();
@@ -78,6 +72,9 @@ export async function save_local_file(content) {
             }
         }
         const writable = await localFileHandle.createWritable();
+        // BOMを付与
+        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+        await writable.write(bom);
         await writable.write(content);
         await writable.close();
         return localFileHandle.name;
@@ -120,20 +117,8 @@ export function init_editor(element_id, callback) {
 
     // 変更イベント
     editor.on("change", () => {
+        if (internalChange) return;
         if (commandCallback) commandCallback("change");
-    });
-
-    // スクロールイベント (インクリメンタル読み込み用)
-    editor.session.on("changeScrollTop", (scrollTop) => {
-        const session = editor.session;
-        const renderer = editor.renderer;
-        
-        // 現在の表示内容の高さと、全体の高さを比較
-        // 下端から 200px 以内になったら通知
-        if (scrollTop + renderer.$size.height > session.getScreenLength() * renderer.lineHeight - 200) {
-            console.log("[Leaf-SYSTEM] Triggering load_more (scrollTop: " + scrollTop + ")");
-            if (commandCallback) commandCallback("load_more");
-        }
     });
 
     // Vim モードの状態監視
@@ -256,14 +241,37 @@ export function set_editor_content(content) {
         return;
     }
 
-    editor.setValue(content || "", -1);
-    editor.clearSelection();
-    editor.session.getUndoManager().reset();
-    pendingContent = null;
+    internalChange = true;
+    try {
+        editor.setValue(content || "", -1);
+        editor.clearSelection();
+        editor.session.getUndoManager().reset();
+        pendingContent = null;
+    } finally {
+        internalChange = false;
+    }
+}
+
+export function append_editor_content(content) {
+    if (!editor) return;
+    const session = editor.session;
+    const row = session.getLength();
+    console.log("[Leaf-SYSTEM] Appending chunk (" + content.length + " bytes) at row " + row);
+    
+    internalChange = true;
+    try {
+        // 末尾に挿入
+        session.insert({
+            row: row,
+            column: 0
+        }, content);
+    } finally {
+        internalChange = false;
+    }
 }
 
 export function get_editor_content() { 
-    if (!editor) return null;
+    if (!editor) return pendingContent;
     return editor.getValue(); 
 }
 
@@ -317,72 +325,24 @@ export function init_mermaid(element) {
     });
 }
 
-export function set_editor_mode(filename) {
-    if (!editor) {
-        pendingMode = filename;
-        return;
-    }
-    const parts = filename.split('.');
-    const ext = parts.length > 1 ? parts.pop().toLowerCase() : "";
-    let mode = "ace/mode/text";
-    
-    const modeMap = {
-        "js": "javascript",
-        "ts": "typescript",
-        "coffee": "coffee",
-        "rs": "rust",
-        "md": "markdown",
-        "markdown": "markdown",
-        "html": "html",
-        "css": "css",
-        "json": "json",
-        "py": "python",
-        "sh": "sh",
-        "bash": "sh",
-        "zsh": "sh",
-        "pl": "perl",
-        "php": "php",
-        "rb": "ruby",
-        "cs": "csharp",
-        "cpp": "c_cpp",
-        "c": "c_cpp",
-        "h": "c_cpp",
-        "m": "c_cpp",
-        "java": "java",
-        "toml": "toml",
-        "yaml": "yaml",
-        "yml": "yaml",
-        "xml": "xml",
-        "sql": "sql"
-    };
-
-    if (modeMap[ext]) {
-        mode = "ace/mode/" + modeMap[ext];
-    } else {
-        // デフォルトは以前の JavaScript ではなく text に戻す（不明な拡張子のため）
-        mode = "ace/mode/text";
-    }
-    
-    if (editor.session.$modeId !== mode) {
-        editor.session.setMode(mode);
-        console.log(`[Leaf-SYSTEM] Editor mode set to ${mode} for extension .${ext}`);
-    }
-}
-
 export function set_preview_active(active) {
     previewActive = active;
-}
-
-export function append_editor_content(content) {
-    if (!editor) return;
-    const session = editor.session;
-    const lastRow = session.getLength();
-    const lastCol = session.getLine(lastRow - 1).length;
-    session.insert({ row: lastRow, column: lastCol }, content);
 }
 
 export function exec_editor_command(command) {
     if (editor) {
         editor.execCommand(command);
     }
+}
+
+export function set_editor_mode(filename) {
+    if (!editor) {
+        pendingMode = filename;
+        return;
+    }
+    const modelist = ace.require("ace/ext/modelist");
+    const mode = modelist.getModeForPath(filename).mode;
+    console.log("[Leaf-SYSTEM] Setting editor mode to", mode, "for filename", filename);
+    editor.session.setMode(mode);
+    pendingMode = null;
 }
