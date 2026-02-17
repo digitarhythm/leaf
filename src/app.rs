@@ -394,7 +394,7 @@ pub fn app() -> Html {
                                     } else { ild_inner.set(false); }
                                 });
                                 local_save_triggered = true;
-                            } else {
+                            } else if sheet.category != "__LOCAL__" {
                                 if let Some(others_id) = ncid_val {
                                     target_folder_id_val = if sheet.category.is_empty() || sheet.category == "OTHERS" { others_id } else { sheet.category.clone() };
                                     s_clone_opt = Some(sheet.clone());
@@ -915,7 +915,7 @@ pub fn app() -> Html {
                     let ns = Sheet { 
                         id: nid.clone(), 
                         guid: None, 
-                        category: "".to_string(), // カテゴリーなし
+                        category: "__LOCAL__".to_string(), 
                         title: name.clone(), 
                         content: content.clone(), 
                         is_modified: false,
@@ -1405,8 +1405,9 @@ pub fn app() -> Html {
                                 }
 
                                 // ドライブ同期対象: カテゴリーが設定されている(クラウド) 且つ __LOCAL__ でない
-                                // または ローカルファイル(Untitledでない)
-                                trigger_drive_sync = (!sheet.category.is_empty() && sheet.category != "__LOCAL__") || (sheet.category.is_empty() && !sheet.title.starts_with("Untitled"));
+                                // または ローカルファイル(Untitledでない) 且つ __LOCAL__ でない
+                                // または 既に __LOCAL__ に設定されている場合（自動保存をトリガー）
+                                trigger_drive_sync = (sheet.category != "__LOCAL__" && !sheet.category.is_empty()) || (sheet.category != "__LOCAL__" && sheet.category.is_empty() && !sheet.title.starts_with("Untitled")) || sheet.category == "__LOCAL__";
                             }
                             if needs_upd { *r_s_i.borrow_mut() = cur_s.clone(); s_state.set(cur_s); }
                             if trigger_drive_sync && needs_upd { 
@@ -1644,7 +1645,7 @@ pub fn app() -> Html {
             };
             let mut file_name = sheet.title.clone();
             let mut file_ext = file_name.split('.').last().unwrap_or("txt").to_string();
-            if file_name.starts_with("Untitled") && sheet.drive_id.is_none() && sheet.guid.is_none() {
+            if file_name.starts_with("Untitled") && sheet.drive_id.is_none() && sheet.guid.is_none() && sheet.category != "__LOCAL__" {
                 file_name = "----".to_string();
                 file_ext = "txt".to_string();
             }
