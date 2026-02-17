@@ -48,7 +48,8 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
         let on_start = props.on_start_processing.clone();
         let focused = focused.clone();
         let is_fading_out = is_fading_out.clone();
-        Callback::from(move |_| {
+        Callback::from(move |e: MouseEvent| {
+            e.stop_propagation();
             let choice = match *focused {
                 CustomDialogFocus::Options(idx) => Some(idx),
                 CustomDialogFocus::Ok => Some(0), // デフォルト
@@ -99,7 +100,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                     e.prevent_default();
                     match *focused {
                         CustomDialogFocus::Cancel => { if let Some(cb) = &on_cxl { cb.emit(()); } }
-                        _ => on_cfm.emit(()),
+                        _ => on_cfm.emit(MouseEvent::new("click").unwrap()),
                     }
                 }
                 "Escape" => {
@@ -120,11 +121,12 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
             )}
             tabindex="0"
             onkeydown={on_keydown}
+            onclick={|e: MouseEvent| e.stop_propagation()}
         >
             <div class={classes!(
                 "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-md", "overflow-hidden",
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
-            )}>
+            )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-xl font-bold text-white">{ &props.title }</h3>
                 </div>
@@ -139,14 +141,14 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                                 <label class={classes!(
                                     "flex", "items-center", "p-3", "rounded-md", "border", "cursor-pointer", "transition-colors",
                                     if is_selected { vec!["bg-blue-600/20", "border-blue-500", "text-white"] } else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400", "hover:bg-gray-700/50"] }
-                                )}>
+                                )} onclick={|e: MouseEvent| e.stop_propagation()}>
                                     <input 
                                         type="radio" 
                                         tabindex="-1"
                                         class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-0"
                                         name="dialog-option"
                                         checked={is_selected}
-                                        onclick={let f = focused.clone(); move |_| f.set(CustomDialogFocus::Options(idx))}
+                                        onclick={let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); f.set(CustomDialogFocus::Options(idx)) }}
                                     />
                                     <span class="ml-3 font-medium">{ &opt.label }</span>
                                 </label>
@@ -159,7 +161,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                     if let Some(cancel_cb) = &props.on_cancel {
                         <button 
                             tabindex="-1"
-                            onclick={cancel_cb.reform(|_| ())}
+                            onclick={let cb = cancel_cb.clone(); move |e: MouseEvent| { e.stop_propagation(); cb.emit(()); }}
                             class={classes!(
                                 "px-6", "py-2", "rounded-md", "transition-colors", "border-[3px]",
                                 if *focused == CustomDialogFocus::Cancel { vec!["bg-gray-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
@@ -171,7 +173,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                     }
                     <button 
                         tabindex="-1"
-                        onclick={on_confirm.reform(|_| ())}
+                        onclick={on_confirm}
                         class={classes!(
                             "px-6", "py-2", "rounded-md", "transition-colors", "shadow-lg", "border-[3px]",
                             if *focused == CustomDialogFocus::Ok { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
@@ -209,11 +211,13 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
     let focused = use_state(|| InputDialogFocus::Input);
 
     {
-        let root = root_ref.clone();
+        let input_r = input_ref.clone();
         use_effect_with((), move |_| {
-            let r = root.clone();
+            let r = input_r.clone();
             Timeout::new(10, move || {
-                if let Some(el) = r.cast::<web_sys::HtmlElement>() { let _ = el.focus(); }
+                if let Some(el) = r.cast::<web_sys::HtmlElement>() { 
+                    let _ = el.focus(); 
+                }
             }).forget();
             || ()
         });
@@ -232,7 +236,8 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                     e.prevent_default();
                     match *focused {
                         InputDialogFocus::Input => focused.set(InputDialogFocus::Ok),
-                        _ => {
+                        InputDialogFocus::Ok => focused.set(InputDialogFocus::Cancel),
+                        InputDialogFocus::Cancel => {
                             focused.set(InputDialogFocus::Input);
                             if let Some(el) = input_r.cast::<web_sys::HtmlElement>() { let _ = el.focus(); }
                         }
@@ -254,7 +259,12 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                     e.prevent_default();
                     match *focused {
                         InputDialogFocus::Cancel => on_cancel.emit(()),
-                        _ => on_confirm.emit((*text).clone()),
+                        _ => {
+                            // 入力が空でない場合のみ送信を許可
+                            if !text.trim().is_empty() {
+                                on_confirm.emit((*text).clone());
+                            }
+                        }
                     }
                 }
                 "Escape" => {
@@ -267,8 +277,8 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
     };
 
     html! {
-        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 outline-none pointer-events-auto">
-            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-dialog-in">
+        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 outline-none pointer-events-auto">
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-dialog-in" onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-lg font-bold text-white">{ &props.title }</h3>
                 </div>
@@ -284,6 +294,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                             t.set(input.value()); 
                             f.set(InputDialogFocus::Input);
                         }}
+                        onclick={|e: MouseEvent| e.stop_propagation()}
                         class={classes!(
                             "w-full", "bg-gray-900", "border", "rounded-md", "px-4", "py-2", "text-white", "focus:outline-none", "transition-all",
                             if *focused == InputDialogFocus::Input { "border-lime-400 ring-2 ring-lime-400" } else { "border-gray-700" }
@@ -294,7 +305,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                 <div class="px-6 py-2 bg-gray-900/50 flex justify-end space-x-3">
                     <button 
                         tabindex="-1"
-                        onclick={props.on_cancel.reform(|_| ())}
+                        onclick={let cb = props.on_cancel.clone(); move |e: MouseEvent| { e.stop_propagation(); cb.emit(()); }}
                         class={classes!(
                             "px-6", "py-2", "rounded-md", "transition-colors", "border-[3px]",
                             if *focused == InputDialogFocus::Cancel { vec!["bg-gray-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
@@ -305,9 +316,15 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                     </button>
                     <button 
                         tabindex="-1"
-                        onclick={let oc = props.on_confirm.clone(); let t = text.clone(); move |_| oc.emit((*t).clone())}
+                        disabled={text.trim().is_empty()}
+                        onclick={let oc = props.on_confirm.clone(); let t = text.clone(); move |e: MouseEvent| { 
+                            if !t.trim().is_empty() {
+                                e.stop_propagation(); oc.emit((*t).clone()); 
+                            }
+                        }}
                         class={classes!(
                             "px-6", "py-2", "rounded-md", "transition-colors", "shadow-lg", "border-[3px]",
+                            if text.trim().is_empty() { "opacity-50 cursor-not-allowed" } else { "" },
                             if *focused == InputDialogFocus::Ok { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
                             else { vec!["bg-blue-600", "text-white", "border-transparent"] }
                         )}
@@ -386,8 +403,9 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
             class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 animate-in fade-in duration-200 outline-none pointer-events-auto" 
             tabindex="0"
             onkeydown={on_keydown}
+            onclick={|e: MouseEvent| e.stop_propagation()}
         >
-            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-dialog-in">
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-sm overflow-hidden animate-dialog-in" onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-lg font-bold text-white">{ &props.title }</h3>
                 </div>
@@ -399,7 +417,7 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
                 <div class="px-6 py-3 bg-gray-900/50 flex justify-end space-x-3">
                     <button 
                         tabindex="-1"
-                        onclick={props.on_cancel.reform(|_| ())}
+                        onclick={let cb = props.on_cancel.clone(); move |e: MouseEvent| { e.stop_propagation(); cb.emit(()); }}
                         class={classes!(
                             "px-6", "py-2", "rounded-md", "transition-colors", "outline-none", "border-[3px]",
                             if *focused == ConfirmFocus::Cancel { vec!["bg-gray-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] } 
@@ -410,7 +428,7 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
                     </button>
                     <button 
                         tabindex="-1"
-                        onclick={props.on_confirm.reform(|_| ())}
+                        onclick={let cb = props.on_confirm.clone(); move |e: MouseEvent| { e.stop_propagation(); cb.emit(()); }}
                         class={classes!(
                             "px-8", "py-2", "rounded-md", "transition-colors", "shadow-lg", "outline-none", "border-[3px]",
                             if *focused == ConfirmFocus::Ok { vec!["bg-red-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] } 
@@ -525,8 +543,8 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
     };
 
     html! {
-        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 animate-in fade-in duration-200 outline-none pointer-events-auto">
-            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-md overflow-hidden animate-dialog-in">
+        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()} class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-md p-4 animate-in fade-in duration-200 outline-none pointer-events-auto">
+            <div class="bg-gray-800 border border-gray-700 rounded-lg shadow-2xl w-full max-w-md overflow-hidden animate-dialog-in" onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
                     <h3 class="text-lg font-bold text-white">{ &props.title }</h3>
                 </div>
@@ -540,8 +558,8 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                             if *focused == NameConflictFocus::Overwrite { vec!["bg-blue-600/20", "border-lime-400", "text-white"] } 
                             else if *selected_opt == 0 { vec!["bg-slate-700/50", "border-blue-500/50", "text-gray-200"] }
                             else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400"] }
-                        )}>
-                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 0} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |_| { s.set(0); f.set(NameConflictFocus::Overwrite); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
+                        )} onclick={|e: MouseEvent| e.stop_propagation()}>
+                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 0} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(0); f.set(NameConflictFocus::Overwrite); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
                             <span class="ml-3 font-medium">{ &props.labels[0] }</span>
                         </label>
 
@@ -550,8 +568,8 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                             if *focused == NameConflictFocus::Guid { vec!["bg-blue-600/20", "border-lime-400", "text-white"] } 
                             else if *selected_opt == 1 { vec!["bg-slate-700/50", "border-blue-500/50", "text-gray-200"] }
                             else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400"] }
-                        )}>
-                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 1} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |_| { s.set(1); f.set(NameConflictFocus::Guid); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
+                        )} onclick={|e: MouseEvent| e.stop_propagation()}>
+                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 1} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(1); f.set(NameConflictFocus::Guid); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
                             <span class="ml-3 font-medium">{ &props.labels[1] }</span>
                         </label>
 
@@ -560,9 +578,9 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                             if *focused == NameConflictFocus::Specify || *focused == NameConflictFocus::Input { vec!["bg-blue-600/20", "border-lime-400", "text-white"] } 
                             else if *selected_opt == 2 { vec!["bg-slate-700/50", "border-blue-500/50", "text-gray-200"] }
                             else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400"] }
-                        )}>
+                        )} onclick={|e: MouseEvent| e.stop_propagation()}>
                             <div class="flex items-center w-full">
-                                <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 2} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |_| { s.set(2); f.set(NameConflictFocus::Specify); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
+                                <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 2} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(2); f.set(NameConflictFocus::Specify); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
                                 <span class="ml-3 font-medium">{ &props.labels[2] }</span>
                             </div>
                             <div class="mt-2 ml-7">
@@ -572,6 +590,7 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                                     tabindex="-1"
                                     value={(*input_val).clone()}
                                     oninput={let v = input_val.clone(); let s = selected_opt.clone(); let f = focused.clone(); move |ev: InputEvent| { let input: web_sys::HtmlInputElement = ev.target_unchecked_into(); v.set(input.value()); s.set(2); f.set(NameConflictFocus::Input); }}
+                                    onclick={|e: MouseEvent| e.stop_propagation()}
                                     class={classes!(
                                         "w-full", "bg-gray-900", "border", "rounded-md", "px-3", "py-1.5", "text-white", "focus:outline-none",
                                         if *focused == NameConflictFocus::Input { "border-lime-400 ring-1 ring-lime-400" } else { "border-gray-700" }
@@ -586,7 +605,7 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                 <div class="px-6 py-3 bg-gray-900/50 flex justify-end space-x-3">
                     <button 
                         tabindex="-1"
-                        onclick={props.on_cancel.reform(|_| ())} 
+                        onclick={let cb = props.on_cancel.clone(); move |e: MouseEvent| { e.stop_propagation(); cb.emit(()); }} 
                         class={classes!(
                             "px-6", "py-2", "rounded-md", "transition-colors", "border-[3px]",
                             if *focused == NameConflictFocus::Cancel { vec!["bg-gray-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
@@ -597,7 +616,7 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                     </button>
                     <button 
                         tabindex="-1"
-                        onclick={let oc = props.on_confirm.clone(); let s = selected_opt.clone(); let v = input_val.clone(); move |_| oc.emit((*s, (*v).clone()))} 
+                        onclick={let oc = props.on_confirm.clone(); let s = selected_opt.clone(); let v = input_val.clone(); move |e: MouseEvent| { e.stop_propagation(); oc.emit((*s, (*v).clone())); }} 
                         class={classes!(
                             "px-8", "py-2", "rounded-md", "transition-colors", "shadow-lg", "border-[3px]",
                             if *focused == NameConflictFocus::Ok { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
