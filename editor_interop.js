@@ -130,7 +130,7 @@ export function init_editor(element_id, callback) {
         
         // 現在の表示内容の高さと、全体の高さを比較
         // 下端から 200px 以内になったら通知
-        if (scrollTop + renderer.getHeight() > session.getScreenLength() * renderer.lineHeight - 200) {
+        if (scrollTop + renderer.$size.height > session.getScreenLength() * renderer.lineHeight - 200) {
             console.log("[Leaf-SYSTEM] Triggering load_more (scrollTop: " + scrollTop + ")");
             if (commandCallback) commandCallback("load_more");
         }
