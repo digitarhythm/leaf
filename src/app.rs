@@ -33,6 +33,28 @@ pub struct Sheet {
     pub temp_timestamp: Option<u64>,
     pub last_sync_timestamp: Option<u64>,
     pub tab_color: String,
+    pub total_size: u64,
+    pub loaded_bytes: u64,
+}
+
+impl Sheet {
+    fn to_js(&self) -> JSSheet {
+        JSSheet {
+            id: self.id.clone(),
+            guid: self.guid.clone(),
+            category: self.category.clone(),
+            title: self.title.clone(),
+            content: self.content.clone(),
+            is_modified: self.is_modified,
+            drive_id: self.drive_id.clone(),
+            temp_content: self.temp_content.clone(),
+            temp_timestamp: self.temp_timestamp,
+            last_sync_timestamp: self.last_sync_timestamp,
+            tab_color: self.tab_color.clone(),
+            total_size: self.total_size,
+            loaded_bytes: self.loaded_bytes,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -209,15 +231,20 @@ pub fn app() -> Html {
                     if deleted {
                         let ser = serde_wasm_bindgen::Serializer::json_compatible();
                         for s in us.iter() {
-                            let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                            let js = s.to_js();
                             if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                         }
                     }
                     if us.is_empty() {
                         let nid = js_sys::Date::now().to_string();
-                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color() };
+                        let ns = Sheet { 
+                            id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), 
+                            is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
+                            last_sync_timestamp: None, tab_color: generate_random_color(),
+                            total_size: 0, loaded_bytes: 0
+                        };
                         us.push(ns.clone()); aid_inner.set(Some(nid.clone())); set_editor_content(""); focus_editor();
-                        let js = JSSheet { id: nid, guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: ns.tab_color };
+                        let js = ns.to_js();
                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     } else if deleted { let nid = us.last().unwrap().id.clone(); aid_inner.set(Some(nid)); }
                     ss_inner.set(us.clone()); 
@@ -327,7 +354,8 @@ pub fn app() -> Html {
                         if !is_online {
                             // IndexedDBへの一時保存時は is_saving をセットしない（サイレント保存）
                             sheet.temp_content = Some(cur_c.clone()); sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
-                            let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: cur_c.clone(), is_modified: false, drive_id: sheet.drive_id.clone(), temp_content: sheet.temp_content.clone(), temp_timestamp: sheet.temp_timestamp, last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone() };
+                            sheet.total_size = cur_c.len() as u64; sheet.loaded_bytes = cur_c.len() as u64; // 編集したので全量読み込み状態として更新
+                            let js = sheet.to_js();
                             let ild_inner = ild_h.clone();
                             let lock_inner = lock_h.clone();
                             let lock_fade_inner = lock_fade_h.clone();
@@ -390,7 +418,7 @@ pub fn app() -> Html {
                                      let mut u_s = (*rs_async.borrow()).clone();
                                      if let Some(si) = u_s.iter_mut().find(|x| x.id == s_clone.id) { 
                                          si.is_modified = true; 
-                                         let js = JSSheet { id: si.id.clone(), guid: si.guid.clone(), category: si.category.clone(), title: si.title.clone(), content: si.content.clone(), is_modified: true, drive_id: si.drive_id.clone(), temp_content: si.temp_content.clone(), temp_timestamp: si.temp_timestamp, last_sync_timestamp: si.last_sync_timestamp, tab_color: si.tab_color.clone() };
+                                         let js = si.to_js();
                                          let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                      }
                                      *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
@@ -435,7 +463,19 @@ pub fn app() -> Html {
                                  }
                              }
                         
-                             let res = upload_file(&fname, &s_clone.content, &target_folder_id, s_clone.drive_id.as_deref()).await;
+                             let mut final_content = s_clone.content.clone();
+                             if let Some(drive_id) = &s_clone.drive_id {
+                                 if s_clone.loaded_bytes < s_clone.total_size {
+                                     let range = format!("{}-{}", s_clone.loaded_bytes, s_clone.total_size - 1);
+                                     if let Ok(js_val) = download_file(drive_id, Some(&range), None).await {
+                                         if let Some(rest) = js_val.as_string() {
+                                             final_content.push_str(&rest);
+                                         }
+                                     }
+                                 }
+                             }
+
+                             let res = upload_file(&fname, &final_content, &target_folder_id, s_clone.drive_id.as_deref()).await;
                         
                              let mut n_did = s_clone.drive_id.clone(); let mut stime = s_clone.last_sync_timestamp;
                              match res {
@@ -445,7 +485,7 @@ pub fn app() -> Html {
                                  },
                                  Err(_) => {
                                      nc_inner.set(false);
-                                     let js = JSSheet { id: s_clone.id.clone(), guid: s_clone.guid.clone(), category: s_clone.category.clone(), title: s_clone.title.clone(), content: s_clone.content.clone(), is_modified: true, drive_id: s_clone.drive_id.clone(), temp_content: Some(s_clone.content.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), last_sync_timestamp: s_clone.last_sync_timestamp, tab_color: s_clone.tab_color.clone() };
+                                     let js = s_clone.to_js();
                                      let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                      
                                      let mut u_s = (*rs_async.borrow()).clone();
@@ -464,19 +504,22 @@ pub fn app() -> Html {
                                      return;
                                  },
                              }
-                             let js = JSSheet { id: s_clone.id.clone(), guid: s_clone.guid.clone(), category: s_clone.category.clone(), title: s_clone.title.clone(), content: s_clone.content.clone(), is_modified: false, drive_id: n_did.clone(), temp_content: None, temp_timestamp: None, last_sync_timestamp: stime, tab_color: s_clone.tab_color.clone() };
-                             let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                             
                              let mut u_s = (*rs_async.borrow()).clone();
                              if let Some(si) = u_s.iter_mut().find(|x| x.id == s_clone.id) { 
                                  si.drive_id = n_did; 
+                                 si.total_size = final_content.len() as u64;
+                                 si.loaded_bytes = final_content.len() as u64;
                                  // 保存中に編集された可能性を考慮し、contentは上書きしない
-                                 // 保存開始時の内容(s_clone.content)と現在の内容が一致する場合のみ is_modified を false にする
                                  if si.content == s_clone.content {
                                      si.is_modified = false; 
                                  }
                                  si.temp_content = None; 
                                  si.temp_timestamp = None; 
                                  si.last_sync_timestamp = stime; 
+                                 
+                                 let js = si.to_js();
+                                 let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                              }
                              *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
                              set_gutter_status("none"); 
@@ -522,7 +565,7 @@ pub fn app() -> Html {
                     }
                     _ => {}
                 }
-                let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                let js = s.to_js();
                 let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
             }
             *rs.borrow_mut() = us.clone(); s_state.set(us); ncq.set(q);
@@ -564,7 +607,12 @@ pub fn app() -> Html {
             Timeout::new(delay, move || {
                 clear_local_handle();
                 let nid = js_sys::Date::now().to_string();
-                let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color() };
+                let ns = Sheet { 
+                    id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled".to_string(), content: "".to_string(), 
+                    is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
+                    last_sync_timestamp: None, tab_color: generate_random_color(),
+                    total_size: 0, loaded_bytes: 0
+                };
                 set_editor_content(""); set_gutter_status("unsaved");
                 
                 let mut current_sheets = (*rs.borrow()).clone();
@@ -575,7 +623,7 @@ pub fn app() -> Html {
                 
                 focus_editor(); let spr = sp.clone(); Timeout::new(500, move || { spr.set(false); }).forget();
                 spawn_local(async move {
-                    let js = JSSheet { id: nid, guid: None, category: "".to_string(), title: "Untitled".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: ns.tab_color };
+                    let js = ns.to_js();
                     let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                 });
             }).forget();
@@ -589,7 +637,7 @@ pub fn app() -> Html {
             let sid = q.remove(0); let mut us = (*s_state).clone();
             if let Some(s) = us.iter_mut().find(|x| x.id == sid) {
                 s.category = "OTHERS".to_string();
-                let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                let js = s.to_js();
                 let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
             }
             *rs.borrow_mut() = us.clone(); s_state.set(us); fq.set(q); os.emit(true); 
@@ -630,7 +678,7 @@ pub fn app() -> Html {
                     if changed {
                         let ser = serde_wasm_bindgen::Serializer::json_compatible();
                         for s in us.iter() {
-                            let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                            let js = s.to_js();
                             if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                         }
                         *rs_inner.borrow_mut() = us.clone(); ss.set(us);
@@ -698,15 +746,20 @@ pub fn app() -> Html {
                     }
                     if !deleted {
                         let ds = &us[pos];
-                        let js = JSSheet { id: ds.id.clone(), guid: ds.guid.clone(), category: ds.category.clone(), title: ds.title.clone(), content: ds.content.clone(), is_modified: ds.is_modified, drive_id: ds.drive_id.clone(), temp_content: ds.temp_content.clone(), temp_timestamp: ds.temp_timestamp, last_sync_timestamp: ds.last_sync_timestamp, tab_color: ds.tab_color.clone() };
+                        let js = ds.to_js();
                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     }
                 }
                 if us.is_empty() {
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color() };
+                    let ns = Sheet { 
+                        id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), 
+                        is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
+                        last_sync_timestamp: None, tab_color: generate_random_color(),
+                        total_size: 0, loaded_bytes: 0
+                    };
                     us.push(ns.clone()); aid_inner.set(Some(nid.clone())); set_editor_content(""); focus_editor();
-                    let js = JSSheet { id: nid, guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: ns.tab_color };
+                    let js = ns.to_js();
                     let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                 } else if deleted { let nid = us.last().unwrap().id.clone(); aid_inner.set(Some(nid)); }
                 ss_inner.set(us.clone()); qs.set(q.clone());
@@ -762,19 +815,42 @@ pub fn app() -> Html {
             let ss_inner = ss.clone(); let aid_inner = aid.clone(); let sp_inner = sp.clone();
             let il_inner = il.clone(); let ifo_inner = ifo.clone(); let rs_inner = rs.clone();
             spawn_local(async move {
-                if let Ok(cv) = download_file(&did, None, None).await {
+                let mut total_size = 0u64;
+                if let Ok(meta) = get_file_metadata(&did).await {
+                    if let Ok(sz_val) = js_sys::Reflect::get(&meta, &JsValue::from_str("size")) {
+                        total_size = sz_val.as_string().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                    }
+                }
+
+                // 1MB を超える場合は最初のチャンクのみ取得
+                let (range, loaded) = if total_size > 1024 * 1024 {
+                    (Some("0-1048575"), 1024 * 1024)
+                } else {
+                    (None, total_size)
+                };
+
+                if let Ok(cv) = download_file(&did, range, None).await {
                     if let Some(c) = cv.as_string() {
                         let mut cs = (*rs_inner.borrow()).clone();
                         let tidx = if cs.len() == 1 && cs[0].drive_id.is_none() { Some(0) } else { None };
                         let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
                         let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
-                        let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else { generate_random_color() } };
+                        let ns = Sheet { 
+                            id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), 
+                            is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, 
+                            last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else { generate_random_color() },
+                            total_size, loaded_bytes: loaded
+                        };
                         set_editor_content(&c); set_gutter_status("none");
                         if let Some(idx) = tidx { cs[idx] = ns.clone(); } else { cs = vec![ns.clone()]; }
                         *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
                         focus_editor(); 
                         
-                        let js = JSSheet { id: nid, guid, category: cat_id, title, content: c, is_modified: false, drive_id: Some(did), temp_content: None, temp_timestamp: None, last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: ns.tab_color };
+                        let js = JSSheet { 
+                            id: nid, guid, category: cat_id, title, content: c, is_modified: false, drive_id: Some(did), 
+                            temp_content: None, temp_timestamp: None, last_sync_timestamp: Some(js_sys::Date::now() as u64), 
+                            tab_color: ns.tab_color, total_size, loaded_bytes: loaded 
+                        };
                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                         
                         // テキストがセットされた後、描画を待ってからフェードアウト開始
@@ -855,7 +931,9 @@ pub fn app() -> Html {
                         temp_content: None, 
                         temp_timestamp: None, 
                         last_sync_timestamp: None, 
-                        tab_color: generate_random_color() 
+                        tab_color: generate_random_color(),
+                        total_size: content.len() as u64,
+                        loaded_bytes: content.len() as u64
                     };
                     
                     sp_state_c.set(true);
@@ -867,11 +945,7 @@ pub fn app() -> Html {
                     set_gutter_status("local");
                     crate::js_interop::set_editor_mode(&name);
                     
-                    let js = JSSheet { 
-                        id: nid, guid: None, category: "".to_string(), title: name, content: content, 
-                        is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
-                        last_sync_timestamp: None, tab_color: ns.tab_color 
-                    };
+                    let js = ns.to_js();
                     let ser = serde_wasm_bindgen::Serializer::json_compatible();
                     if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     
@@ -932,7 +1006,7 @@ pub fn app() -> Html {
                                 let mut us = (*s_state_inner).clone();
                                 if let Some(s) = us.iter_mut().find(|x| x.id == id) {
                                     s.category = new_cat_id.clone();
-                                    let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                                    let js = s.to_js();
                                     let ser = serde_wasm_bindgen::Serializer::json_compatible();
                                     if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                 }
@@ -948,7 +1022,7 @@ pub fn app() -> Html {
                     } else {
                         let mut us = current_sheets; us[pos].category = new_cat_id;
                         let s = &us[pos];
-                        let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                        let js = s.to_js();
                         spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
                         *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                     }
@@ -992,7 +1066,7 @@ pub fn app() -> Html {
                             let mut us = (*s_state_inner).clone();
                             if let Some(s) = us.iter_mut().find(|x| x.id == id) {
                                 s.title = new_name.clone();
-                                let js = JSSheet { id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: s.tab_color.clone() };
+                                let js = s.to_js();
                                 let ser = serde_wasm_bindgen::Serializer::json_compatible();
                                 if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                 crate::js_interop::set_editor_mode(&new_name);
@@ -1026,7 +1100,12 @@ pub fn app() -> Html {
                     final_text = final_text.replace("\r\n", "\n");
                 }
                 
-                let ns = Sheet { id: nid.clone(), guid: None, category: cat_id.clone(), title: filename.clone(), content: final_text.clone(), is_modified: true, drive_id: None, temp_content: Some(final_text.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), last_sync_timestamp: None, tab_color: generate_random_color() };
+                let ns = Sheet { 
+                    id: nid.clone(), guid: None, category: cat_id.clone(), title: filename.clone(), content: final_text.clone(), 
+                    is_modified: true, drive_id: None, temp_content: Some(final_text.clone()), temp_timestamp: Some(js_sys::Date::now() as u64), 
+                    last_sync_timestamp: None, tab_color: generate_random_color(),
+                    total_size: final_text.len() as u64, loaded_bytes: final_text.len() as u64
+                };
                 sp_state.set(true); *r_s.borrow_mut() = vec![ns.clone()];
                 s_state.set(vec![ns.clone()]); aid_state.set(Some(nid.clone()));
                 set_editor_content(&final_text); set_gutter_status("unsaved"); 
@@ -1035,8 +1114,8 @@ pub fn app() -> Html {
                 let spr = sp_state.clone(); Timeout::new(100, move || { spr.set(false); }).forget();
                 
                 let os_cb = os_cb_outer.clone();
+                let js = ns.to_js();
                 spawn_local(async move {
-                    let js = JSSheet { id: nid, guid: None, category: cat_id, title: filename, content: final_text, is_modified: true, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: ns.tab_color };
                     let ser = serde_wasm_bindgen::Serializer::json_compatible();
                     if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     os_cb.emit(true);
@@ -1096,6 +1175,7 @@ pub fn app() -> Html {
                                 id: s.id, guid: s.guid, category: s.category, title: s.title, content: s.temp_content.clone().unwrap_or(s.content),
                                 is_modified: s.temp_timestamp.is_some(), drive_id: s.drive_id, temp_content: s.temp_content, temp_timestamp: s.temp_timestamp,
                                 last_sync_timestamp: s.last_sync_timestamp, tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color },
+                                total_size: s.total_size, loaded_bytes: s.loaded_bytes
                             }).collect();
                             let last_id = mapped.last().map(|s| s.id.clone());
                             *rs.borrow_mut() = mapped.clone(); s_handle.set(mapped); aid_handle.set(last_id); initial = false;
@@ -1104,7 +1184,12 @@ pub fn app() -> Html {
                 }
                 if initial {
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color() };
+                    let ns = Sheet { 
+                        id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1".to_string(), content: "".to_string(), 
+                        is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
+                        last_sync_timestamp: None, tab_color: generate_random_color(),
+                        total_size: 0, loaded_bytes: 0
+                    };
                     *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
                 }
                 db_loaded_init.set(true);
@@ -1233,6 +1318,51 @@ pub fn app() -> Html {
                         ip_i.set(!*r_prev_i.borrow()); 
                     }
                     else if cmd == "help" { ih_i.set(!*r_help_i.borrow()); }
+                    else if cmd == "load_more" {
+                        let aid = (*r_aid_i.borrow()).clone();
+                        if let Some(id) = aid {
+                            let mut cur_s = (*r_s_i.borrow()).clone();
+                            if let Some(sheet) = cur_s.iter_mut().find(|s| s.id == id) {
+                                if let Some(drive_id) = &sheet.drive_id {
+                                    if sheet.loaded_bytes < sheet.total_size {
+                                        let start = sheet.loaded_bytes;
+                                        let end = std::cmp::min(start + 1024 * 1024, sheet.total_size) - 1;
+                                        let range = format!("{}-{}", start, end);
+                                        let did_c = drive_id.clone();
+                                        let s_id = id.clone();
+                                        let s_state_inner = s_state.clone();
+                                        let r_s_inner = r_s_i.clone();
+                                        
+                                        spawn_local(async move {
+                                            if let Ok(js_val) = download_file(&did_c, Some(&range), None).await {
+                                                if let Some(new_content) = js_val.as_string() {
+                                                    crate::js_interop::append_editor_content(&new_content);
+                                                    
+                                                    let mut sheets_upd = (*r_s_inner.borrow()).clone();
+                                                    if let Some(s) = sheets_upd.iter_mut().find(|x| x.id == s_id) {
+                                                        s.content.push_str(&new_content);
+                                                        s.loaded_bytes = end + 1;
+                                                        
+                                                        let js = JSSheet { 
+                                                            id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), 
+                                                            title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, 
+                                                            drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), 
+                                                            temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, 
+                                                            tab_color: s.tab_color.clone(), total_size: s.total_size, loaded_bytes: s.loaded_bytes
+                                                        };
+                                                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                                        if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                                    }
+                                                    *r_s_inner.borrow_mut() = sheets_upd.clone();
+                                                    s_state_inner.set(sheets_upd);
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
                     else if cmd == "change" {
                         if *sp_cb { return; }
                         let cur_c_val = get_editor_content();
@@ -1253,7 +1383,7 @@ pub fn app() -> Html {
                                         title: sheet.title.clone(), content: sheet.content.clone(), is_modified: true, 
                                         drive_id: sheet.drive_id.clone(), temp_content: sheet.temp_content.clone(), 
                                         temp_timestamp: sheet.temp_timestamp, last_sync_timestamp: sheet.last_sync_timestamp, 
-                                        tab_color: sheet.tab_color.clone() 
+                                        tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes
                                     };
                                     spawn_local(async move {
                                         let ser = serde_wasm_bindgen::Serializer::json_compatible();
@@ -1618,13 +1748,7 @@ pub fn app() -> Html {
                                                                     s.is_modified = true;
                                                                     set_gutter_status("unsaved");
                                                                     
-                                                                    let js = JSSheet { 
-                                                                        id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), 
-                                                                        title: s.title.clone(), content: s.content.clone(), is_modified: true, 
-                                                                        drive_id: None, temp_content: s.temp_content.clone(), 
-                                                                        temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, 
-                                                                        tab_color: s.tab_color.clone() 
-                                                                    };
+                                                                    let js = s.to_js();
                                                                     let ser = serde_wasm_bindgen::Serializer::json_compatible();
                                                                     if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                                                 }
