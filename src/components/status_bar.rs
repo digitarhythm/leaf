@@ -87,8 +87,8 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
 
                 if !props.file_name.is_empty() {
                     <span class="flex items-center space-x-2 border-l border-gray-700 ml-4 pl-4 py-0.5 font-mono">
-                        if props.category_name.is_empty() {
-                            if props.file_name == "----" {
+                        if props.category_name.is_empty() || props.category_name == "__LOCAL__" {
+                            if props.category_name.is_empty() && props.file_name == "----" {
                                 // 未保存新規シートアイコン (Red X circle)
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5 text-red-500">
                                     <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
@@ -99,7 +99,13 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                                     <path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clip-rule="evenodd" />
                                 </svg>
                             }
-                            <span class="text-gray-300 font-medium">{ &props.file_name }</span>
+                            <span class="text-gray-300 font-medium">
+                                { if props.category_name == "__LOCAL__" {
+                                    format!("[{}] {}", i18n::t("local_file", lang), props.file_name)
+                                } else {
+                                    props.file_name.clone()
+                                } }
+                            </span>
                         } else {
                             // Google アイコン (G logo)
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5 text-blue-500">

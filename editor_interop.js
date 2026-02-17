@@ -58,22 +58,33 @@ export async function open_local_file() {
 }
 
 export async function save_local_file(content) {
-    if (!localFileHandle) return false;
     try {
+        // ハンドルがない場合は新規作成ダイアログを表示
+        if (!localFileHandle) {
+            localFileHandle = await window.showSaveFilePicker({
+                suggestedName: 'Untitled.txt',
+                types: [{
+                    description: 'Text Files',
+                    accept: {'text/plain': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml']}
+                }]
+            });
+        }
+
         // パーミッションの確認
         const options = { mode: 'readwrite' };
         if (await localFileHandle.queryPermission(options) !== 'granted') {
             if (await localFileHandle.requestPermission(options) !== 'granted') {
-                return false;
+                return null;
             }
         }
         const writable = await localFileHandle.createWritable();
         await writable.write(content);
         await writable.close();
-        return true;
+        return localFileHandle.name;
     } catch (e) {
+        if (e.name === 'AbortError') return null;
         console.error("Local save failed:", e);
-        return false;
+        return null;
     }
 }
 

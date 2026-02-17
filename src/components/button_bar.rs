@@ -40,6 +40,8 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
         } else {
             i18n::t("local_file", lang)
         }
+    } else if props.current_category == "__LOCAL__" {
+        i18n::t("local_file", lang)
     } else {
         props.categories.iter()
             .find(|c| c.id == props.current_category)
@@ -91,21 +93,21 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     onclick={on_category_click}
                     class={classes!(
                         "ml-2", "px-3", "py-1", "rounded", "bg-gray-700", "text-gray-200", "text-xs", "font-bold", "flex", "items-center", "space-x-1", "transition-colors",
-                        if has_multiple_cats || props.current_category.is_empty() { "hover:bg-gray-600 cursor-pointer" } else { "cursor-default" }
+                        if has_multiple_cats || props.current_category.is_empty() || props.current_category == "__LOCAL__" { "hover:bg-gray-600 cursor-pointer" } else { "cursor-default" }
                     )}
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
                         <path d="M3.75 3A1.75 1.75 0 002 4.75v10.5c0 .966.784 1.75 1.75 1.75h12.5A1.75 1.75 0 0018 15.25V4.75A1.75 1.75 0 0016.25 3H3.75zM10 6.5a.75.75 0 01.75.75v2.5h2.5a.75.75 0 010 1.5h-2.5v2.5a.75.75 0 01-1.5 0v-2.5h-2.5a.75.75 0 010-1.5h2.5v-2.5A.75.75 0 0110 6.5z" />
                     </svg>
                     <span>{ current_cat_name }</span>
-                    if has_multiple_cats || props.current_category.is_empty() {
+                    if has_multiple_cats || props.current_category.is_empty() || props.current_category == "__LOCAL__" {
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3 opacity-50">
                             <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
                         </svg>
                     }
                 </button>
 
-                if props.is_dropdown_open && (has_multiple_cats || props.current_category.is_empty()) {
+                if props.is_dropdown_open && (has_multiple_cats || props.current_category.is_empty() || props.current_category == "__LOCAL__") {
                     <>
                         <div 
                             onclick={let on_t = props.on_toggle_dropdown.clone(); move |_| on_t.emit(false)}
@@ -113,11 +115,18 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                         ></div>
                         <div class="absolute left-2 mt-1 w-48 rounded-md shadow-2xl bg-gray-800 border border-gray-700 z-[150] overflow-hidden animate-in fade-in zoom-in duration-100">
                             <div class="py-1 max-h-60 overflow-y-auto">
-                                if props.current_category.is_empty() {
+                                if props.current_category == "__LOCAL__" {
                                     <button
                                         class="w-full text-left px-4 py-2 text-xs bg-blue-600 text-white font-bold cursor-default"
                                     >
-                                        { if props.is_new_sheet { i18n::t("no_category", lang) } else { i18n::t("local_file", lang) } }
+                                        { i18n::t("local_file", lang) }
+                                    </button>
+                                } else {
+                                    <button
+                                        onclick={let on_change = props.on_change_category.clone(); let on_toggle = props.on_toggle_dropdown.clone(); move |_| { on_change.emit("__LOCAL__".to_string()); on_toggle.emit(false); }}
+                                        class="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+                                    >
+                                        { i18n::t("local_file", lang) }
                                     </button>
                                 }
                                 { for sorted_categories.into_iter().map(|cat| {
