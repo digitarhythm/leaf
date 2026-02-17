@@ -1299,6 +1299,7 @@ pub fn app() -> Html {
         let v_init = vim_mode.clone(); let ncid = no_category_folder_id.clone();
         let sp_init = is_suppressing_changes.clone(); let r_s = sheets_ref.clone(); let r_aid = active_id_ref.clone();
         let db_ready = db_loaded.clone();
+        let aid_for_editor_init = active_sheet_id.clone();
         use_effect_with((is_auth, ncid.clone(), db_ready), move |deps| {
             let (auth, _, ready) = deps;
             if **auth && **ready {
@@ -1313,9 +1314,65 @@ pub fn app() -> Html {
                 let r_help_i = r_help.clone();
                 let timer = ast.clone(); let vim_val = *v_init; 
                 let sp_cb = sp_init.clone(); let r_s_i = r_s.clone(); let r_aid_i = r_aid.clone();
+                let aid_state_for_cb = aid_for_editor_init.clone();
                 let callback = Closure::wrap(Box::new(move |cmd: String| {
                     if cmd == "save" { os_i.emit(true); }
                     else if cmd == "new_sheet" { on_i.emit(()); }
+                    else if cmd == "new_local_sheet" {
+                        // 新規ローカルファイル作成
+                        let s = s_state.clone(); let aid_ref = r_aid.clone(); let sp = sp_init.clone();
+                        let aid_state = aid_state_for_cb.clone();
+                        let rs = r_s_i.clone(); let os_cb = os_i.clone();
+                        
+                        // 現在のシートに変更があれば保存を実行
+                        let aid_val = (*aid_ref.borrow()).clone();
+                        let mut needs_save = false;
+                        if let Some(id) = aid_val {
+                            let cur_s = (*rs.borrow()).clone();
+                            if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
+                                let cur_c_val = get_editor_content();
+                                if let Some(cur_c) = cur_c_val.as_string() {
+                                    if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) {
+                                        needs_save = true;
+                                    }
+                                }
+                            }
+                        }
+                        if needs_save { os_cb.emit(false); }
+
+                        sp.set(true);
+                        let delay = if needs_save { 100 } else { 0 };
+                        Timeout::new(delay, move || {
+                            clear_local_handle();
+                            let nid = js_sys::Date::now().to_string();
+                            let ns = Sheet { 
+                                id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled".to_string(), content: "".to_string(), 
+                                is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
+                                last_sync_timestamp: None, tab_color: generate_random_color(),
+                                total_size: 0, loaded_bytes: 0
+                            };
+                            set_editor_content(""); set_gutter_status("local");
+                            
+                            let mut current_sheets = (*rs.borrow()).clone();
+                            current_sheets.push(ns.clone());
+                            *rs.borrow_mut() = current_sheets.clone();
+                            s.set(current_sheets);
+                            aid_ref.borrow_mut().replace(nid.clone());
+                            aid_state.set(Some(nid.clone()));
+                            
+                            focus_editor(); 
+                            let spr = sp.clone(); Timeout::new(500, move || { spr.set(false); }).forget();
+                            
+                            // 新規ローカル作成時は即座に保存ダイアログを表示
+                            let os_final = os_cb.clone();
+                            spawn_local(async move {
+                                let js = ns.to_js();
+                                let ser = serde_wasm_bindgen::Serializer::json_compatible(); 
+                                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                os_final.emit(true);
+                            });
+                        }).forget();
+                    }
                     else if cmd == "open" { 
                         let val = !*r_open_i.borrow();
                         iv_i.set(val); 
@@ -1548,6 +1605,7 @@ pub fn app() -> Html {
                                 let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
                                 let is_s = code == "KeyS" || key_lower == "s" || key_lower == "ß";
                                 let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
+                                let is_shift_n = (code == "KeyN" || key_lower == "n" || key_lower == "˜") && ke.shift_key();
 
                                 if is_l {
                                     e.prevent_default(); e.stop_immediate_propagation();
@@ -1580,7 +1638,8 @@ pub fn app() -> Html {
                                 if is_o { e.prevent_default(); e.stop_immediate_propagation(); oi_c.emit(()); return; }
                                 if is_f { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); return; }
                                 if is_s { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("saveSheet"); return; }
-                                if is_n { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newSheet"); return; }
+                                if is_shift_n { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newLocalSheet"); return; }
+                                if is_n && !ke.shift_key() { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newSheet"); return; }
                             }
                         }
 

@@ -170,6 +170,13 @@ export function init_editor(element_id, callback) {
         exec: () => { if (commandCallback) commandCallback("new_sheet"); }
     });
 
+    // カスタムコマンド (新規ローカル)
+    editor.commands.addCommand({
+        name: "newLocalSheet",
+        bindKey: { win: "Alt-Shift-N", mac: "Option-Shift-N" },
+        exec: () => { if (commandCallback) commandCallback("new_local_sheet"); }
+    });
+
     // カスタムコマンド (インポート - ローカルファイルを開く)
     editor.commands.addCommand({
         name: "openLocalFile",
