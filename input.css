@@ -6,17 +6,32 @@
   }
 }
 
+/* --- Ace Editor Gutter (Line Numbers) --- */
+
+/* 行番号セルの基本レイアウト（右寄せと余白） */
+.ace_gutter-cell {
+  text-align: right !important;
+  padding-right: 12px !important;
+  padding-left: 0 !important;
+  min-width: 3.5em !important;
+}
+
 /* 未保存状態の行番号の色（新規シート） */
 .leaf-unsaved-gutter .ace_gutter-cell {
   color: #fb923c !important; /* orange-400 */
-  transition: color 0.3s ease;
 }
 
 /* ローカルファイルの行番号の色 */
 .leaf-local-gutter .ace_gutter-cell {
   color: #22c55e !important; /* green-500 */
+}
+
+/* トランジション */
+.ace_gutter-cell {
   transition: color 0.3s ease;
 }
+
+/* ---------------------------------------- */
 
 @keyframes dialog-fade-in {
   from { opacity: 0; transform: scale(0.95); }

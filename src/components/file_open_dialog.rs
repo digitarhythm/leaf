@@ -1,5 +1,5 @@
 use yew::prelude::*;
-use crate::drive_interop::{list_files, download_file, move_file, delete_file};
+use crate::drive_interop::{list_files, download_file, move_file};
 use crate::db_interop::JSCategory;
 use crate::i18n::{self, Language};
 use crate::components::dialog::{InputDialog, ConfirmDialog};
@@ -56,6 +56,7 @@ pub struct FileOpenDialogProps {
     pub on_refresh: Callback<()>,
     pub on_delete_category: Callback<String>,
     pub on_rename_category: Callback<(String, String)>, // (category_id, new_name)
+    pub on_delete_file: Callback<(String, String)>, // (drive_id, filename)
     #[prop_or_default]
     pub on_start_processing: Callback<()>,
     #[prop_or_default]
@@ -189,6 +190,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     // ファイル操作用の状態
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
+    let is_deleting_id = use_state(|| None::<String>); // アニメーション用ステート
 
     // カテゴリ選択時のファイル一覧取得
     let load_files = {
@@ -516,17 +518,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     };
 
     let on_move_file = {
-        let load_files = load_files.clone();
         let cur_cat_id = current_category_id.clone();
-        let cur_cat_name = current_category_name.clone();
         let dropdown_active = active_dropdown_file_id.clone();
         let pending_move = pending_move_file_id.clone();
         let is_loading = is_loading_files.clone();
-        let files_state = files.clone(); // 追加
+        let files_state = files.clone(); 
         Callback::from(move |(file_id, new_cat_id): (String, String)| {
-            let load_files = load_files.clone();
             let cat_id = (*cur_cat_id).clone();
-            let cat_name = (*cur_cat_name).clone();
             let dropdown_active = dropdown_active.clone();
             let pending_move = pending_move.clone();
             let is_loading = is_loading.clone();
@@ -546,8 +544,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         let mut current_files = (*files_state).clone();
                         current_files.retain(|f| f.id != f_id);
                         files_state.set(current_files);
-                        
-                        load_files.emit((cat_id, cat_name, false));
                     }).forget();
                 } else { 
                     is_loading.set(false); 
@@ -557,25 +553,34 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     };
 
     let on_delete_file_confirm = {
-        let load_files = load_files.clone();
-        let cur_cat_id = current_category_id.clone();
-        let cur_cat_name = current_category_name.clone();
         let pending_delete = pending_delete_file.clone();
-        let is_loading = is_loading_files.clone();
+        let is_deleting = is_deleting_id.clone();
+        let files_state = files.clone();
+        let on_parent_delete = props.on_delete_file.clone();
+
         Callback::from(move |_: ()| {
-            if let Some((id, _)) = (*pending_delete).clone() {
-                let load_files = load_files.clone();
-                let cat_id = (*cur_cat_id).clone();
-                let cat_name = (*cur_cat_name).clone();
-                let is_loading = is_loading.clone();
+            if let Some((id, name)) = (*pending_delete).clone() {
+                let id_for_anim = id.clone();
+                let id_for_parent = id.clone();
+                let name_for_parent = name.clone();
                 let pending = pending_delete.clone();
-                is_loading.set(true);
-                pending.set(None);
-                spawn_local(async move {
-                    if let Ok(_) = delete_file(&id).await {
-                        load_files.emit((cat_id, cat_name, false));
-                    } else { is_loading.set(false); }
-                });
+                let is_del = is_deleting.clone();
+                let f_state = files_state.clone();
+                let on_del = on_parent_delete.clone();
+
+                pending.set(None); // 確認ダイアログを閉じる
+                is_del.set(Some(id_for_anim)); // アニメーション開始
+
+                // 0.3秒後に実際の削除処理を実行
+                Timeout::new(300, move || {
+                    on_del.emit((id_for_parent.clone(), name_for_parent));
+                    
+                    // リストから即座に削除（再描画）
+                    let mut current_files = (*f_state).clone();
+                    current_files.retain(|f| f.id != id_for_parent);
+                    f_state.set(current_files);
+                    is_del.set(None);
+                }).forget();
             }
         })
     };
@@ -589,8 +594,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let root_ref = root_ref.clone();
         let focused_area = focused_area.clone();
         let selected_cat_idx = selected_cat_idx.clone();
-        let load_files = load_files.clone();
-        let categories = sorted_categories.clone();
         let preview_active = preview_data.is_some();
         
         Callback::from(move |e: FocusEvent| {
@@ -609,17 +612,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let root_ref_c = root_ref.clone();
                 let f_area = focused_area.clone();
                 let s_idx = selected_cat_idx.clone();
-                let l_files = load_files.clone();
-                let cats = categories.clone();
                 
                 Timeout::new(10, move || {
                     if let Some(div) = root_ref_c.cast::<web_sys::HtmlElement>() {
                         let _ = div.focus();
                         f_area.set(FocusedArea::Categories);
                         s_idx.set(0);
-                        if !cats.is_empty() {
-                            l_files.emit((cats[0].id.clone(), cats[0].name.clone(), false));
-                        }
                     }
                 }).forget();
             }
@@ -688,7 +686,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let edit_input = edit_name_input.clone();
 
                             html! {
-                                <div class={classes!(
+                                <div key={cat.id.clone()} class={classes!(
                                     "w-full", "rounded-[6px]", "transition-all", "flex", "items-center", "group/cat", "border-[3px]",
                                     if is_focused { vec!["border-lime-400", "ring-1", "ring-lime-400"] } else { vec!["border-transparent"] },
                                     if is_focused { vec!["bg-blue-600", "text-white"] }
@@ -809,12 +807,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let on_move = on_move_file.clone();
                             let pending_del = pending_delete_file.clone();
                             let is_fading_item = (*pending_move_file_id).as_ref() == Some(&file_id);
+                            let is_deleting_item = (*is_deleting_id).as_ref() == Some(&file_id);
                             let current_cid = (*current_category_id).clone();
 
                             html! {
-                                <div class={classes!(
-                                    "relative", "group/fileitem", "h-1/5", "w-full", "p-1.5",
-                                    if is_fading_item { "opacity-0 scale-95 pointer-events-none" } else { "opacity-100" },
+                                <div key={file_id.clone()} class={classes!(
+                                    "relative", "group/fileitem", "w-full", "px-1.5", "transition-all", "duration-300", "overflow-hidden",
+                                    if is_deleting_item { "h-0 p-0 opacity-0 scale-95 pointer-events-none" } else { "h-[20%] py-1.5" },
+                                    if is_fading_item { "opacity-0 scale-95 pointer-events-none" } else { "" },
                                     if is_drop_open { "z-30" } else { "z-0" }
                                 )}>
                                     <button 

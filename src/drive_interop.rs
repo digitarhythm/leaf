@@ -15,7 +15,7 @@ extern "C" {
     pub async fn list_folders(parent_id: &str) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch)]
-    pub async fn upload_file(filename: &str, content: &str, folder_id: &str, file_id: Option<&str>) -> Result<JsValue, JsValue>;
+    pub async fn upload_file(filename: &str, content: &JsValue, folder_id: &str, file_id: Option<&str>) -> Result<JsValue, JsValue>;
 
     #[wasm_bindgen(catch)]
     pub async fn list_files(folder_id: &str, signal: Option<web_sys::AbortSignal>) -> Result<JsValue, JsValue>;

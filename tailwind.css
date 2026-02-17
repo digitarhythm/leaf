@@ -373,8 +373,8 @@
   .table {
     display: table;
   }
-  .h-1\/5 {
-    height: calc(1/5 * 100%);
+  .h-0 {
+    height: calc(var(--spacing) * 0);
   }
   .h-2 {
     height: calc(var(--spacing) * 2);
@@ -402,6 +402,9 @@
   }
   .h-12 {
     height: calc(var(--spacing) * 12);
+  }
+  .h-\[20\%\] {
+    height: 20%;
   }
   .h-full {
     height: 100%;
@@ -805,6 +808,9 @@
       background-color: color-mix(in oklab, var(--color-slate-700) 50%, transparent);
     }
   }
+  .p-0 {
+    padding: calc(var(--spacing) * 0);
+  }
   .p-1 {
     padding: calc(var(--spacing) * 1);
   }
@@ -825,6 +831,9 @@
   }
   .px-1 {
     padding-inline: calc(var(--spacing) * 1);
+  }
+  .px-1\.5 {
+    padding-inline: calc(var(--spacing) * 1.5);
   }
   .px-2 {
     padding-inline: calc(var(--spacing) * 2);
@@ -1219,12 +1228,19 @@
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   }
 }
+.ace_gutter-cell {
+  text-align: right !important;
+  padding-right: 12px !important;
+  padding-left: 0 !important;
+  min-width: 3.5em !important;
+}
 .leaf-unsaved-gutter .ace_gutter-cell {
   color: #fb923c !important;
-  transition: color 0.3s ease;
 }
 .leaf-local-gutter .ace_gutter-cell {
   color: #22c55e !important;
+}
+.ace_gutter-cell {
   transition: color 0.3s ease;
 }
 @keyframes dialog-fade-in {

@@ -280,7 +280,6 @@ pub fn app() -> Html {
         let lock_h = is_import_lock.clone();
         let lock_fade_h = is_import_fading_out.clone();
         let ris_h = is_saving_ref.clone(); let is_saving_h = is_saving.clone();
-        let fq_h = fallback_queue.clone();
         let ncq_h = name_conflict_queue.clone();
         Callback::from(move |is_manual: bool| {
             if *ris_h.borrow() { return; }
@@ -290,7 +289,7 @@ pub fn app() -> Html {
             let lock_h = lock_h.clone();
             let lock_fade_h = lock_fade_h.clone();
             let ris_h = ris_h.clone(); let is_saving_h = is_saving_h.clone();
-            let fq_h = fq_h.clone(); let ncq_h = ncq_h.clone();
+            let ncq_h = ncq_h.clone();
             
             Timeout::new(0, move || {
                 let aid_opt = (*r_aid.borrow()).clone();
@@ -413,7 +412,7 @@ pub fn app() -> Html {
                         s_state.set(cur_s);
 
                         let s_inner = s_state.clone(); let nc_inner = nc_h.clone();
-                        let fq_inner = fq_h.clone(); let rs_async = rs_cb.clone();
+                        let rs_async = rs_cb.clone();
                         let ris_inner = ris_h.clone(); let is_saving_inner = is_saving_h.clone(); let ncq_inner = ncq_h.clone();
                         let ild_inner = ild_h.clone();
                         let lock_inner = lock_h.clone();
@@ -437,7 +436,7 @@ pub fn app() -> Html {
                              
                              if !sheet.category.is_empty() && sheet.category != "OTHERS" {
                                  if let Err(_) = get_file_metadata(&sheet.category).await {
-                                     fq_inner.set(vec![sheet.id.clone()]); *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
+                                     *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
                                      let mut u_s = (*rs_async.borrow()).clone();
                                      if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { 
                                          si.is_modified = true; 
@@ -471,17 +470,9 @@ pub fn app() -> Html {
                                  }
                              }
                         
-                             let mut final_content = sheet.content.clone();
-                             if let Some(drive_id) = &sheet.drive_id {
-                                 if sheet.loaded_bytes < sheet.total_size {
-                                     let range = format!("{}-{}", sheet.loaded_bytes, sheet.total_size - 1);
-                                     if let Ok(js_val) = download_file(drive_id, Some(&range), None).await {
-                                         if let Some(rest) = js_val.as_string() { final_content.push_str(&rest); }
-                                     }
-                                 }
-                             }
-
-                             let res = upload_file(&fname, &final_content, &target_folder_id, sheet.drive_id.as_deref()).await;
+                             // インクリメンタル読み込み廃止：常に sheet.content 全量をアップロード
+                             let final_content = &sheet.content;
+                             let res = upload_file(&fname, &JsValue::from_str(final_content), &target_folder_id, sheet.drive_id.as_deref()).await;
                              let mut n_did = sheet.drive_id.clone(); let mut stime = sheet.last_sync_timestamp;
                              match res {
                                  Ok(rv) => {
@@ -506,8 +497,9 @@ pub fn app() -> Html {
                              }
                              
                              let mut u_s = (*rs_async.borrow()).clone();
+                             let final_size = final_content.len() as u64;
                              if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { 
-                                 si.drive_id = n_did; si.total_size = final_content.len() as u64; si.loaded_bytes = final_content.len() as u64;
+                                 si.drive_id = n_did; si.total_size = final_size; si.loaded_bytes = final_size;
                                  if si.content == sheet.content { si.is_modified = false; }
                                  si.temp_content = None; si.temp_timestamp = None; si.last_sync_timestamp = stime; 
                                  let js = si.to_js();
@@ -718,18 +710,21 @@ pub fn app() -> Html {
                 if let Some(pos) = us.iter().position(|x| x.id == conf.sheet_id) {
                     let s = &mut us[pos];
                     match sel {
-                        0 => { if let Ok(dv) = download_file(&conf.drive_id, None, None).await { if let Some(t) = dv.as_string() { s.content = t.clone(); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(conf.drive_time); s.is_modified = false; if Some(s.id.clone()) == aid_v { set_editor_content(&t); } } } },
+                        0 => { if let Ok(dv) = download_file(&conf.drive_id, None, None).await { 
+                            let t = dv.as_string().unwrap_or_default();
+                            let t_len = t.len() as u64;
+                            s.content = t.clone(); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(conf.drive_time); s.is_modified = false; s.loaded_bytes = t_len; s.total_size = t_len; if Some(s.id.clone()) == aid_v { set_editor_content(&t); } } },
                         1 => { 
                             if let Some(fid) = fid_opt { 
                                 let did = if conf.is_missing_on_drive { None } else { Some(conf.drive_id.as_str()) };
-                                if let Ok(rv) = upload_file(&format!("{}.txt", s.guid.as_ref().unwrap_or(&generate_uuid())), &s.content, &fid, did).await {
+                                if let Ok(rv) = upload_file(&format!("{}.txt", s.guid.as_ref().unwrap_or(&generate_uuid())), &JsValue::from_str(&s.content), &fid, did).await {
                                     if let Ok(iv) = js_sys::Reflect::get(&rv, &JsValue::from_str("id")) { if let Some(is) = iv.as_string() { s.drive_id = Some(is); } }
                                     if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { s.last_sync_timestamp = Some(crate::drive_interop::parse_date(&ts) as u64); } }
                                     s.temp_content = None; s.temp_timestamp = None; s.is_modified = false; 
                                 }
                             } 
                         },
-                        2 => { if let Some(fid) = fid_opt { let ng = generate_uuid(); let _ = upload_file(&format!("{}.txt", ng), &s.content, &fid, None).await; s.guid = Some(ng); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(js_sys::Date::now() as u64); s.is_modified = false; s.tab_color = generate_random_color(); } },
+                        2 => { if let Some(fid) = fid_opt { let ng = generate_uuid(); let _ = upload_file(&format!("{}.txt", ng), &JsValue::from_str(&s.content), &fid, None).await; s.guid = Some(ng); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(js_sys::Date::now() as u64); s.is_modified = false; s.tab_color = generate_random_color(); } },
                         3 => { let _ = crate::db_interop::delete_sheet(&s.id).await; us.remove(pos); deleted = true; },
                         _ => {}
                     }
@@ -803,58 +798,72 @@ pub fn app() -> Html {
             let ss_inner = ss.clone(); let aid_inner = aid.clone(); let sp_inner = sp.clone();
             let il_inner = il.clone(); let ifo_inner = ifo.clone(); let rs_inner = rs.clone();
             spawn_local(async move {
-                let mut total_size = 0u64;
-                if let Ok(meta) = get_file_metadata(&did).await {
-                    if let Ok(sz_val) = js_sys::Reflect::get(&meta, &JsValue::from_str("size")) {
-                        total_size = sz_val.as_string().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-                    }
-                }
-
-                // 1MB を超える場合は最初のチャンクのみ取得
-                let (range, loaded) = if total_size > 1024 * 1024 {
-                    (Some("0-1048575"), 1024 * 1024)
-                } else {
-                    (None, total_size)
-                };
-
-                if let Ok(cv) = download_file(&did, range, None).await {
-                    if let Some(c) = cv.as_string() {
-                        let mut cs = (*rs_inner.borrow()).clone();
-                        let tidx = if cs.len() == 1 && cs[0].drive_id.is_none() { Some(0) } else { None };
-                        let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
-                        let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
-                        let ns = Sheet { 
-                            id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), 
-                            is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, 
-                            last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else { generate_random_color() },
-                            total_size, loaded_bytes: loaded
-                        };
-                        set_editor_content(&c); set_gutter_status("none");
-                        if let Some(idx) = tidx { cs[idx] = ns.clone(); } else { cs = vec![ns.clone()]; }
-                        *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
-                        focus_editor(); 
-                        
-                        let js = JSSheet { 
-                            id: nid, guid, category: cat_id, title, content: c, is_modified: false, drive_id: Some(did), 
-                            temp_content: None, temp_timestamp: None, last_sync_timestamp: Some(js_sys::Date::now() as u64), 
-                            tab_color: ns.tab_color, total_size, loaded_bytes: loaded 
-                        };
-                        let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                        
-                        // テキストがセットされた後、描画を待ってからフェードアウト開始
-                        Timeout::new(50, move || {
-                            ifo_inner.set(true);
-                            let ifo_final = ifo_inner.clone();
-                            Timeout::new(300, move || {
-                                il_inner.set(false);
-                                sp_inner.set(false);
-                                ifo_final.set(false);
-                            }).forget();
+                // インクリメンタル読み込み廃止：常に全量を一括ダウンロード
+                if let Ok(cv) = download_file(&did, None, None).await {
+                    let c = cv.as_string().unwrap_or_default();
+                    let c_len = c.len() as u64;
+                    let mut cs = (*rs_inner.borrow()).clone();
+                    let tidx = if cs.len() == 1 && cs[0].drive_id.is_none() { Some(0) } else { None };
+                    let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
+                    let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
+                    let ns = Sheet { 
+                        id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), 
+                        is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, 
+                        last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else { generate_random_color() },
+                        total_size: c_len, loaded_bytes: c_len
+                    };
+                    set_editor_content(&c); set_gutter_status("none");
+                    if let Some(idx) = tidx { cs[idx] = ns.clone(); } else { cs = vec![ns.clone()]; }
+                    *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
+                    focus_editor(); 
+                    
+                    let js = ns.to_js();
+                    let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                    
+                    // テキストがセットされた後、描画を待ってからフェードアウト開始
+                    Timeout::new(50, move || {
+                        ifo_inner.set(true);
+                        let ifo_final = ifo_inner.clone();
+                        Timeout::new(300, move || {
+                            il_inner.set(false);
+                            sp_inner.set(false);
+                            ifo_final.set(false);
                         }).forget();
-                    }
+                    }).forget();
                 } else { 
                     il_inner.set(false); sp_inner.set(false); 
                 }
+            });
+        })
+    };
+
+    let on_delete_file_cb = {
+        let s_state = sheets.clone();
+        let rs = sheets_ref.clone();
+        Callback::from(move |(drive_id, _filename): (String, String)| {
+            let rs = rs.clone();
+            let ss = s_state.clone();
+            let d_id = drive_id.clone();
+            spawn_local(async move {
+                // 1. メモリ上のシートをリセット（削除対象がメモリ上に存在する場合）
+                let mut us = (*rs.borrow()).clone();
+                if let Some(sheet) = us.iter_mut().find(|s| s.drive_id.as_ref() == Some(&d_id)) {
+                    sheet.drive_id = None;
+                    let new_guid = generate_uuid();
+                    sheet.guid = Some(new_guid.clone()); // GUIDを新規作成
+                    sheet.title = format!("{}.txt", new_guid); // タイトルに新しいファイル名(GUID)をセット
+                    sheet.is_modified = true;
+                    set_gutter_status("unsaved");
+                    
+                    let js = sheet.to_js();
+                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                    if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                }
+                *rs.borrow_mut() = us.clone();
+                ss.set(us);
+
+                // 2. Google Drive から削除
+                let _ = delete_file(&d_id).await;
             });
         })
     };
@@ -979,23 +988,26 @@ pub fn app() -> Html {
                     let lmk_inner = lmk.clone(); let r_s_inner = r_s.clone();
                     let os_inner = os.clone();
 
-                    // ローカルファイルへの変更時：即座に保存ダイアログを表示
-                    if new_cat_id == "__LOCAL__" {
-                        sheet.category = "__LOCAL__".to_string();
-                        let mut us = current_sheets; us[pos] = sheet;
-                        *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
-                        Timeout::new(0, move || { os_inner.emit(true); }).forget();
-                        return;
-                    }
-
-                    // カテゴリーなしからの昇格
-                    if old_cat_id.is_empty() && !new_cat_id.is_empty() {
-                        sheet.guid = Some(generate_uuid());
+                    // ローカルからクラウドへの変更、または新規クラウド昇格時
+                    if (old_cat_id == "__LOCAL__" || old_cat_id.is_empty()) && !new_cat_id.is_empty() && new_cat_id != "__LOCAL__" {
+                        set_gutter_status("none");
+                        let guid = generate_uuid();
+                        sheet.guid = Some(guid.clone());
+                        sheet.title = format!("{}.txt", guid);
                         clear_local_handle();
                         sheet.category = new_cat_id;
                         let mut us = current_sheets; us[pos] = sheet;
                         *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                         // 昇格時は即座に保存（アップロード）を実行
+                        Timeout::new(0, move || { os_inner.emit(true); }).forget();
+                        return;
+                    }
+
+                    // ローカルファイルへの変更時：即座に保存ダイアログを表示
+                    if new_cat_id == "__LOCAL__" {
+                        sheet.category = "__LOCAL__".to_string();
+                        let mut us = current_sheets; us[pos] = sheet;
+                        *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                         Timeout::new(0, move || { os_inner.emit(true); }).forget();
                         return;
                     }
@@ -1320,7 +1332,7 @@ pub fn app() -> Html {
                     else if cmd == "new_sheet" { on_i.emit(()); }
                     else if cmd == "new_local_sheet" {
                         // 新規ローカルファイル作成
-                        let s = s_state.clone(); let aid_ref = r_aid.clone(); let sp = sp_init.clone();
+                        let s = s_state.clone(); let aid_ref = r_aid_i.clone(); let sp = sp_init.clone();
                         let aid_state = aid_state_for_cb.clone();
                         let rs = r_s_i.clone(); let os_cb = os_i.clone();
                         
@@ -1388,51 +1400,6 @@ pub fn app() -> Html {
                         ip_i.set(!*r_prev_i.borrow()); 
                     }
                     else if cmd == "help" { ih_i.set(!*r_help_i.borrow()); }
-                    else if cmd == "load_more" {
-                        let aid = (*r_aid_i.borrow()).clone();
-                        if let Some(id) = aid {
-                            let mut cur_s = (*r_s_i.borrow()).clone();
-                            if let Some(sheet) = cur_s.iter_mut().find(|s| s.id == id) {
-                                if let Some(drive_id) = &sheet.drive_id {
-                                    if sheet.loaded_bytes < sheet.total_size {
-                                        let start = sheet.loaded_bytes;
-                                        let end = std::cmp::min(start + 1024 * 1024, sheet.total_size) - 1;
-                                        let range = format!("{}-{}", start, end);
-                                        let did_c = drive_id.clone();
-                                        let s_id = id.clone();
-                                        let s_state_inner = s_state.clone();
-                                        let r_s_inner = r_s_i.clone();
-                                        
-                                        spawn_local(async move {
-                                            if let Ok(js_val) = download_file(&did_c, Some(&range), None).await {
-                                                if let Some(new_content) = js_val.as_string() {
-                                                    crate::js_interop::append_editor_content(&new_content);
-                                                    
-                                                    let mut sheets_upd = (*r_s_inner.borrow()).clone();
-                                                    if let Some(s) = sheets_upd.iter_mut().find(|x| x.id == s_id) {
-                                                        s.content.push_str(&new_content);
-                                                        s.loaded_bytes = end + 1;
-                                                        
-                                                        let js = JSSheet { 
-                                                            id: s.id.clone(), guid: s.guid.clone(), category: s.category.clone(), 
-                                                            title: s.title.clone(), content: s.content.clone(), is_modified: s.is_modified, 
-                                                            drive_id: s.drive_id.clone(), temp_content: s.temp_content.clone(), 
-                                                            temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, 
-                                                            tab_color: s.tab_color.clone(), total_size: s.total_size, loaded_bytes: s.loaded_bytes
-                                                        };
-                                                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                                                        if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                                                    }
-                                                    *r_s_inner.borrow_mut() = sheets_upd.clone();
-                                                    s_state_inner.set(sheets_upd);
-                                                }
-                                            }
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
                     else if cmd == "change" {
                         if *sp_cb { return; }
                         let cur_c_val = get_editor_content();
@@ -1493,7 +1460,7 @@ pub fn app() -> Html {
                             "local"
                         } else if s.category.is_empty() {
                             if s.title.starts_with("Untitled") { "unsaved" } else { "local" }
-                        } else if s.drive_id.is_none() {
+                        } else if s.drive_id.is_none() && s.guid.is_none() {
                             "unsaved"
                         } else {
                             "none"
@@ -1837,12 +1804,12 @@ pub fn app() -> Html {
                                 leaf_data_id={ldid} 
                                 categories={(*categories).clone()} 
                                 on_refresh={on_refresh_cats_cb}
-                                on_delete_category={on_delete_category_cb}
-                                on_rename_category={on_rename_category_cb}
-                                on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} 
-                                on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))}
-                            />
-                        </div>
+                                                                on_delete_category={on_delete_category_cb} 
+                                                                on_rename_category={on_rename_category_cb} 
+                                                                on_delete_file={on_delete_file_cb}
+                                                                on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} 
+                                                                on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))}
+                                                            />                        </div>
                     }
                 }
 
