@@ -711,7 +711,11 @@ pub fn app() -> Html {
                     let s = &mut us[pos];
                     match sel {
                         0 => { if let Ok(dv) = download_file(&conf.drive_id, None, None).await { 
-                            let t = dv.as_string().unwrap_or_default();
+                            let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
+                            let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
+                            let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
+                            let t = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&dv)).unwrap().as_string().unwrap_or_default();
+                            
                             let t_len = t.len() as u64;
                             s.content = t.clone(); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(conf.drive_time); s.is_modified = false; s.loaded_bytes = t_len; s.total_size = t_len; if Some(s.id.clone()) == aid_v { set_editor_content(&t); } } },
                         1 => { 
@@ -800,7 +804,11 @@ pub fn app() -> Html {
             spawn_local(async move {
                 // インクリメンタル読み込み廃止：常に全量を一括ダウンロード
                 if let Ok(cv) = download_file(&did, None, None).await {
-                    let c = cv.as_string().unwrap_or_default();
+                    let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
+                    let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
+                    let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
+                    let c = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&cv)).unwrap().as_string().unwrap_or_default();
+                    
                     let c_len = c.len() as u64;
                     let mut cs = (*rs_inner.borrow()).clone();
                     let tidx = if cs.len() == 1 && cs[0].drive_id.is_none() { Some(0) } else { None };
@@ -1859,7 +1867,7 @@ pub fn app() -> Html {
                         <ConfirmDialog 
                             title={i18n::t("install_manual_title", lang)}
                             message={i18n::t("install_manual_message", lang)}
-                            ok_label={"OK"}
+                            ok_label={i18n::t("ok", lang)}
                             on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)}
                             on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)}
                         />
@@ -1883,7 +1891,7 @@ pub fn app() -> Html {
 
                 if let Some(fb_alert) = if let Some(_) = fallback_queue.first() {
                     let fq = fallback_queue.clone(); let on_cfm = on_fallback_cfm.clone();
-                    Some(html! { <CustomDialog title={i18n::t("category_not_found_title", lang)} message={i18n::t("category_not_found_fallback", lang)} options={vec![DialogOption { id: 0, label: "OK".to_string() }]} on_confirm={on_cfm} on_cancel={let fq = fq.clone(); Some(Callback::from(move |_| { fq.set(Vec::new()); }))} /> })
+                    Some(html! { <CustomDialog title={i18n::t("category_not_found_title", lang)} message={i18n::t("category_not_found_fallback", lang)} options={vec![DialogOption { id: 0, label: i18n::t("ok", lang) }]} on_confirm={on_cfm} on_cancel={let fq = fq.clone(); Some(Callback::from(move |_| { fq.set(Vec::new()); }))} /> })
                 } else { None } { <div class="pointer-events-auto">{ fb_alert }</div> }
 
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() {

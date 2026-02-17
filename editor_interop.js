@@ -89,6 +89,44 @@ export function clear_local_handle() {
     localFileHandle = null;
 }
 
+export function get_safe_chunk(uint8array) {
+    if (!uint8array || uint8array.length === 0) return { text: "", bytes_consumed: 0 };
+    
+    let len = uint8array.length;
+    let end = len;
+    
+    // UTF-8 のマルチバイト文字が途切れていないかチェック (末尾3バイトを確認)
+    for (let i = 1; i <= 3 && i <= len; i++) {
+        let byte = uint8array[len - i];
+        if ((byte & 0xC0) === 0xC0) { // リーディングバイト (11xxxxxx)
+            let expected = 0;
+            if ((byte & 0xE0) === 0xC0) expected = 2;      // 2バイト文字
+            else if ((byte & 0xF0) === 0xE0) expected = 3; // 3バイト文字
+            else if ((byte & 0xF8) === 0xF0) expected = 4; // 4バイト文字
+            
+            if (i < expected) {
+                // 文字が途切れているので、この文字の直前までで切る
+                end = len - i;
+            }
+            break;
+        }
+        if ((byte & 0x80) === 0x00) break; // ASCII (0xxxxxxx) なので安全
+    }
+    
+    // \r\n の途切断チェック (\r で終わっている場合は \n と泣き別れないように1バイト戻す)
+    if (end > 0 && uint8array[end - 1] === 0x0D) {
+        end--;
+    }
+
+    const consumed = uint8array.slice(0, end);
+    const decoder = new TextDecoder('utf-8');
+    let text = decoder.decode(consumed);
+    // 先頭のBOM除去 (ファイル冒頭のみ)
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    
+    return { text, bytes_consumed: end };
+}
+
 export function set_window_title(title) {
     document.title = title ? `${title} - Leaf` : "Leaf";
 }
