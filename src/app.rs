@@ -1669,7 +1669,7 @@ pub fn app() -> Html {
                             is_man.set(true);
                         }
                     });
-                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} /> })
+                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} is_help={true} /> })
                 } else { None } { <div class="pointer-events-auto">{ preview }</div> }
 
                 if *is_install_confirm_visible {

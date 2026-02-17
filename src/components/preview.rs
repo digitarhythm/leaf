@@ -17,6 +17,8 @@ pub struct PreviewProps {
     pub is_loading: bool,
     #[prop_or_default]
     pub disable_space_scroll: bool,
+    #[prop_or_default]
+    pub is_help: bool,
 }
 
 #[function_component(Preview)]
@@ -72,8 +74,11 @@ pub fn preview(props: &PreviewProps) -> Html {
     {
         let node_ref = node_ref.clone();
         let disable_space = props.disable_space_scroll;
-        use_effect_with(disable_space, move |ds| {
-            let disable_space = *ds;
+        let on_close = props.on_close.clone();
+        let is_help_mode = props.is_help;
+        use_effect_with((disable_space, is_help_mode), move |deps| {
+            let (disable_space, is_help_mode) = *deps;
+            let on_close = on_close.clone();
             let window = web_sys::window().unwrap();
             let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
             opts.passive = false;
@@ -89,6 +94,21 @@ pub fn preview(props: &PreviewProps) -> Html {
                 let is_space = key == " " && !disable_space;
                 let is_home = key == "Home";
                 let is_end = key == "End";
+
+                // ショートカットトグル (適切なキーのみに反応)
+                let is_target_key = if is_help_mode {
+                    key.to_lowercase() == "h" || key == "˙"
+                } else {
+                    key.to_lowercase() == "l" || key == "¬"
+                };
+                let is_alt_toggle = ke.alt_key() && is_target_key;
+
+                if is_alt_toggle {
+                    e.prevent_default();
+                    e.stop_immediate_propagation();
+                    on_close.emit(());
+                    return;
+                }
 
                 if is_up || is_down || is_arrow_up || is_arrow_down || is_space || is_home || is_end {
                     if let Some(el) = node_ref.cast::<web_sys::Element>() {
