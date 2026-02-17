@@ -161,16 +161,16 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 <button
                     onclick={props.on_change_font_size.reform(|_| -1)}
                     class="p-1 w-8 h-8 rounded hover:bg-gray-700 text-gray-400 hover:text-white flex items-center justify-center font-bold"
-                    title="Decrease Font Size"
+                    title={i18n::t("decrease_font_size", lang)}
                 >
-                    {"ー"}
+                    {"-"}
                 </button>
                 <button
                     onclick={props.on_change_font_size.reform(|_| 1)}
                     class="p-1 w-8 h-8 rounded hover:bg-gray-700 text-gray-400 hover:text-white flex items-center justify-center font-bold"
-                    title="Increase Font Size"
+                    title={i18n::t("increase_font_size", lang)}
                 >
-                    {"＋"}
+                    {"+"}
                 </button>
             </div>
             <div class="flex-1"></div>

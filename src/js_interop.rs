@@ -20,6 +20,8 @@ extern "C" {
     pub fn set_editor_mode(filename: &str);
     pub fn exec_editor_command(command: &str);
 
+    pub fn get_safe_chunk(data: &JsValue) -> JsValue;
+
     pub fn can_install_pwa() -> bool;
     pub async fn trigger_pwa_install() -> JsValue;
     pub fn is_webkit_or_safari() -> bool;

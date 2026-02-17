@@ -12,8 +12,7 @@
 .ace_gutter-cell {
   text-align: right !important;
   padding-right: 12px !important;
-  padding-left: 0 !important;
-  min-width: 3.5em !important;
+  padding-left: 2.5em !important;
 }
 
 /* 未保存状態の行番号の色（新規シート） */

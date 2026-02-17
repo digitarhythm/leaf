@@ -273,6 +273,10 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Weet u zeker dat u dit wilt verwijderen?\n",
             _ => "Are you sure you want to delete this?\n",
         }.to_string(),
+        "omitted_below" => match lang {
+            Language::Ja => "・\n・\n・\n以下省略",
+            _ => "・\n・\n・\nOmitted below",
+        }.to_string(),
         "confirm_logout" => match lang {
             Language::Ja => "ログアウトしますか？",
             Language::Zh => "您确定要注销吗？",
@@ -410,6 +414,11 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Cancel",
         }.to_string(),
 
+        "ok" => match lang {
+            Language::Ja => "OK",
+            _ => "OK",
+        }.to_string(),
+
         // --- Button Bar ---
         "new_sheet" => match lang {
             Language::Ja => "新規シート",
@@ -443,6 +452,14 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::It => "Attiva/disattiva modalità Vim",
             Language::Nl => "Vim-modus omschakelen",
             _ => "Toggle Vim Mode",
+        }.to_string(),
+        "increase_font_size" => match lang {
+            Language::Ja => "フォントサイズを大きくする",
+            _ => "Increase Font Size",
+        }.to_string(),
+        "decrease_font_size" => match lang {
+            Language::Ja => "フォントサイズを小さくする",
+            _ => "Decrease Font Size",
         }.to_string(),
 
         "logout" => match lang {

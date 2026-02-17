@@ -87,9 +87,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let is_fading_out = use_state(|| false);
     let current_category_id = use_state(|| "".to_string());
     let current_category_name = use_state(|| "".to_string());
-    let active_dropdown_file_id = use_state(|| None::<String>); // 上に移動
+    let active_dropdown_file_id = use_state(|| None::<String>); 
     let preview_data = use_state(|| None::<FilePreview>);
-    let is_loading_more_preview = use_state(|| false);
+    let is_deleting_id = use_state(|| None::<String>); // アニメーション用ステート
     let abort_controller = use_state(|| None::<AbortController>);
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
@@ -122,7 +122,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         });
     }
 
-    // プレビュー表示中のキーイベント制御（キャプチャフェーズでapp.rsのリスナーより先に捕まえる）
+    // プレビュー表示中のキーイベント制御
     {
         let p_data = preview_data.clone();
         use_effect_with((*p_data).clone(), move |preview| {
@@ -145,7 +145,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     e.prevent_default();
                     e.stop_immediate_propagation();
                     
-                    // プレビューのスクロール要素（.markdown-body）を探してスクロールさせる
                     let doc = web_sys::window().unwrap().document().unwrap();
                     if let Ok(Some(el)) = doc.query_selector(".markdown-body") {
                         let scroll_amount = 40;
@@ -187,12 +186,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         });
     }
 
-    // ファイル操作用の状態
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
-    let is_deleting_id = use_state(|| None::<String>); // アニメーション用ステート
 
-    // カテゴリ選択時のファイル一覧取得
     let load_files = {
         let files_state = files.clone();
         let selected_file_idx = selected_file_idx.clone();
@@ -226,7 +222,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 if let Ok(Some(storage)) = window.local_storage() { let _ = storage.set_item(STORAGE_KEY_LAST_CAT, &cat_id); }
             }
 
-            files_state.set(Vec::new()); // リストをクリア
+            files_state.set(Vec::new()); 
             is_loading.set(true);
             current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
@@ -253,18 +249,28 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let id_clone = id.clone();
                             let signal_inner = signal_for_list.clone();
                             download_futures.push(async move {
-                                // 256KB をプリフェッチ
-                                let (range, loaded) = if total_size > 256 * 1024 {
-                                    (Some("0-262143"), 256 * 1024)
+                                // 100KB をプリフェッチ
+                                let range = if total_size > 102400 {
+                                    Some("0-102399")
                                 } else {
-                                    (None, total_size)
+                                    None
                                 };
                                 
-                                let content = match download_file(&id_clone, range, Some(signal_inner)).await {
-                                    Ok(c_val) => c_val.as_string().unwrap_or_default(),
-                                    Err(_) => "".to_string(),
+                                let content_val = match download_file(&id_clone, range, Some(signal_inner)).await {
+                                    Ok(c_val) => c_val,
+                                    Err(_) => JsValue::UNDEFINED,
                                 };
-                                FilePreview { id, name, content, total_size, loaded_bytes: loaded, is_markdown: false, lang: "".to_string() }
+                                
+                                let (content, consumed) = if !content_val.is_undefined() {
+                                    let res = crate::js_interop::get_safe_chunk(&content_val);
+                                    let t = js_sys::Reflect::get(&res, &JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
+                                    let b = js_sys::Reflect::get(&res, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
+                                    (t, b)
+                                } else {
+                                    ("".to_string(), 0u64)
+                                };
+
+                                FilePreview { id, name, content, total_size, loaded_bytes: consumed, is_markdown: false, lang: "".to_string() }
                             });
                         }
                         let previews = futures::future::join_all(download_futures).await;
@@ -285,7 +291,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
-    // カテゴリのソート (OTHERSを最上部へ)
     let sorted_categories = {
         let mut cats = props.categories.clone();
         cats.sort_by(|a, b| {
@@ -355,39 +360,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
-    // 追加読み込みロジック
-    let on_load_more_preview = {
-        let p_data = preview_data.clone();
-        let is_loading_more = is_loading_more_preview.clone();
-        Callback::from(move |_: ()| {
-            if *is_loading_more { return; }
-            let p_data = p_data.clone();
-            let is_loading_more = is_loading_more.clone();
-            
-            if let Some(preview) = (*p_data).clone() {
-                if preview.loaded_bytes >= preview.total_size { return; }
-                
-                let file_id = preview.id.clone();
-                let start = preview.loaded_bytes;
-                let end = std::cmp::min(start + 1024 * 1024, preview.total_size) - 1;
-                let range = format!("{}-{}", start, end);
-                
-                is_loading_more.set(true);
-                spawn_local(async move {
-                    if let Ok(js_val) = download_file(&file_id, Some(&range), None).await {
-                        if let Some(new_content) = js_val.as_string() {
-                            let mut updated_preview = preview.clone();
-                            updated_preview.content.push_str(&new_content);
-                            updated_preview.loaded_bytes = end + 1;
-                            p_data.set(Some(updated_preview));
-                        }
-                    }
-                    is_loading_more.set(false);
-                });
-            }
-        })
-    };
-
     let on_keydown = {
         let focused_area = focused_area.clone();
         let selected_cat_idx = selected_cat_idx.clone();
@@ -402,78 +374,30 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_creating_cat = is_creating_category.clone();
         let is_deleting_file = pending_delete_file.clone();
         let preview_data = preview_data.clone();
-        let is_loading_more_preview = is_loading_more_preview.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area;
-            // プレビュー表示中は全てのキー入力を無視（キャプチャフェーズで処理済み）
-            if preview_data.is_some() {
-                return;
-            }
-
-            // サブダイアログ表示中、またはフェードアウト中、ドロップダウン表示中は入力を無視
-            if *is_fading_out || dropdown_active.is_some() || *is_creating_cat || is_deleting_file.is_some() { 
-                return; 
-            }
+            if preview_data.is_some() { return; }
+            if *is_fading_out || dropdown_active.is_some() || *is_creating_cat || is_deleting_file.is_some() { return; }
             
             match e.key().as_str() {
                 " " => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Files && !files_c.is_empty() {
                         let file = &files_c[*selected_file_idx];
-                        let file_id = file.id.clone();
-                        let file_name = file.name.clone();
-                        let total_size = file.total_size;
-                        let loaded_bytes = file.loaded_bytes;
-                        let is_loading_more = is_loading_more_preview.clone();
-                        let p_data = preview_data.clone();
+                        let ext = file.name.split('.').last().unwrap_or("").to_lowercase();
+                        let is_markdown = ext == "md" || ext == "markdown";
+                        let lang = get_highlight_lang(&file.name).unwrap_or("").to_string();
 
-                        // すでに 256KB 以上、またはファイル全体が読み込み済みであれば即座に表示
-                        if loaded_bytes >= 256 * 1024 || loaded_bytes >= total_size {
-                            let ext = file_name.split('.').last().unwrap_or("").to_lowercase();
-                            let is_markdown = ext == "md" || ext == "markdown";
-                            let lang = get_highlight_lang(&file_name).unwrap_or("").to_string();
-                            
-                            p_data.set(Some(FilePreview {
-                                id: file_id,
-                                name: file_name,
-                                content: file.content.clone(),
-                                total_size,
-                                loaded_bytes,
-                                is_markdown,
-                                lang,
-                            }));
-                            return;
-                        }
-
-                        is_loading_more.set(true);
-                        spawn_local(async move {
-                            // すでにリスト取得時に total_size を持っているので即座にダウンロード開始
-                            let (range, loaded) = if total_size > 256 * 1024 {
-                                (Some("0-262143".to_string()), 256 * 1024)
-                            } else {
-                                (None, total_size)
-                            };
-
-                            if let Ok(js_val) = download_file(&file_id, range.as_deref(), None).await {
-                                if let Some(content) = js_val.as_string() {
-                                    let ext = file_name.split('.').last().unwrap_or("").to_lowercase();
-                                    let is_markdown = ext == "md" || ext == "markdown";
-                                    let lang = get_highlight_lang(&file_name).unwrap_or("").to_string();
-                                    
-                                    p_data.set(Some(FilePreview {
-                                        id: file_id,
-                                        name: file_name,
-                                        content,
-                                        total_size,
-                                        loaded_bytes: loaded,
-                                        is_markdown,
-                                        lang,
-                                    }));
-                                }
-                            }
-                            is_loading_more.set(false);
-                        });
+                        preview_data.set(Some(FilePreview {
+                            id: file.id.clone(),
+                            name: file.name.clone(),
+                            content: file.content.clone(),
+                            total_size: file.total_size,
+                            loaded_bytes: file.loaded_bytes,
+                            is_markdown,
+                            lang,
+                        }));
                     }
                 }
                 "Tab" => {
@@ -540,7 +464,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     pending_move.set(Some(f_id.clone())); 
                     
                     Timeout::new(300, move || {
-                        // リスト更新前にローカルの状態から削除して、再表示を防ぐ
                         let mut current_files = (*files_state).clone();
                         current_files.retain(|f| f.id != f_id);
                         files_state.set(current_files);
@@ -568,14 +491,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let f_state = files_state.clone();
                 let on_del = on_parent_delete.clone();
 
-                pending.set(None); // 確認ダイアログを閉じる
-                is_del.set(Some(id_for_anim)); // アニメーション開始
+                pending.set(None); 
+                is_del.set(Some(id_for_anim)); 
 
-                // 0.3秒後に実際の削除処理を実行
                 Timeout::new(300, move || {
                     on_del.emit((id_for_parent.clone(), name_for_parent));
-                    
-                    // リストから即座に削除（再描画）
                     let mut current_files = (*f_state).clone();
                     current_files.retain(|f| f.id != id_for_parent);
                     f_state.set(current_files);
@@ -598,7 +518,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         
         Callback::from(move |e: FocusEvent| {
             is_root_focused.set(false);
-            if preview_active { return; } // プレビュー表示中はそちらにフォーカスを任せる
+            if preview_active { return; } 
 
             let related_target = e.related_target();
             let is_outside = if let Some(target) = related_target {
@@ -608,7 +528,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             } else { true };
 
             if is_outside {
-                // 強制的にフォーカスを戻す
                 let root_ref_c = root_ref.clone();
                 let f_area = focused_area.clone();
                 let s_idx = selected_cat_idx.clone();
@@ -906,7 +825,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             onclick={on_ok_click.reform(|_| ())}
                             class="px-8 py-2 bg-lime-600 hover:bg-lime-700 text-white font-bold rounded-[6px] shadow-lg transition-all"
                         >
-                            {"OK"}
+                            { i18n::t("ok", lang) }
                         </button>
                         <button 
                             onclick={props.on_close.reform(|_| ())}
@@ -960,14 +879,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         format!("```{}\n{}\n```", p.lang, p.content)
                     };
                     let has_more = p.loaded_bytes < p.total_size;
-                    let is_loading_preview = *is_loading_more_preview;
                     html! {
                         <Preview 
                             content={content} 
                             on_close={let p_data = preview_data.clone(); Callback::from(move |_| p_data.set(None))} 
-                            on_load_more={on_load_more_preview.clone()}
                             has_more={has_more}
-                            is_loading={is_loading_preview}
                             disable_space_scroll={true}
                         />
                     }

@@ -211,22 +211,19 @@ export async function download_file(fileId, range = null, signal = null) {
         const response = await authenticatedFetch(url, options);
         
         // 416 Range Not Satisfiable: ファイルが空（0バイト）の場合にRange指定すると発生する
-        if (response.status === 416) return "";
+        if (response.status === 416) return new Uint8Array(0);
         
         if (!response.ok && response.status !== 206) {
             console.warn(`[Drive] Download failed with status ${response.status} for file ${fileId}`);
-            return "";
+            return new Uint8Array(0);
         }
 
         const buffer = await response.arrayBuffer();
-        const decoder = new TextDecoder('utf-8');
-        let text = decoder.decode(buffer);
-        if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-        return text;
+        return new Uint8Array(buffer);
     } catch (e) {
-        if (e.name === 'AbortError') return "";
+        if (e.name === 'AbortError') return new Uint8Array(0);
         console.error(`[Drive] download_file error for ${fileId}:`, e);
-        return "";
+        return new Uint8Array(0);
     }
 }
 
