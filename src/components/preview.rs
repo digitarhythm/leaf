@@ -19,12 +19,16 @@ pub struct PreviewProps {
     pub disable_space_scroll: bool,
     #[prop_or_default]
     pub is_help: bool,
+    #[prop_or_default]
+    pub is_sub_dialog_open: bool,
 }
 
 #[function_component(Preview)]
 pub fn preview(props: &PreviewProps) -> Html {
     let lang = Language::detect();
     let node_ref = use_node_ref();
+
+    let is_sub_dialog_open = props.is_sub_dialog_open;
 
     {
         let content = props.content.clone();
@@ -46,13 +50,15 @@ pub fn preview(props: &PreviewProps) -> Html {
         let disable_space = props.disable_space_scroll;
         let on_close = props.on_close.clone();
         let is_help_mode = props.is_help;
-        use_effect_with((disable_space, is_help_mode), move |deps| {
-            let (disable_space, is_help_mode) = *deps;
+        use_effect_with((disable_space, is_help_mode, is_sub_dialog_open), move |deps| {
+            let (disable_space, is_help_mode, is_sub_open) = *deps;
             let on_close = on_close.clone();
             let window = web_sys::window().unwrap();
             let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
             opts.passive = false;
             let listener = gloo::events::EventListener::new_with_options(&window, "keydown", opts, move |e| {
+                if is_sub_open { return; }
+
                 let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                 let key = ke.key();
                 

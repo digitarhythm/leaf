@@ -6,7 +6,7 @@ use crate::components::dialog::{InputDialog, ConfirmDialog};
 use crate::components::preview::Preview;
 use wasm_bindgen::{JsValue, JsCast};
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{KeyboardEvent, AbortController, HtmlElement};
+use web_sys::{KeyboardEvent, AbortController};
 use gloo::timers::callback::Timeout;
 use gloo::events::{EventListener, EventListenerOptions};
 
@@ -61,6 +61,13 @@ pub struct FileOpenDialogProps {
     pub on_start_processing: Callback<()>,
     #[prop_or_default]
     pub on_preview_toggle: Callback<bool>,
+    #[prop_or_default]
+    pub is_sub_dialog_open: bool,
+    pub is_creating_category: bool,
+    pub on_create_category_toggle: Callback<bool>,
+    pub refresh_files_trigger: usize,
+    pub is_loading: bool,
+    pub on_loading_change: Callback<bool>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -80,8 +87,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let selected_cat_idx = use_state(|| 0usize);
     let selected_file_idx = use_state(|| 0usize);
     let files = use_state(|| Vec::<FilePreview>::new());
-    let is_loading_files = use_state(|| false);
-    let is_creating_category = use_state(|| false);
     let editing_category_id = use_state(|| None::<String>);
     let edit_name_input = use_state(|| "".to_string());
     let is_fading_out = use_state(|| false);
@@ -89,12 +94,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let current_category_name = use_state(|| "".to_string());
     let active_dropdown_file_id = use_state(|| None::<String>); 
     let preview_data = use_state(|| None::<FilePreview>);
-    let is_loading_preview = use_state(|| false); // プレビュー読み込み中フラグ
+    let is_loading_preview = use_state(|| false); // プレビュー用のみ維持（右側のみの表示のため）
     let is_deleting_id = use_state(|| None::<String>); // アニメーション用ステート
     let abort_controller = use_state(|| None::<AbortController>);
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
     let edit_input_ref = use_node_ref();
+
+    let is_sub_dialog_open = props.is_sub_dialog_open;
 
     // 編集モード開始時に入力フィールドへフォーカス
     {
@@ -175,7 +182,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let window = web_sys::window().unwrap();
             
             let listener = EventListener::new(&window, "mousedown", move |e| {
-                let target = e.target().unwrap().dyn_into::<HtmlElement>().unwrap();
+                let target = e.target().unwrap().unchecked_into::<web_sys::Node>();
                 if let Some(dd_el) = dropdown_node.get() {
                     if !dd_el.contains(Some(&target)) {
                         dropdown_active.set(None);
@@ -187,13 +194,32 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         });
     }
 
+    // 外部（app.rs）からのフォーカス復帰イベントを監視
+    {
+        let root = root_ref.clone();
+        let f_area = focused_area.clone();
+        let s_idx = selected_cat_idx.clone();
+        use_effect_with(root, move |r| {
+            let mut _listener = None;
+            if let Some(el) = r.get() {
+                let f_area = f_area.clone();
+                let s_idx = s_idx.clone();
+                _listener = Some(EventListener::new(&el, "leaf-focus-recovery", move |_| {
+                    f_area.set(FocusedArea::Categories);
+                    s_idx.set(0);
+                }));
+            }
+            || ()
+        });
+    }
+
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
 
     let load_files = {
         let files_state = files.clone();
         let selected_file_idx = selected_file_idx.clone();
-        let is_loading = is_loading_files.clone();
+        let on_loading_change = props.on_loading_change.clone();
         let current_category_id = current_category_id.clone();
         let current_category_name = current_category_name.clone();
         let focused_area = focused_area.clone();
@@ -205,7 +231,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             let files_state = files_state.clone();
             let selected_file_idx = selected_file_idx.clone();
-            let is_loading = is_loading.clone();
+            let on_loading_change = on_loading_change.clone();
             let current_category_id = current_category_id.clone();
             let current_category_name = current_category_name.clone();
             let focused_area = focused_area.clone();
@@ -224,13 +250,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             }
 
             files_state.set(Vec::new()); 
-            is_loading.set(true);
+            on_loading_change.emit(true);
             current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
             dropdown_active.set(None);
             pending_move.set(None);
             
             let signal_for_list = signal.clone();
+            let on_loading_change_inner = on_loading_change.clone();
             spawn_local(async move {
                 let res = list_files(&cat_id, Some(signal_for_list.clone())).await;
                 if signal_for_list.aborted() { return; }
@@ -251,11 +278,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let signal_inner = signal_for_list.clone();
                             download_futures.push(async move {
                                 // 1KB をプリフェッチ (一覧表示高速化のため)
-                                let range = if total_size > 1024 {
-                                    Some("0-1023")
-                                } else {
-                                    None
-                                };
+                                let range = if total_size > 1024 { Some("0-1023") } else { None };
                                 
                                 let content_val = match download_file(&id_clone, range, Some(signal_inner)).await {
                                     Ok(c_val) => c_val,
@@ -287,7 +310,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         }
                     }
                 }
-                is_loading.set(false);
+                on_loading_change_inner.emit(false);
             });
         })
     };
@@ -306,20 +329,31 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let sorted_cats = sorted_categories.clone();
         let load_files = load_files.clone();
         let selected_cat_idx = selected_cat_idx.clone();
-        use_effect_with(sorted_cats.clone(), move |cats: &Vec<JSCategory>| {
+        let current_cid = current_category_id.clone();
+        let refresh_trigger = props.refresh_files_trigger;
+        use_effect_with((sorted_cats.clone(), refresh_trigger), move |(cats, _)| {
             if !cats.is_empty() {
-                let last_cat_id = web_sys::window()
-                    .and_then(|w| w.local_storage().ok().flatten())
-                    .and_then(|s| s.get_item(STORAGE_KEY_LAST_CAT).ok().flatten());
-
-                let target_idx = if let Some(id) = last_cat_id {
-                    cats.iter().position(|c| c.id == id).unwrap_or(0)
+                let cid = (*current_cid).clone();
+                let exists = cats.iter().any(|c| c.id == cid);
+                
+                let target_idx = if exists {
+                    cats.iter().position(|c| c.id == cid).unwrap_or(0)
                 } else {
-                    cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0)
+                    let last_cat_id = web_sys::window()
+                        .and_then(|w| w.local_storage().ok().flatten())
+                        .and_then(|s| s.get_item(STORAGE_KEY_LAST_CAT).ok().flatten());
+
+                    if let Some(id) = last_cat_id {
+                        cats.iter().position(|c| c.id == id).unwrap_or_else(|| {
+                            cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0)
+                        })
+                    } else {
+                        cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0)
+                    }
                 };
 
                 selected_cat_idx.set(target_idx);
-                load_files.emit((cats[target_idx].id.clone(), cats[target_idx].name.clone(), true));
+                load_files.emit((cats[target_idx].id.clone(), cats[target_idx].name.clone(), false));
             }
             || ()
         });
@@ -341,11 +375,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let files = files.clone();
         let selected_file_idx = selected_file_idx.clone();
         let current_cat_id = current_category_id.clone();
-        let is_loading_files = is_loading_files.clone();
+        let is_loading_files = props.is_loading;
         let is_fading_out = is_fading_out.clone();
         let on_start = props.on_start_processing.clone();
         Callback::from(move |_: ()| {
-            if !*is_loading_files && !files.is_empty() && !*is_fading_out {
+            if !is_loading_files && !files.is_empty() && !*is_fading_out {
                 let file = &files[*selected_file_idx];
                 let drive_id = file.id.clone();
                 let title = file.name.clone();
@@ -370,17 +404,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let load_files = load_files.clone();
         let on_ok = on_ok_click.clone();
         let is_fading_out = is_fading_out.clone();
-        let loading_handle = is_loading_files.clone();
+        let is_loading_files = props.is_loading;
         let dropdown_active = active_dropdown_file_id.clone();
-        let is_creating_cat = is_creating_category.clone();
         let is_deleting_file = pending_delete_file.clone();
         let preview_data = preview_data.clone();
         let is_loading_preview_cb = is_loading_preview.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area;
-            if preview_data.is_some() { return; }
-            if *is_fading_out || dropdown_active.is_some() || *is_creating_cat || is_deleting_file.is_some() { return; }
+            if preview_data.is_some() || is_sub_dialog_open { return; }
+            if *is_fading_out || dropdown_active.is_some() || is_deleting_file.is_some() { return; }
             
             match e.key().as_str() {
                 " " => {
@@ -399,32 +432,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                         is_ld_prev.set(true);
                         spawn_local(async move {
-                            // プレビュー用に 100KB を取得
-                            let range = if total_size > 102400 {
-                                Some("0-102399")
-                            } else {
-                                None
-                            };
-
+                            let range = if total_size > 102400 { Some("0-102399") } else { None };
                             if let Ok(cv) = download_file(&file_id, range, None).await {
                                 let (content, consumed) = if !cv.is_undefined() {
                                     let res = crate::js_interop::get_safe_chunk(&cv);
-                                    let t = js_sys::Reflect::get(&res, &wasm_bindgen::JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
-                                    let b = js_sys::Reflect::get(&res, &wasm_bindgen::JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
+                                    let t = js_sys::Reflect::get(&res, &JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
+                                    let b = js_sys::Reflect::get(&res, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
                                     (t, b)
-                                } else {
-                                    ("".to_string(), 0u64)
-                                };
+                                } else { ("".to_string(), 0u64) };
 
-                                p_data.set(Some(FilePreview {
-                                    id: file_id,
-                                    name: file_name,
-                                    content,
-                                    total_size,
-                                    loaded_bytes: consumed,
-                                    is_markdown,
-                                    lang,
-                                }));
+                                p_data.set(Some(FilePreview { id: file_id, name: file_name, content, total_size, loaded_bytes: consumed, is_markdown, lang }));
                             }
                             is_ld_prev.set(false);
                         });
@@ -433,7 +450,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 "Tab" => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Categories {
-                        if !*loading_handle { focused_area.set(FocusedArea::Files); }
+                        if !is_loading_files { focused_area.set(FocusedArea::Files); }
                     } else { focused_area.set(FocusedArea::Categories); }
                 }
                 "ArrowUp" => {
@@ -463,7 +480,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 "Enter" => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Categories {
-                        if !*loading_handle { focused_area.set(FocusedArea::Files); }
+                        if !is_loading_files { focused_area.set(FocusedArea::Files); }
                     } else { on_ok.emit(()); }
                 }
                 _ => {}
@@ -475,22 +492,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let cur_cat_id = current_category_id.clone();
         let dropdown_active = active_dropdown_file_id.clone();
         let pending_move = pending_move_file_id.clone();
-        let is_loading = is_loading_files.clone();
+        let on_loading_change = props.on_loading_change.clone();
         let files_state = files.clone(); 
         Callback::from(move |(file_id, new_cat_id): (String, String)| {
             let cat_id = (*cur_cat_id).clone();
             let dropdown_active = dropdown_active.clone();
             let pending_move = pending_move.clone();
-            let is_loading = is_loading.clone();
+            let on_loading_change = on_loading_change.clone();
             let files_state = files_state.clone();
             let f_id = file_id.clone();
             
             dropdown_active.set(None);
-            is_loading.set(true); 
+            on_loading_change.emit(true); 
             
             spawn_local(async move {
                 if let Ok(_) = move_file(&f_id, &cat_id, &new_cat_id).await {
-                    is_loading.set(false);
+                    on_loading_change.emit(false);
                     pending_move.set(Some(f_id.clone())); 
                     
                     Timeout::new(300, move || {
@@ -499,7 +516,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         files_state.set(current_files);
                     }).forget();
                 } else { 
-                    is_loading.set(false); 
+                    on_loading_change.emit(false); 
                 }
             });
         })
@@ -548,7 +565,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         
         Callback::from(move |e: FocusEvent| {
             is_root_focused.set(false);
-            if preview_active { return; } 
+            if preview_active || is_sub_dialog_open { return; } 
 
             let related_target = e.related_target();
             let is_outside = if let Some(target) = related_target {
@@ -593,11 +610,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     <h3 class="text-lg font-bold text-white">{ i18n::t("file_selection", lang) }</h3>
                 </div>
 
+                if props.is_loading {
+                    <div class="absolute inset-0 flex items-center justify-center bg-gray-900/40 z-50 backdrop-blur-[2px]">
+                        <div class="w-12 h-12 border-4 border-lime-500 border-t-transparent rounded-full animate-spin shadow-lg"></div>
+                    </div>
+                }
+
                 <div class="flex-1 flex overflow-hidden">
                     <div class="w-[30%] border-r border-gray-700 flex flex-col overflow-y-auto p-2 space-y-1 bg-gray-900/30">
                         <div class="flex space-x-1 mb-2">
                             <button 
-                                onclick={let is_creating = is_creating_category.clone(); move |_| is_creating.set(true)}
+                                onclick={let on_toggle = props.on_create_category_toggle.clone(); move |_| on_toggle.emit(true)}
                                 class="flex-1 p-2 rounded-[6px] bg-gray-700 hover:bg-gray-600 shadow-md transition-all text-white flex items-center justify-center space-x-1"
                                 title={ i18n::t("new_category", lang) }
                             >
@@ -723,7 +746,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                     title={i18n::t("delete", lang)}
                                                 >
                                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
-                                                        <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.244 1.487l.263-.041.608 11.137A2.75 2.75 0 007.5 19h5a2.75 2.75 0 002.747-2.597l.608-11.137.263.041a.75.75 0 10.244-1.487A48.112 48.112 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.498-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.498-.06l-.3 7.5a.75.75 0 001.5.06l.3-7.5z" clip-rule="evenodd" />
+                                                        <path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 102.244 1.487l.263-.041.608 11.137A2.75 2.75 0 007.5 19h5a2.75 2.75 0 002.747-2.597l.608-11.137.263.041a.75.75 0 102.244-1.487A48.112 48.112 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.498-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.498-.06l-.3 7.5a.75.75 0 001.5.06l.3-7.5z" clip-rule="evenodd" />
                                                     </svg>
                                                 </button>
                                             </div>
@@ -735,7 +758,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     </div>
 
                     <div class="w-[70%] flex flex-col overflow-y-auto relative bg-gray-800/20">
-                        if *is_loading_files || *is_loading_preview {
+                        if *is_loading_preview {
                             <div class="absolute inset-0 flex items-center justify-center bg-gray-800/30 z-40 backdrop-blur-[1px]">
                                 <div class="w-10 h-10 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
                             </div>
@@ -747,7 +770,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             
                             let s_idx_1 = selected_file_idx.clone();
                             let s_idx_2 = selected_file_idx.clone();
-                            let is_loading_files = is_loading_files.clone();
+                            let is_loading_files = props.is_loading;
                             let on_ok = on_ok_click.clone();
                             let file_id = file.id.clone();
                             let file_name = file.name.clone();
@@ -761,13 +784,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                             html! {
                                 <div key={file_id.clone()} class={classes!(
-                                    "relative", "group/fileitem", "w-full", "px-1.5", "transition-all", "duration-300", "overflow-hidden",
-                                    if is_deleting_item { "h-0 p-0 opacity-0 scale-95 pointer-events-none" } else { "h-[20%] py-1.5" },
+                                    "relative", "group/fileitem", "w-full", "px-1.5", "transition-all", "duration-300",
+                                    if is_deleting_item { "h-0 p-0 opacity-0 scale-95 pointer-events-none overflow-hidden" } else { "h-[20%] py-1.5 overflow-visible" },
                                     if is_fading_item { "opacity-0 scale-95 pointer-events-none" } else { "" },
                                     if is_drop_open { "z-30" } else { "z-0" }
                                 )}>
                                     <button 
-                                        onclick={let focused_area = focused_area.clone(); move |_| { if !*is_loading_files { s_idx_1.set(idx); focused_area.set(FocusedArea::Files); } }}
+                                        onclick={let focused_area = focused_area.clone(); move |_| { if !is_loading_files { s_idx_1.set(idx); focused_area.set(FocusedArea::Files); } }}
                                         ondblclick={let on_ok = on_ok.clone(); move |_| { s_idx_2.set(idx); on_ok.emit(()); }}
                                         class={classes!(
                                             "w-full", "h-full", "text-left", "px-4", "py-2", "rounded-[6px]", "shadow-md", "transition-all", "overflow-hidden", "flex", "flex-col", "border-[3px]",
@@ -866,31 +889,35 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     </div>
                 </div>
             </div>
-            if *is_creating_category {
+            if props.is_creating_category {
                 <InputDialog 
                     title={i18n::t("new_category", lang)} 
                     message={i18n::t("enter_category_name_message", lang)} 
                     on_confirm={
-                        let is_creating = is_creating_category.clone();
+                        let on_toggle = props.on_create_category_toggle.clone();
+                        let on_loading_change = props.on_loading_change.clone();
                         let ldid = props.leaf_data_id.clone();
                         let on_refresh = props.on_refresh.clone();
                         Callback::from(move |name: String| {
-                            let is_creating = is_creating.clone();
+                            let on_toggle = on_toggle.clone();
+                            let on_loading_change = on_loading_change.clone();
                             let ldid = ldid.clone();
                             let on_refresh = on_refresh.clone();
                             if !name.trim().is_empty() {
+                                on_toggle.emit(false);
+                                on_loading_change.emit(true);
                                 spawn_local(async move {
                                     if let Ok(_) = crate::drive_interop::create_folder(&name, &ldid).await {
                                         on_refresh.emit(());
                                     }
-                                    is_creating.set(false);
+                                    on_loading_change.emit(false);
                                 });
                             } else {
-                                is_creating.set(false);
+                                on_toggle.emit(false);
                             }
                         })
                     }
-                    on_cancel={let is_creating = is_creating_category.clone(); Callback::from(move |_| is_creating.set(false))}
+                    on_cancel={let on_toggle = props.on_create_category_toggle.clone(); Callback::from(move |_| on_toggle.emit(false))}
                 />
             }
             if let Some((_, _)) = (*pending_delete_file).clone() {
@@ -915,6 +942,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             on_close={let p_data = preview_data.clone(); Callback::from(move |_| p_data.set(None))} 
                             has_more={has_more}
                             disable_space_scroll={true}
+                            is_sub_dialog_open={is_sub_dialog_open}
                         />
                     }
                 } else { html! { <></> } }
