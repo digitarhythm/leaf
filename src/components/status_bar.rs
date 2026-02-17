@@ -19,30 +19,30 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
     let lang = Language::detect();
 
     let extensions = vec![
-        ("txt", "Plain Text"),
-        ("md", "Markdown"),
-        ("js", "JavaScript"),
-        ("ts", "TypeScript"),
-        ("rs", "Rust"),
-        ("c", "C"),
-        ("cpp", "C++"),
-        ("h", "Header"),
-        ("m", "Objective-C"),
-        ("cs", "C#"),
-        ("java", "Java"),
-        ("php", "PHP"),
-        ("rb", "Ruby"),
-        ("pl", "Perl"),
-        ("py", "Python"),
-        ("sh", "Shell Script"),
-        ("coffee", "CoffeeScript"),
-        ("toml", "TOML"),
-        ("json", "JSON"),
-        ("xml", "XML"),
-        ("html", "HTML"),
-        ("css", "CSS"),
-        ("sql", "SQL"),
-        ("yaml", "YAML"),
+        ("txt", "ext_txt"),
+        ("md", "ext_md"),
+        ("js", "ext_js"),
+        ("ts", "ext_ts"),
+        ("rs", "ext_rs"),
+        ("c", "ext_c"),
+        ("cpp", "ext_cpp"),
+        ("h", "ext_h"),
+        ("m", "ext_m"),
+        ("cs", "ext_cs"),
+        ("java", "ext_java"),
+        ("php", "ext_php"),
+        ("rb", "ext_rb"),
+        ("pl", "ext_pl"),
+        ("py", "ext_py"),
+        ("sh", "ext_sh"),
+        ("coffee", "ext_coffee"),
+        ("toml", "ext_toml"),
+        ("json", "ext_json"),
+        ("xml", "ext_xml"),
+        ("html", "ext_html"),
+        ("css", "ext_css"),
+        ("sql", "ext_sql"),
+        ("yaml", "ext_yaml"),
     ];
 
     html! {
@@ -74,10 +74,10 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                             }
                             class="bg-gray-700 text-gray-300 text-[10px] font-bold py-0.5 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-blue-500 transition-colors cursor-pointer"
                         >
-                            { for extensions.iter().map(|(ext, label)| {
+                            { for extensions.iter().map(|(ext, key)| {
                                 html! {
                                     <option value={*ext} selected={*ext == props.file_extension}>
-                                        { format!("{}: .{}", label, ext) }
+                                        { format!("{}: .{}", i18n::t(key, lang), ext) }
                                     </option>
                                 }
                             }) }

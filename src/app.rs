@@ -589,7 +589,7 @@ pub fn app() -> Html {
                 let nid = js_sys::Date::now().to_string();
                 let cat_id = (*ncid_for_new).clone().unwrap_or_else(|| "".to_string());
                 let ns = Sheet { 
-                    id: nid.clone(), guid: None, category: cat_id, title: "Untitled".to_string(), content: "".to_string(), 
+                    id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(), content: "".to_string(), 
                     is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
                     last_sync_timestamp: None, tab_color: generate_random_color(),
                     total_size: 0, loaded_bytes: 0
@@ -1366,7 +1366,7 @@ pub fn app() -> Html {
                             clear_local_handle();
                             let nid = js_sys::Date::now().to_string();
                             let ns = Sheet { 
-                                id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled".to_string(), content: "".to_string(), 
+                                id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled.txt".to_string(), content: "".to_string(), 
                                 is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, 
                                 last_sync_timestamp: None, tab_color: generate_random_color(),
                                 total_size: 0, loaded_bytes: 0

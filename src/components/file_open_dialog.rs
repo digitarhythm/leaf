@@ -89,6 +89,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let current_category_name = use_state(|| "".to_string());
     let active_dropdown_file_id = use_state(|| None::<String>); 
     let preview_data = use_state(|| None::<FilePreview>);
+    let is_loading_preview = use_state(|| false); // プレビュー読み込み中フラグ
     let is_deleting_id = use_state(|| None::<String>); // アニメーション用ステート
     let abort_controller = use_state(|| None::<AbortController>);
     let root_ref = use_node_ref();
@@ -249,9 +250,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let id_clone = id.clone();
                             let signal_inner = signal_for_list.clone();
                             download_futures.push(async move {
-                                // 100KB をプリフェッチ
-                                let range = if total_size > 102400 {
-                                    Some("0-102399")
+                                // 1KB をプリフェッチ (一覧表示高速化のため)
+                                let range = if total_size > 1024 {
+                                    Some("0-1023")
                                 } else {
                                     None
                                 };
@@ -374,6 +375,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_creating_cat = is_creating_category.clone();
         let is_deleting_file = pending_delete_file.clone();
         let preview_data = preview_data.clone();
+        let is_loading_preview_cb = is_loading_preview.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area;
@@ -385,19 +387,47 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     e.prevent_default();
                     if current_focus == FocusedArea::Files && !files_c.is_empty() {
                         let file = &files_c[*selected_file_idx];
-                        let ext = file.name.split('.').last().unwrap_or("").to_lowercase();
-                        let is_markdown = ext == "md" || ext == "markdown";
-                        let lang = get_highlight_lang(&file.name).unwrap_or("").to_string();
+                        let file_id = file.id.clone();
+                        let file_name = file.name.clone();
+                        let total_size = file.total_size;
+                        let p_data = preview_data.clone();
+                        let is_ld_prev = is_loading_preview_cb.clone();
 
-                        preview_data.set(Some(FilePreview {
-                            id: file.id.clone(),
-                            name: file.name.clone(),
-                            content: file.content.clone(),
-                            total_size: file.total_size,
-                            loaded_bytes: file.loaded_bytes,
-                            is_markdown,
-                            lang,
-                        }));
+                        let ext = file_name.split('.').last().unwrap_or("").to_lowercase();
+                        let is_markdown = ext == "md" || ext == "markdown";
+                        let lang = get_highlight_lang(&file_name).unwrap_or("").to_string();
+
+                        is_ld_prev.set(true);
+                        spawn_local(async move {
+                            // プレビュー用に 100KB を取得
+                            let range = if total_size > 102400 {
+                                Some("0-102399")
+                            } else {
+                                None
+                            };
+
+                            if let Ok(cv) = download_file(&file_id, range, None).await {
+                                let (content, consumed) = if !cv.is_undefined() {
+                                    let res = crate::js_interop::get_safe_chunk(&cv);
+                                    let t = js_sys::Reflect::get(&res, &wasm_bindgen::JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
+                                    let b = js_sys::Reflect::get(&res, &wasm_bindgen::JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
+                                    (t, b)
+                                } else {
+                                    ("".to_string(), 0u64)
+                                };
+
+                                p_data.set(Some(FilePreview {
+                                    id: file_id,
+                                    name: file_name,
+                                    content,
+                                    total_size,
+                                    loaded_bytes: consumed,
+                                    is_markdown,
+                                    lang,
+                                }));
+                            }
+                            is_ld_prev.set(false);
+                        });
                     }
                 }
                 "Tab" => {
@@ -705,8 +735,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     </div>
 
                     <div class="w-[70%] flex flex-col overflow-y-auto relative bg-gray-800/20">
-                        if *is_loading_files {
-                            <div class="absolute inset-0 flex items-center justify-center bg-gray-800/30 z-10">
+                        if *is_loading_files || *is_loading_preview {
+                            <div class="absolute inset-0 flex items-center justify-center bg-gray-800/30 z-40 backdrop-blur-[1px]">
                                 <div class="w-10 h-10 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
                             </div>
                         }

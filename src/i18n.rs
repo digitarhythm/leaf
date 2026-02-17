@@ -547,6 +547,32 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "# Keyboard Shortcuts\n\n| Key | Action |\n| --- | --- |\n| `Opt/Alt + s` | Forced Save (New sheets are saved to Drive) |\n| `Opt/Alt + n` | New Sheet |\n| `Opt/Alt + Shift + n` | New Local Sheet |\n| `Opt/Alt + f` | Show Search Dialog |\n| `Opt/Alt + o` | Open Local File |\n| `Opt/Alt + m` | Sheet Selection Dialog |\n| `Opt/Alt + l` | Toggle Markdown Preview |\n| `Opt/Alt + h` | Show This Help |\n| `Opt/Alt + =` | Increase Font Size |\n| `Opt/Alt + -` | Decrease Font Size |\n| `Esc` | Close Dialog / Preview / Dropdown |",
         }.to_string(),
 
+        // --- Extensions ---
+        "ext_txt" => match lang { Language::Ja => "プレーンテキスト", _ => "Plain Text" }.to_string(),
+        "ext_md" => match lang { Language::Ja => "Markdown", _ => "Markdown" }.to_string(),
+        "ext_js" => match lang { Language::Ja => "JavaScript", _ => "JavaScript" }.to_string(),
+        "ext_ts" => match lang { Language::Ja => "TypeScript", _ => "TypeScript" }.to_string(),
+        "ext_rs" => match lang { Language::Ja => "Rust", _ => "Rust" }.to_string(),
+        "ext_c" => match lang { Language::Ja => "C", _ => "C" }.to_string(),
+        "ext_cpp" => match lang { Language::Ja => "C++", _ => "C++" }.to_string(),
+        "ext_h" => match lang { Language::Ja => "ヘッダーファイル", _ => "Header" }.to_string(),
+        "ext_m" => match lang { Language::Ja => "Objective-C", _ => "Objective-C" }.to_string(),
+        "ext_cs" => match lang { Language::Ja => "C#", _ => "C#" }.to_string(),
+        "ext_java" => match lang { Language::Ja => "Java", _ => "Java" }.to_string(),
+        "ext_php" => match lang { Language::Ja => "PHP", _ => "PHP" }.to_string(),
+        "ext_rb" => match lang { Language::Ja => "Ruby", _ => "Ruby" }.to_string(),
+        "ext_pl" => match lang { Language::Ja => "Perl", _ => "Perl" }.to_string(),
+        "ext_py" => match lang { Language::Ja => "Python", _ => "Python" }.to_string(),
+        "ext_sh" => match lang { Language::Ja => "シェルスクリプト", _ => "Shell Script" }.to_string(),
+        "ext_coffee" => match lang { Language::Ja => "CoffeeScript", _ => "CoffeeScript" }.to_string(),
+        "ext_toml" => match lang { Language::Ja => "TOML", _ => "TOML" }.to_string(),
+        "ext_json" => match lang { Language::Ja => "JSON", _ => "JSON" }.to_string(),
+        "ext_xml" => match lang { Language::Ja => "XML", _ => "XML" }.to_string(),
+        "ext_html" => match lang { Language::Ja => "HTML", _ => "HTML" }.to_string(),
+        "ext_css" => match lang { Language::Ja => "CSS", _ => "CSS" }.to_string(),
+        "ext_sql" => match lang { Language::Ja => "SQL", _ => "SQL" }.to_string(),
+        "ext_yaml" => match lang { Language::Ja => "YAML", _ => "YAML" }.to_string(),
+
         _ => key.to_string(),
     }
 }
