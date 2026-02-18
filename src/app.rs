@@ -587,6 +587,9 @@ pub fn app() -> Html {
         let ncid_h = ncid_for_new_cb;
         let ris_h = saving_id_ref.clone();
         let is_creating = is_creating_new.clone();
+        let is_ld = is_loading.clone();
+        let lmk = loading_message_key.clone();
+        let ifo = is_fading_out.clone();
         Callback::from(move |_| {
             if *is_creating { return; } // 作成中の連打を防止
 
@@ -594,6 +597,9 @@ pub fn app() -> Html {
             let rs = r_s.clone();
             let os_cb = os.clone();
             let is_creating_handle = is_creating.clone();
+            let is_loading_handle = is_ld.clone();
+            let lmk_handle = lmk.clone();
+            let ifo_handle = ifo.clone();
             
             let aid_val = (*r_aid.borrow()).clone();
             let mut needs_save = false;
@@ -619,6 +625,9 @@ pub fn app() -> Html {
             is_creating_handle.set(true);
             if needs_save {
                 gloo::console::log!("[Leaf-SYSTEM] Triggering final save before new sheet...");
+                lmk_handle.set("saving");
+                is_loading_handle.set(true);
+                ifo_handle.set(false);
                 os_cb.emit(false);
             }
 
@@ -626,6 +635,9 @@ pub fn app() -> Html {
             // 保存が必要な場合は確実にキャプチャされるまで少し待機
             let delay = if needs_save { 150 } else { 0 };
             let ncid_for_new = ncid_h.clone();
+            let is_ld_inner = is_loading_handle.clone();
+            let ifo_inner = ifo_handle.clone();
+            let is_creating_inner = is_creating_handle.clone();
             Timeout::new(delay, move || {
                 clear_local_handle();
                 let nid = js_sys::Date::now().to_string();
@@ -639,8 +651,21 @@ pub fn app() -> Html {
                 s.set(current_sheets);
                 aid.set(Some(nid.clone()));
                 
-                focus_editor(); let spr = sp.clone(); Timeout::new(500, move || { spr.set(false); }).forget();
-                is_creating_handle.set(false);
+                focus_editor(); 
+                let spr = sp.clone(); 
+                Timeout::new(500, move || { 
+                    spr.set(false); 
+                    if *is_ld_inner {
+                        ifo_inner.set(true);
+                        let is_ld_final = is_ld_inner.clone();
+                        let ifo_final = ifo_inner.clone();
+                        Timeout::new(300, move || {
+                            is_ld_final.set(false);
+                            ifo_final.set(false);
+                        }).forget();
+                    }
+                    is_creating_inner.set(false);
+                }).forget();
 
                 spawn_local(async move {
                     let js = ns.to_js();
