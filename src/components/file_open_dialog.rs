@@ -298,10 +298,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let lang_str = get_highlight_lang(&name).unwrap_or("").to_string();
                             all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: lang_str, is_prefetched: false });
                         }
-                        let has_files = !all_metadata.is_empty();
                         reducer_inner.dispatch(FileAction::SetFiles(all_metadata));
-                        if is_initial && !*is_fading_inner { if has_files { f_area_inner.set(FocusedArea::Files); } else { f_area_inner.set(FocusedArea::Categories); } }
-                        prefetch_inner.emit((0, 12));
+                        if is_initial && !*is_fading_inner { if !reducer_inner.list.is_empty() { f_area_inner.set(FocusedArea::Files); } else { f_area_inner.set(FocusedArea::Categories); } }
+                        prefetch_inner.emit((0, 10)); // 最初は8個 + 前後1個程度
                     }
                 }
                 on_ld_inner.emit(false);
@@ -314,7 +313,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let file_idx = *selected_file_idx;
         let prefetch = trigger_prefetch.clone();
         use_effect_with((list_len, file_idx), move |(len, idx)| {
-            if *len > 0 { prefetch.emit((if *idx > 0 { *idx - 1 } else { 0 }, *idx + 11)); }
+            if *len > 0 { prefetch.emit((if *idx > 0 { *idx - 1 } else { 0 }, *idx + 9)); } // 8個表示に合わせて調整
             || ()
         });
     }
@@ -326,9 +325,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let scroll_top = el.scroll_top();
             let client_height = el.client_height();
             if client_height > 0 {
-                let item_height = client_height as f64 / 10.0;
+                let item_height = client_height as f64 / 8.0; // 8分割計算
                 let first_visible = (scroll_top as f64 / item_height).floor() as usize;
-                prefetch.emit((if first_visible > 0 { first_visible - 1 } else { 0 }, first_visible + 12));
+                prefetch.emit((if first_visible > 0 { first_visible - 1 } else { 0 }, first_visible + 10));
             }
         })
     };
@@ -620,8 +619,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     let is_fading_item = (*pending_move_file_id).as_ref() == Some(&file_id);
                                     let is_deleting_item = (*is_deleting_id).as_ref() == Some(&file_id);
                                     html! {
-                                        <div key={file_id.clone()} data-selected={is_selected.to_string()} class={classes!("relative", "group/fileitem", "w-full", "transition-all", "duration-300", "px-1",
-                                            if is_deleting_item { "h-0 opacity-0 overflow-hidden" } else { "h-[10%]" },
+                                        <div key={file_id.clone()} data-selected={is_selected.to_string()} class={classes!("relative", "group/fileitem", "w-full", "transition-all", "duration-300", "px-1", "shrink-0",
+                                            if is_deleting_item { "h-0 opacity-0 overflow-hidden" } else { "h-[12.5%]" },
                                             if is_fading_item { "opacity-0 scale-95" } else { "" },
                                             if is_drop_open { "z-30" } else { "z-0" }
                                         )}>
