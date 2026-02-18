@@ -376,7 +376,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         Callback::from(move |_: ()| {
             is_fading_out.set(true);
             let on_close = on_close.clone();
-            Timeout::new(300, move || {
+            Timeout::new(200, move || {
                 on_close.emit(());
             }).forget();
         })
@@ -400,7 +400,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let on_start = on_start.clone();
                 is_fading_out.set(true);
                 on_start.emit(());
-                Timeout::new(300, move || {
+                Timeout::new(200, move || {
                     on_select.emit((drive_id, title, cat_id));
                 }).forget();
             }
@@ -522,7 +522,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     on_loading_change.emit(false);
                     pending_move.set(Some(f_id.clone())); 
                     
-                    Timeout::new(300, move || {
+                    Timeout::new(200, move || {
                         let mut current_files = (*files_state).clone();
                         current_files.retain(|f| f.id != f_id);
                         files_state.set(current_files);
@@ -553,7 +553,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 pending.set(None); 
                 is_del.set(Some(id_for_anim)); 
 
-                Timeout::new(300, move || {
+                Timeout::new(200, move || {
                     on_del.emit((id_for_parent.clone(), name_for_parent));
                     let mut current_files = (*f_state).clone();
                     current_files.retain(|f| f.id != id_for_parent);

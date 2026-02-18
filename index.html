@@ -255,6 +255,14 @@
     <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
       mermaid.initialize({ startOnLoad: false, theme: 'default' });
+      
+      // Mermaid 初期化関数の定義 (Rust から呼び出される)
+      window.initMermaid = function(el) {
+        if (typeof mermaid !== 'undefined' && el) {
+          mermaid.run({ nodes: el.querySelectorAll('.mermaid') });
+        }
+      };
+
       ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
       
       // Marked のオプション設定
