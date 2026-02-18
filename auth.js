@@ -129,11 +129,25 @@ export function is_signed_in() {
     return accessToken !== null && expiry && parseInt(expiry) > Date.now();
 }
 
-export function sign_out() {
+export async function sign_out() {
     accessToken = null;
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(EXPIRY_KEY);
     console.log("Signed out and session cleared");
+
+    // Service Worker の登録解除を試みる
+    if ('serviceWorker' in navigator) {
+        try {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (let registration of registrations) {
+                await registration.unregister();
+                console.log("[Auth] Service Worker unregistered during sign out");
+            }
+        } catch (e) {
+            console.warn("[Auth] Failed to unregister Service Worker:", e);
+        }
+    }
+
     // アプリ側に通知
     window.dispatchEvent(new CustomEvent('leaf-auth-expired'));
 }
