@@ -6,5 +6,5 @@ extern "C" {
     pub fn init_google_auth(client_id: &str, callback: &Closure<dyn FnMut(String)>);
     pub fn request_access_token();
     pub fn is_signed_in() -> bool;
-    pub fn sign_out();
+    pub async fn sign_out();
 }
