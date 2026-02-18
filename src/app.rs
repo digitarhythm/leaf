@@ -1690,7 +1690,9 @@ pub fn app() -> Html {
                             }
 
                             let is_nav_key = key == "ArrowUp" || key == "ArrowDown" || key == "ArrowLeft" || key == "ArrowRight" || key == "Enter" || key == " " || key == "Tab" || key == "PageUp" || key == "PageDown" || key == "Home" || key == "End";
-                            let is_edit_key = ke.ctrl_key() || ke.meta_key() || (ke.alt_key() && !is_toggle_shortcut && !is_font_size_shortcut) || key.len() == 1;
+                            // 修飾キーなしの単一文字入力のみを文字入力として扱う
+                            let is_char_input = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !ke.alt_key();
+                            let is_edit_key = ke.ctrl_key() || ke.meta_key() || (ke.alt_key() && !is_toggle_shortcut && !is_font_size_shortcut) || is_char_input;
 
                             // プレビュー表示中などは、ナビゲーションキーを遮断せずコンポーネント側に任せる
                             let skip_nav_block = (preview || help) && is_nav_key;

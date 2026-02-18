@@ -96,11 +96,9 @@ pub fn preview(props: &PreviewProps) -> Html {
                 let is_end = key == "End";
 
                 // ショートカットトグル (適切なキーのみに反応)
-                let is_target_key = if is_help_mode {
-                    key.to_lowercase() == "h" || key == "˙"
-                } else {
-                    key.to_lowercase() == "l" || key == "¬"
-                };
+                let is_l_key = code == "KeyL" || key.to_lowercase() == "l" || key == "¬";
+                let is_h_key = code == "KeyH" || key.to_lowercase() == "h" || key == "˙";
+                let is_target_key = if is_help_mode { is_h_key } else { is_l_key };
                 let is_alt_toggle = ke.alt_key() && is_target_key;
 
                 if is_alt_toggle || key == "Escape" {
