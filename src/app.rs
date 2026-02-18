@@ -1216,11 +1216,18 @@ pub fn app() -> Html {
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let is_auth_c = is_auth.clone();
-            let listener = EventListener::new(&window, "leaf-auth-expired", move |_| {
+            let listener_expired = EventListener::new(&window, "leaf-auth-expired", move |_| {
                 gloo::console::warn!("[Leaf-SYSTEM] Auth expired event received. Logging out...");
                 is_auth_c.set(false);
             });
-            move || { drop(listener); }
+            
+            let is_auth_r = is_auth.clone();
+            let listener_refreshed = EventListener::new(&window, "leaf-token-refreshed", move |_| {
+                gloo::console::log!("[Leaf-SYSTEM] Token refreshed event received.");
+                is_auth_r.set(true);
+            });
+
+            move || { drop(listener_expired); drop(listener_refreshed); }
         });
     }
 
