@@ -103,7 +103,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                 };
                 let is_alt_toggle = ke.alt_key() && is_target_key;
 
-                if is_alt_toggle || key == "Escape" || (key == " " && !is_help_mode) {
+                if is_alt_toggle || key == "Escape" {
                     e.prevent_default();
                     e.stop_immediate_propagation();
                     on_close.emit(());
