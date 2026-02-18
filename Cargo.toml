@@ -1,6 +1,6 @@
 [package]
 name = "leaf"
-version = "0.12.8"
+version = "0.12.9"
 edition = "2021"
 
 [dependencies]
@@ -26,7 +26,8 @@ web-sys = { version = "0.3", features = [
     "Event",
     "DataTransfer",
     "DragEvent",
-    "HtmlSelectElement"
+    "HtmlSelectElement",
+    "CustomEvent"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

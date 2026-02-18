@@ -333,8 +333,16 @@ export function set_gutter_status(mode) {
     pendingGutterUnsaved = null;
 }
 
+export function get_font_size() {
+    if (!editor) {
+        const stored = localStorage.getItem(FONT_SIZE_KEY);
+        return stored ? parseFloat(stored) : 14;
+    }
+    return parseFloat(editor.getFontSize()) || 14;
+}
+
 export function change_font_size(delta) {
-    if (!editor) return;
+    if (!editor) return get_font_size();
     const currentStyle = editor.getFontSize();
     let currentSize = parseFloat(currentStyle);
     if (isNaN(currentSize)) currentSize = 14;
@@ -342,6 +350,11 @@ export function change_font_size(delta) {
     const sizeStr = newSize + "pt";
     editor.setFontSize(sizeStr);
     localStorage.setItem(FONT_SIZE_KEY, sizeStr);
+    
+    // Rust 側へ通知
+    window.dispatchEvent(new CustomEvent('leaf-font-size-changed', { detail: newSize }));
+    
+    return newSize;
 }
 
 export function generate_uuid() {

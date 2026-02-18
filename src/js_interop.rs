@@ -13,7 +13,8 @@ extern "C" {
     pub fn focus_editor();
     pub fn set_gutter_status(mode: &str);
     pub fn generate_uuid() -> String;
-    pub fn change_font_size(delta: i32);
+    pub fn get_font_size() -> i32;
+    pub fn change_font_size(delta: i32) -> i32;
     pub fn render_markdown(text: &str) -> String;
     pub fn init_mermaid(element: &web_sys::Element);
     pub fn set_preview_active(active: bool);

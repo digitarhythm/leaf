@@ -131,6 +131,14 @@ pub fn app() -> Html {
     let is_dialog_preview_open = use_state(|| false);
     let file_refresh_trigger = use_state(|| 0usize);
     let is_file_list_loading = use_state(|| false);
+    let font_size = use_state(|| crate::js_interop::get_font_size());
+    let preview_font_size = use_state(|| {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item("leaf_preview_font_size").ok().flatten())
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or_else(|| crate::js_interop::get_font_size())
+    });
     let is_preview_visible = use_state(|| false);
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
@@ -147,6 +155,29 @@ pub fn app() -> Html {
     let is_preview_ref = use_mut_ref(|| false);
     let is_file_open_ref = use_mut_ref(|| false);
     let is_help_ref = use_mut_ref(|| false);
+
+    {
+        let fs = font_size.clone();
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let fs_c = fs.clone();
+            let listener = EventListener::new(&window, "leaf-font-size-changed", move |e| {
+                let ce = e.unchecked_ref::<web_sys::CustomEvent>();
+                if let Ok(val) = js_sys::Reflect::get(&ce.detail(), &JsValue::from_f64(0.0)) {
+                    // detail が直接数値の場合（ブラウザによる）
+                    if let Some(n) = val.as_f64() {
+                        fs_c.set(n as i32);
+                        return;
+                    }
+                }
+                // CustomEvent の detail から値を取得
+                if let Some(n) = ce.detail().as_f64() {
+                    fs_c.set(n as i32);
+                }
+            });
+            move || { drop(listener); }
+        });
+    }
 
     const STORAGE_KEY_FIRST_LAUNCH: &str = "leaf_first_launch_v1";
 
@@ -198,7 +229,25 @@ pub fn app() -> Html {
             set_vim_mode(next);
         })
     };
-    let on_change_font_size = Callback::from(|delta: i32| { crate::js_interop::change_font_size(delta); });
+    let on_change_preview_font_size = {
+        let pfs = preview_font_size.clone();
+        Callback::from(move |delta: i32| {
+            let current = *pfs;
+            let new_size = std::cmp::max(8, std::cmp::min(72, current + delta));
+            pfs.set(new_size);
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                let _ = storage.set_item("leaf_preview_font_size", &new_size.to_string());
+            }
+        })
+    };
+
+    let on_change_font_size = {
+        let fs = font_size.clone();
+        Callback::from(move |delta: i32| { 
+            let new_size = crate::js_interop::change_font_size(delta);
+            fs.set(new_size);
+        })
+    };
     let on_logout = { let ic = is_logout_confirm_visible.clone(); Callback::from(move |_| { ic.set(true); }) };
 
     let on_refresh_cats_cb = {
@@ -1485,7 +1534,10 @@ pub fn app() -> Html {
 
     {
         let is_preview = is_preview_visible.clone();
-        use_effect_with(*is_preview, move |visible| { set_preview_active(*visible); || () });
+        use_effect_with(*is_preview, move |visible| { 
+            set_preview_active(*visible); 
+            || () 
+        });
     }
 
     {
@@ -1564,39 +1616,51 @@ pub fn app() -> Html {
                         let is_dialog_open = file_open || preview || help || has_del || has_conf || has_fall || has_imp || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat;
                         let is_overlay_active = is_dialog_open || imp_lock;
 
+                        let key_lower = key.to_lowercase();
+                        let is_l_key = code == "KeyL" || key_lower == "l" || key_lower == "¬";
+                        let is_h_key = code == "KeyH" || key_lower == "h" || key_lower == "˙";
+                        let is_m_key = code == "KeyM" || key_lower == "m" || key_lower == "µ";
+                        let is_plus_key = code == "Equal" || key == "=" || key == "+" || key == "≠";
+                        let is_minus_key = code == "Minus" || key == "-" || key == "–";
+                        
+                        let is_toggle_shortcut = ke.alt_key() && (is_l_key || is_h_key || is_m_key);
+                        let is_font_size_shortcut = ke.alt_key() && (is_plus_key || is_minus_key);
+
                         if is_loading || is_fading_out {
                             e.prevent_default(); e.stop_immediate_propagation();
                             return;
                         }
 
-                        if ke.alt_key() {
-                            let key_lower = key.to_lowercase();
-                            if !is_overlay_active {
-                                let is_l = code == "KeyL" || key_lower == "l" || key_lower == "¬";
-                                let is_m = code == "KeyM" || key_lower == "m" || key_lower == "µ";
-                                let is_h = code == "KeyH" || key_lower == "h" || key_lower == "˙";
-                                let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
-                                let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
-                                let is_s = code == "KeyS" || key_lower == "s" || key_lower == "ß";
-                                let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
-                                let is_shift_n = (code == "KeyN" || key_lower == "n" || key_lower == "˜") && ke.shift_key();
-
-                                if is_l {
-                                    e.prevent_default(); e.stop_immediate_propagation();
-                                    let cur_c_val = get_editor_content();
-                                    let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
-                                    if !*is_preview_c && is_empty { return; }
-                                    is_preview_c.set(!*is_preview_c);
-                                    return;
-                                }
-                                if is_m { e.prevent_default(); e.stop_immediate_propagation(); let val = !*is_file_open_c; is_file_open_c.set(val); sp_c.set(val); return; }
-                                if is_h { e.prevent_default(); e.stop_immediate_propagation(); is_help_c.set(!*is_help_c); return; }
-                                if is_o { e.prevent_default(); e.stop_immediate_propagation(); oi_c.emit(()); return; }
-                                if is_f { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); return; }
-                                if is_s { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("saveSheet"); return; }
-                                if is_shift_n { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newLocalSheet"); return; }
-                                if is_n && !ke.shift_key() { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newSheet"); return; }
+                        if ke.alt_key() && !is_overlay_active {
+                            if is_l_key {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                let cur_c_val = get_editor_content();
+                                let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
+                                if !*is_preview_c && is_empty { return; }
+                                is_preview_c.set(!*is_preview_c);
+                                return;
                             }
+                            if is_m_key { e.prevent_default(); e.stop_immediate_propagation(); let val = !*is_file_open_c; is_file_open_c.set(val); sp_c.set(val); return; }
+                            if is_h_key { e.prevent_default(); e.stop_immediate_propagation(); is_help_c.set(!*is_help_c); return; }
+                            
+                            if is_font_size_shortcut {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                if is_plus_key { crate::js_interop::change_font_size(1); }
+                                else { crate::js_interop::change_font_size(-1); }
+                                return;
+                            }
+
+                            let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
+                            let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
+                            let is_s = code == "KeyS" || key_lower == "s" || key_lower == "ß";
+                            let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
+                            let is_shift_n = (code == "KeyN" || key_lower == "n" || key_lower == "˜") && ke.shift_key();
+
+                            if is_o { e.prevent_default(); e.stop_immediate_propagation(); oi_c.emit(()); return; }
+                            if is_f { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); return; }
+                            if is_s { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("saveSheet"); return; }
+                            if is_shift_n { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newLocalSheet"); return; }
+                            if is_n && !ke.shift_key() { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newSheet"); return; }
                         }
 
                         if is_overlay_active {
@@ -1605,6 +1669,7 @@ pub fn app() -> Html {
                             let is_target_body = target.as_ref().map(|t| t.tag_name().to_lowercase() == "body").unwrap_or(false);
 
                             if key == "Tab" && is_target_body {
+                                // ... (Tab recovery logic)
                                 e.prevent_default(); e.stop_immediate_propagation();
                                 let doc = web_sys::window().unwrap().document().unwrap();
                                 if let Some(overlays) = doc.get_element_by_id("overlays-layer") {
@@ -1618,7 +1683,7 @@ pub fn app() -> Html {
                             }
 
                             let is_nav_key = key == "ArrowUp" || key == "ArrowDown" || key == "ArrowLeft" || key == "ArrowRight" || key == "Enter" || key == " " || key == "Tab" || key == "PageUp" || key == "PageDown" || key == "Home" || key == "End";
-                            let is_edit_key = ke.ctrl_key() || ke.meta_key() || ke.alt_key() || key.len() == 1;
+                            let is_edit_key = ke.ctrl_key() || ke.meta_key() || (ke.alt_key() && !is_toggle_shortcut && !is_font_size_shortcut) || key.len() == 1;
 
                             if is_nav_key || is_edit_key {
                                 if is_target_in_editor || is_target_body {
@@ -1674,7 +1739,14 @@ pub fn app() -> Html {
     html! {
         <div class="relative h-screen w-screen overflow-hidden bg-gray-950" key="app-root">
             <main key="main-editor-surface" class={classes!("absolute", "inset-0", "flex", "flex-col", "text-white", "transition-opacity", "duration-300", if !*is_authenticated { "opacity-0" } else { "opacity-100" } )}>
-                <ButtonBar key="top-button-bar" on_new_sheet={on_new_sheet_cb.clone()} on_open={on_open_dialog} on_import={on_import_cb} on_change_font_size={on_change_font_size} on_change_category={on_change_category_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} />
+                                <ButtonBar 
+                                    key="top-button-bar"
+                                    on_new_sheet={on_new_sheet_cb.clone()} 
+                                    on_open={on_open_dialog} 
+                                    on_import={on_import_cb} 
+                                    on_change_font_size={on_change_font_size.clone()} 
+                                    on_change_category={on_change_category_cb} 
+                                    on_help={on_help_cb} on_logout={on_logout} current_category={current_cat} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} />
                 <div id="editor" key="ace-editor-fixed-node" class="flex-1 bg-gray-950 z-10" style="width: 100%; min-height: 0;"></div>
                 <StatusBar key="bottom-status-bar" network_status={*network_connected} is_saving={*is_saving} vim_mode={*vim_mode} on_toggle_vim={on_toggle_vim} category_name={current_cat_name} file_name={current_file_name} file_extension={current_file_ext} on_change_extension={on_change_extension_cb} version={env!("CARGO_PKG_VERSION").to_string()} />
             </main>
@@ -1697,11 +1769,26 @@ pub fn app() -> Html {
                                 on_close={let iv = is_file_open_dialog_visible.clone(); let sp = is_suppressing_changes.clone(); let aid = active_id_ref.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); move |_| { iv.set(false); sp.set(false); focus_editor(); let aid_val = (*aid.borrow()).clone(); let rs_c = rs.clone(); let s_state_c = s_state.clone(); if let Some(id) = aid_val { let sheets_list = (*rs_c.borrow()).clone(); if let Some(sheet) = sheets_list.iter().find(|s| s.id == id) { if !sheet.category.is_empty() && sheet.category != "__LOCAL__" { if let Some(did) = sheet.drive_id.clone() { let sheet_id = id.clone(); spawn_local(async move { if let Err(_) = crate::drive_interop::get_file_metadata(&did).await { let mut us = (*rs_c.borrow()).clone(); if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) { s.drive_id = None; s.category = "OTHERS".to_string(); s.is_modified = true; set_gutter_status("unsaved"); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } } *rs_c.borrow_mut() = us.clone(); s_state_c.set(us); } }); } } } } } } 
                                 on_select={on_file_sel_cb} leaf_data_id={ldid} categories={(*categories).clone()} on_refresh={on_refresh_cats_cb} on_delete_category={on_delete_category_cb} on_rename_category={on_rename_category_cb} on_delete_file={on_delete_file_cb} on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))} 
                                 is_sub_dialog_open={is_sub_overlay_active} is_creating_category={*is_creating_category} on_create_category_toggle={let ic = is_creating_category.clone(); Callback::from(move |v| ic.set(v))} 
-                                refresh_files_trigger={*file_refresh_trigger} is_loading={*is_file_list_loading} on_loading_change={let l = is_file_list_loading.clone(); Callback::from(move |v| l.set(v))} />
+                                refresh_files_trigger={*file_refresh_trigger} is_loading={*is_file_list_loading} on_loading_change={let l = is_file_list_loading.clone(); Callback::from(move |v| l.set(v))} 
+                                font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()}
+                            />
                         </div>
                     }
                 }
-                if let Some(preview) = if *is_preview_visible { let aid = (*active_sheet_id).clone(); let c = if let Some(id) = aid { sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default() } else { "".to_string() }; let iv = is_preview_visible.clone(); Some(html! { <Preview content={c} on_close={Callback::from(move |_| { iv.set(false); focus_editor(); })} is_sub_dialog_open={is_sub_overlay_active} /> }) } else if *is_help_visible { let ih = is_help_visible.clone(); let c = i18n::t("help_shortcuts", lang); let is_conf = is_install_confirm_visible.clone(); let is_man = is_install_manual_visible.clone(); let ih_for_install = ih.clone(); let on_install = Callback::from(move |_: ()| { ih_for_install.set(false); if crate::js_interop::can_install_pwa() { is_conf.set(true); } else { is_man.set(true); } }); Some(html! { <Preview content={c} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} is_help={true} is_sub_dialog_open={is_sub_overlay_active} /> }) } else { None } { <div class="pointer-events-auto">{ preview }</div> }
+                if let Some(preview) = if *is_preview_visible { 
+                    let aid = (*active_sheet_id).clone(); 
+                    let c = if let Some(id) = aid { sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default() } else { "".to_string() }; 
+                    let iv = is_preview_visible.clone(); 
+                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { iv.set(false); focus_editor(); })} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()} /> }) 
+                } else if *is_help_visible { 
+                    let ih = is_help_visible.clone(); 
+                    let c = i18n::t("help_shortcuts", lang); 
+                    let is_conf = is_install_confirm_visible.clone(); 
+                    let is_man = is_install_manual_visible.clone(); 
+                    let ih_for_install = ih.clone(); 
+                    let on_install = Callback::from(move |_: ()| { ih_for_install.set(false); if crate::js_interop::can_install_pwa() { is_conf.set(true); } else { is_man.set(true); } }); 
+                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} is_help={true} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()} /> }) 
+                } else { None } { <div class="pointer-events-auto">{ preview }</div> }
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if *is_install_manual_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_manual_title", lang)} message={i18n::t("install_manual_message", lang)} ok_label={i18n::t("ok", lang)} on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)} on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)} /></div> }
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category { let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang); let pending = pending_delete_category.clone(); let on_cfm = on_delete_category_cfm.clone(); Some(html! { <ConfirmDialog title={title} message={message} on_confirm={move |_| { on_cfm.emit(1); }} on_cancel={move |_| { pending.set(None); }} /> }) } else { None } { <div class="pointer-events-auto">{ del_diag }</div> }

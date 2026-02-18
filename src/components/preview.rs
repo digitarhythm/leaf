@@ -20,6 +20,10 @@ pub struct PreviewProps {
     pub is_help: bool,
     #[prop_or_default]
     pub is_sub_dialog_open: bool,
+    #[prop_or(14)]
+    pub font_size: i32,
+    #[prop_or_default]
+    pub on_change_font_size: Callback<i32>,
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen]
@@ -68,8 +72,9 @@ pub fn preview(props: &PreviewProps) -> Html {
         let disable_space = props.disable_space_scroll;
         let on_close_cb = handle_close.clone();
         let is_help_mode = props.is_help;
-        use_effect_with((disable_space, is_help_mode, is_sub_dialog_open), move |deps| {
-            let (disable_space, is_help_mode, is_sub_open) = *deps;
+        let on_change_font_size = props.on_change_font_size.clone();
+        use_effect_with((disable_space, is_help_mode, is_sub_dialog_open, on_change_font_size), move |deps| {
+            let (disable_space, is_help_mode, is_sub_open, on_change_fs) = deps.clone();
             let on_close = on_close_cb.clone();
             let window = web_sys::window().unwrap();
             let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
@@ -79,6 +84,7 @@ pub fn preview(props: &PreviewProps) -> Html {
 
                 let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                 let key = ke.key();
+                let code = ke.code();
                 
                 // ナビゲーションキーの判定
                 let is_up = key == "PageUp" || key == "RollUp";
@@ -102,6 +108,22 @@ pub fn preview(props: &PreviewProps) -> Html {
                     e.stop_immediate_propagation();
                     on_close.emit(());
                     return;
+                }
+
+                // フォントサイズ変更 (Alt + = / -)
+                if ke.alt_key() {
+                    if code == "Equal" || key == "=" || key == "+" || key == "≠" {
+                        e.prevent_default();
+                        e.stop_immediate_propagation();
+                        on_change_fs.emit(1);
+                        return;
+                    }
+                    if code == "Minus" || key == "-" || key == "–" {
+                        e.prevent_default();
+                        e.stop_immediate_propagation();
+                        on_change_fs.emit(-1);
+                        return;
+                    }
                 }
 
                 if is_up || is_down || is_arrow_up || is_arrow_down || is_space || is_home || is_end {
@@ -156,6 +178,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                 <div 
                     ref={node_ref}
                     class="markdown-body max-w-none overflow-y-auto p-6 sm:p-12"
+                    style={format!("font-size: {}pt;", props.font_size)}
                 >
                     { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
                     if props.has_more {

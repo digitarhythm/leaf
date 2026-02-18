@@ -68,6 +68,8 @@ pub struct FileOpenDialogProps {
     pub refresh_files_trigger: usize,
     pub is_loading: bool,
     pub on_loading_change: Callback<bool>,
+    pub font_size: i32,
+    pub on_change_font_size: Callback<i32>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -421,13 +423,26 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_deleting_file = pending_delete_file.clone();
         let preview_data = preview_data.clone();
         let is_loading_preview_cb = is_loading_preview.clone();
+        let h_close = handle_close.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area;
             if preview_data.is_some() || is_sub_dialog_open { return; }
             if *is_fading_out || dropdown_active.is_some() || is_deleting_file.is_some() { return; }
             
-            match e.key().as_str() {
+            let key = e.key();
+            let code = e.code();
+            let key_lower = key.to_lowercase();
+            let is_m_shortcut = e.alt_key() && (code == "KeyM" || key_lower == "m" || key_lower == "µ");
+
+            if is_m_shortcut {
+                e.prevent_default();
+                e.stop_immediate_propagation();
+                h_close.emit(());
+                return;
+            }
+
+            match key.as_str() {
                 " " => {
                     e.prevent_default();
                     if current_focus == FocusedArea::Files && !files_c.is_empty() {
@@ -955,6 +970,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             has_more={has_more}
                             disable_space_scroll={true}
                             is_sub_dialog_open={is_sub_dialog_open}
+                            font_size={props.font_size}
+                            on_change_font_size={props.on_change_font_size.clone()}
                         />
                     }
                 } else { html! { <></> } }
