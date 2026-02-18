@@ -30,6 +30,9 @@ export function init_google_auth(clientId, onSuccessCallback) {
                 
                 console.log("Access Token received. Expires at:", new Date(expiresAt));
                 
+                // Rust 側へ通知
+                window.dispatchEvent(new CustomEvent('leaf-token-refreshed', { detail: accessToken }));
+
                 if (refreshPromise) {
                     refreshPromise.resolve(accessToken);
                     refreshPromise = null;
@@ -48,11 +51,11 @@ export function init_google_auth(clientId, onSuccessCallback) {
                 const timeLeft = parseInt(expiry) - Date.now();
                 // 残り10分を切っていたらリフレッシュ
                 if (timeLeft < 10 * 60 * 1000) {
-                    console.log("[Auth] Token nearing expiry. Proactive refresh starting...");
+                    console.log("[Auth] Token nearing expiry (" + Math.round(timeLeft/1000/60) + " min left). Proactive refresh starting...");
                     try {
                         await try_silent_refresh();
                     } catch (e) {
-                        console.warn("[Auth] Proactive refresh failed. Will retry on next activity.");
+                        console.warn("[Auth] Proactive refresh failed. Google session might be expired.");
                     }
                 }
             }
@@ -78,7 +81,7 @@ export async function try_silent_refresh() {
     // 既に実行中ならその完了を待つ
     if (refreshPromise) return refreshPromise.promise;
 
-    console.log("[Auth] Attempting silent refresh...");
+    console.log("[Auth] Attempting silent refresh (prompt: none)...");
     let res, rej;
     const promise = new Promise((resolve, reject) => {
         res = resolve;
@@ -87,10 +90,11 @@ export async function try_silent_refresh() {
     refreshPromise = { promise, resolve: res, reject: rej };
 
     try {
-        tokenClient.requestAccessToken({ prompt: '' });
+        // prompt: 'none' を指定してユーザー操作なしでの更新を試みる
+        tokenClient.requestAccessToken({ prompt: 'none' });
         return await promise;
     } catch (e) {
-        console.error("[Auth] Silent refresh failed:", e);
+        console.error("[Auth] Silent refresh request failed:", e);
         refreshPromise = null;
         throw e;
     }
