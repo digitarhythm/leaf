@@ -370,6 +370,18 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         });
     }
 
+    let handle_close = {
+        let on_close = props.on_close.clone();
+        let is_fading_out = is_fading_out.clone();
+        Callback::from(move |_: ()| {
+            is_fading_out.set(true);
+            let on_close = on_close.clone();
+            Timeout::new(300, move || {
+                on_close.emit(());
+            }).forget();
+        })
+    };
+
     let on_ok_click = {
         let on_select = props.on_select.clone();
         let files = files.clone();
@@ -388,7 +400,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let on_start = on_start.clone();
                 is_fading_out.set(true);
                 on_start.emit(());
-                Timeout::new(200, move || {
+                Timeout::new(300, move || {
                     on_select.emit((drive_id, title, cat_id));
                 }).forget();
             }
@@ -596,7 +608,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             onfocusin={on_focus_in} onfocusout={on_focus_out}
             class={classes!(
                 "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/60", "backdrop-blur-sm", "p-4", "outline-none",
-                if *is_fading_out { "opacity-0 transition-opacity duration-200" } else { "" }
+                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
             )}
         >
             <div 
@@ -881,7 +893,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             { i18n::t("ok", lang) }
                         </button>
                         <button 
-                            onclick={props.on_close.reform(|_| ())}
+                            onclick={handle_close.reform(|_| ())}
                             class="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-[6px] shadow-lg transition-all"
                         >
                             { i18n::t("cancel", lang) }

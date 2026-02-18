@@ -1,16 +1,13 @@
 use yew::prelude::*;
-use crate::js_interop::{render_markdown, init_mermaid};
+use crate::js_interop::render_markdown;
 use crate::i18n::{self, Language};
 use wasm_bindgen::JsCast;
+use gloo::timers::callback::Timeout;
 
 #[derive(Properties, PartialEq)]
 pub struct PreviewProps {
     pub content: String,
     pub on_close: Callback<()>,
-    #[prop_or_default]
-    pub on_install: Option<Callback<()>>,
-    #[prop_or_default]
-    pub on_load_more: Option<Callback<()>>,
     #[prop_or_default]
     pub has_more: bool,
     #[prop_or_default]
@@ -18,17 +15,38 @@ pub struct PreviewProps {
     #[prop_or_default]
     pub disable_space_scroll: bool,
     #[prop_or_default]
+    pub on_install: Option<Callback<()>>,
+    #[prop_or_default]
     pub is_help: bool,
     #[prop_or_default]
     pub is_sub_dialog_open: bool,
+}
+
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen::prelude::wasm_bindgen(js_name = initMermaid)]
+    fn init_mermaid(el: &web_sys::Element);
 }
 
 #[function_component(Preview)]
 pub fn preview(props: &PreviewProps) -> Html {
     let lang = Language::detect();
     let node_ref = use_node_ref();
+    let is_fading_out = use_state(|| false);
 
     let is_sub_dialog_open = props.is_sub_dialog_open;
+
+    let handle_close = {
+        let on_close = props.on_close.clone();
+        let is_fading_out = is_fading_out.clone();
+        Callback::from(move |_: ()| {
+            is_fading_out.set(true);
+            let on_close = on_close.clone();
+            Timeout::new(300, move || {
+                on_close.emit(());
+            }).forget();
+        })
+    };
 
     {
         let content = props.content.clone();
@@ -48,11 +66,11 @@ pub fn preview(props: &PreviewProps) -> Html {
     {
         let node_ref = node_ref.clone();
         let disable_space = props.disable_space_scroll;
-        let on_close = props.on_close.clone();
+        let on_close_cb = handle_close.clone();
         let is_help_mode = props.is_help;
         use_effect_with((disable_space, is_help_mode, is_sub_dialog_open), move |deps| {
             let (disable_space, is_help_mode, is_sub_open) = *deps;
-            let on_close = on_close.clone();
+            let on_close = on_close_cb.clone();
             let window = web_sys::window().unwrap();
             let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
             opts.passive = false;
@@ -79,7 +97,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                 };
                 let is_alt_toggle = ke.alt_key() && is_target_key;
 
-                if is_alt_toggle {
+                if is_alt_toggle || key == "Escape" || (key == " " && !is_help_mode) {
                     e.prevent_default();
                     e.stop_immediate_propagation();
                     on_close.emit(());
@@ -117,8 +135,20 @@ pub fn preview(props: &PreviewProps) -> Html {
     let rendered_html = render_markdown(&props.content);
 
     html! {
-        <div class="fixed inset-0 z-[300] bg-black/80 flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200" onclick={props.on_close.reform(|_| ())}>
-            <div class="w-full max-w-5xl max-h-full bg-[#0d1117] rounded-xl shadow-2xl border border-gray-800 flex flex-col overflow-hidden relative" onclick={|e: MouseEvent| e.stop_propagation()}>
+        <div 
+            class={classes!(
+                "fixed", "inset-0", "z-[300]", "bg-black/80", "flex", "items-center", "justify-center", "p-4", "sm:p-8",
+                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
+            )}
+            onclick={let cb = handle_close.clone(); move |_| cb.emit(())}
+        >
+            <div 
+                class={classes!(
+                    "w-full", "max-w-5xl", "max-h-full", "bg-[#0d1117]", "rounded-xl", "shadow-2xl", "border", "border-gray-800", "flex", "flex-col", "overflow-hidden", "relative",
+                    if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
+                )}
+                onclick={|e: MouseEvent| e.stop_propagation()}
+            >
                 <div 
                     ref={node_ref}
                     class="markdown-body max-w-none overflow-y-auto p-6 sm:p-12"
@@ -126,10 +156,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                     { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
                     if props.has_more {
                         <>
-                            /* グラデーションアウト用のオーバーレイ (約10行分 = 8rem程度) */
                             <div class="h-32 -mt-32 bg-gradient-to-t from-[#0d1117] via-[#0d1117]/80 to-transparent pointer-events-none relative z-10"></div>
-                            
-                            /* 以下省略メッセージ (中央揃え) */
                             <div class="py-8 text-center text-gray-500 font-mono whitespace-pre-wrap leading-relaxed opacity-60 relative z-20">
                                 { i18n::t("omitted_below", lang) }
                             </div>
@@ -158,11 +185,10 @@ pub fn preview(props: &PreviewProps) -> Html {
                 }
             </div>
             <div class="fixed top-4 right-4 text-gray-400 text-[10px] bg-black/60 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-md flex items-center space-x-4">
-                if props.on_install.is_some() {
-                    <span class="text-lime-500 font-bold">{ i18n::t("scroll_for_install", lang) }</span>
-                    <span class="text-gray-600">{ "|" }</span>
-                }
-                <span>{ i18n::t("close_guide", lang) }</span>
+                <div class="flex items-center space-x-2">
+                    <span class="bg-gray-700 px-1.5 py-0.5 rounded text-gray-200">{"ESC"}</span>
+                    <span>{ i18n::t("close", lang) }</span>
+                </div>
             </div>
         </div>
     }
