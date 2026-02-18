@@ -52,7 +52,29 @@
   to { opacity: 0; }
 }
 
-.animate-dialog-in { animation: dialog-in 0.3s ease-out forwards; }
-.animate-dialog-out { animation: dialog-out 0.3s ease-in forwards; }
-.animate-backdrop-in { animation: backdrop-in 0.3s ease-out forwards; }
-.animate-backdrop-out { animation: backdrop-out 0.3s ease-in forwards; }
+.animate-dialog-in { animation: dialog-in 0.2s ease-out forwards; }
+.animate-dialog-out { animation: dialog-out 0.2s ease-in forwards; }
+.animate-backdrop-in { animation: backdrop-in 0.2s ease-out forwards; }
+.animate-backdrop-out { animation: backdrop-out 0.2s ease-in forwards; }
+
+/* --- Help Dialog Specific Animations --- */
+
+@keyframes help-in {
+  from { opacity: 0; transform: scale(0); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes help-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0); }
+}
+
+.animate-help-in { 
+  animation: help-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; 
+  transform-origin: calc(100% - 120px) 2rem;
+}
+
+.animate-help-out { 
+  animation: help-out 0.2s ease-in forwards; 
+  transform-origin: calc(100% - 120px) 2rem;
+}

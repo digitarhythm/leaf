@@ -42,7 +42,7 @@ pub fn preview(props: &PreviewProps) -> Html {
         Callback::from(move |_: ()| {
             is_fading_out.set(true);
             let on_close = on_close.clone();
-            Timeout::new(300, move || {
+            Timeout::new(200, move || {
                 on_close.emit(());
             }).forget();
         })
@@ -145,7 +145,11 @@ pub fn preview(props: &PreviewProps) -> Html {
             <div 
                 class={classes!(
                     "w-full", "max-w-5xl", "max-h-full", "bg-[#0d1117]", "rounded-xl", "shadow-2xl", "border", "border-gray-800", "flex", "flex-col", "overflow-hidden", "relative",
-                    if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
+                    if props.is_help {
+                        if *is_fading_out { "animate-help-out" } else { "animate-help-in" }
+                    } else {
+                        if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
+                    }
                 )}
                 onclick={|e: MouseEvent| e.stop_propagation()}
             >
