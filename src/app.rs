@@ -333,8 +333,15 @@ pub fn app() -> Html {
         let lock_fade_h = is_import_fading_out.clone();
         let ris_h = saving_id_ref.clone(); let is_saving_h = saving_sheet_id.clone();
         let ncq_h = name_conflict_queue.clone();
+        let osh_cb = os_handle.clone();
         Callback::from(move |is_manual: bool| {
-            if ris_h.borrow().is_some() { return; }
+            let aid_opt = (*r_aid.borrow()).clone();
+            if let Some(ref id) = aid_opt {
+                if let Some(ref saving_id) = *ris_h.borrow() {
+                    if saving_id == id { return; } // 同じシートを保存中ならスキップ
+                }
+            }
+
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
             let r_ncid = r_ncid.clone(); let nc_h = nc_h.clone();
             let ild_h = ild_h.clone();
@@ -342,6 +349,7 @@ pub fn app() -> Html {
             let lock_fade_h = lock_fade_h.clone();
             let ris_h = ris_h.clone(); let is_saving_h = is_saving_h.clone();
             let ncq_h = ncq_h.clone();
+            let osh_async = osh_cb.clone();
             
             Timeout::new(0, move || {
                 let aid_opt = (*r_aid.borrow()).clone();
@@ -364,9 +372,8 @@ pub fn app() -> Html {
 
                         {
                             let sheet = &mut cur_s[idx];
-                            let is_new = sheet.drive_id.is_none();
-                            if is_new && !sheet.is_modified && !is_manual { return; }
-                            if !is_manual && !is_new && !sheet.is_modified && sheet.content == cur_c { return; }
+                            // 自動保存の判定を緩和
+                            if !is_manual && !sheet.is_modified && sheet.content == cur_c { return; }
                             
                             sheet.content = cur_c.clone(); sheet.is_modified = false;
                             
@@ -556,8 +563,23 @@ pub fn app() -> Html {
                                  let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                  if si.title == fname { crate::js_interop::set_editor_mode(&fname); }
                              }
+                             let is_active = (*r_aid.borrow()).as_ref() == Some(&sheet.id);
                              *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
-                             set_gutter_status("none"); *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
+                             if is_active { set_gutter_status("none"); }
+                             *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
+
+                             // 保存中にさらに変更があったかチェック
+                             let latest_content = get_editor_content();
+                             if let Some(lc) = latest_content.as_string() {
+                                 if lc != *final_content {
+                                     // まだ差分がある場合は再保存を予約
+                                     if let Some(cb) = &*osh_async.borrow() {
+                                         let cb = cb.clone();
+                                         Timeout::new(1000, move || { cb.emit(false); }).forget();
+                                     }
+                                 }
+                             }
+
                              if *lock_inner {
                                  lock_fade_inner.set(true);
                                  let l = lock_inner.clone(); let lf = lock_fade_inner.clone();

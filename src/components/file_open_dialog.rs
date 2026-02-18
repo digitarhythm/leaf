@@ -200,15 +200,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     {
         let root = root_ref.clone();
         let f_area = focused_area.clone();
-        let s_idx = selected_cat_idx.clone();
         use_effect_with(root, move |r| {
             let mut _listener = None;
             if let Some(el) = r.get() {
                 let f_area = f_area.clone();
-                let s_idx = s_idx.clone();
                 _listener = Some(EventListener::new(&el, "leaf-focus-recovery", move |_| {
                     f_area.set(FocusedArea::Categories);
-                    s_idx.set(0);
                 }));
             }
             || ()
@@ -587,7 +584,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_root_focused = is_root_focused.clone();
         let root_ref = root_ref.clone();
         let focused_area = focused_area.clone();
-        let selected_cat_idx = selected_cat_idx.clone();
         let preview_active = preview_data.is_some();
         
         Callback::from(move |e: FocusEvent| {
@@ -604,13 +600,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             if is_outside {
                 let root_ref_c = root_ref.clone();
                 let f_area = focused_area.clone();
-                let s_idx = selected_cat_idx.clone();
                 
                 Timeout::new(10, move || {
                     if let Some(div) = root_ref_c.cast::<web_sys::HtmlElement>() {
                         let _ = div.focus();
                         f_area.set(FocusedArea::Categories);
-                        s_idx.set(0);
+                        // s_idx.set(0); // インデックスのリセットを削除し、現在の選択を維持
                     }
                 }).forget();
             }

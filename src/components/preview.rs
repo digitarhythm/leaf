@@ -108,8 +108,8 @@ pub fn preview(props: &PreviewProps) -> Html {
                     return;
                 }
 
-                // フォントサイズ変更 (Alt + = / -)
-                if ke.alt_key() {
+                // フォントサイズ変更 (Alt + = / -) - ヘルプモード以外で有効
+                if ke.alt_key() && !is_help_mode {
                     if code == "Equal" || key == "=" || key == "+" || key == "≠" {
                         e.prevent_default();
                         e.stop_immediate_propagation();
