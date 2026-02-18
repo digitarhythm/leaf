@@ -20,6 +20,8 @@ pub struct PreviewProps {
     pub is_help: bool,
     #[prop_or_default]
     pub is_sub_dialog_open: bool,
+    #[prop_or_default]
+    pub is_fading_out: bool,
     #[prop_or(14)]
     pub font_size: i32,
     #[prop_or_default]
@@ -36,15 +38,16 @@ extern "C" {
 pub fn preview(props: &PreviewProps) -> Html {
     let lang = Language::detect();
     let node_ref = use_node_ref();
-    let is_fading_out = use_state(|| false);
+    let is_closing = use_state(|| false);
+    let is_fading_out = *is_closing || props.is_fading_out;
 
     let is_sub_dialog_open = props.is_sub_dialog_open;
 
     let handle_close = {
         let on_close = props.on_close.clone();
-        let is_fading_out = is_fading_out.clone();
+        let is_closing = is_closing.clone();
         Callback::from(move |_: ()| {
-            is_fading_out.set(true);
+            is_closing.set(true);
             let on_close = on_close.clone();
             Timeout::new(200, move || {
                 on_close.emit(());
@@ -158,7 +161,7 @@ pub fn preview(props: &PreviewProps) -> Html {
         <div 
             class={classes!(
                 "fixed", "inset-0", "z-[300]", "bg-black/80", "flex", "items-center", "justify-center", "p-4", "sm:p-8",
-                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
+                if is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
             )}
             onclick={let cb = handle_close.clone(); move |_| cb.emit(())}
         >
@@ -166,9 +169,9 @@ pub fn preview(props: &PreviewProps) -> Html {
                 class={classes!(
                     "w-full", "max-w-5xl", "max-h-full", "bg-[#0d1117]", "rounded-xl", "shadow-2xl", "border", "border-gray-800", "flex", "flex-col", "overflow-hidden", "relative",
                     if props.is_help {
-                        if *is_fading_out { "animate-help-out" } else { "animate-help-in" }
+                        if is_fading_out { "animate-help-out" } else { "animate-help-in" }
                     } else {
-                        if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
+                        if is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
                     }
                 )}
                 onclick={|e: MouseEvent| e.stop_propagation()}
