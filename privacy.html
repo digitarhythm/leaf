@@ -10,6 +10,7 @@
         h2 { margin-top: 30px; border-left: 4px solid #22c55e; padding-left: 15px; }
         .lang-section { margin-bottom: 60px; }
         hr { margin: 40px 0; border: 0; border-top: 1px solid #eee; }
+        code { background: #f4f4f4; padding: 2px 4px; border-radius: 4px; font-size: 0.9em; }
     </style>
 </head>
 <body>
@@ -17,20 +18,18 @@
         <h1>Privacy Policy for Leaf</h1>
         <p>Last updated: February 18, 2026</p>
         <h2>1. Information Collection and Use</h2>
-        <p>The Application is a client-side text editor that allows you to sync your notes with your Google Drive.</p>
+        <p>We request the following permissions (OAuth scopes) from your Google account:</p>
         <ul>
-            <li><strong>Google User Data (drive.file scope):</strong> To provide synchronization features, the Application requests limited access to your Google Drive via the <code>https://www.googleapis.com/auth/drive.file</code> scope.
+            <li><strong>openid:</strong> Used to associate you with your personal information on Google and manage your login session.</li>
+            <li><strong>https://www.googleapis.com/auth/userinfo.email:</strong> Used to view your primary Google Account email address to identify your unique storage area.</li>
+            <li><strong>https://www.googleapis.com/auth/drive.file:</strong> Used to see, edit, create, and delete <strong>only the specific files and folders</strong> that you use with this Application.
                 <ul>
-                    <li>The Application can only access files and folders that you create using Leaf.</li>
-                    <li>The Application can only access files that you explicitly open or upload using Leaf.</li>
-                    <li>The Application cannot see or access any other files in your Google Drive.</li>
+                    <li>The Application cannot access any other files in your Google Drive.</li>
                 </ul>
             </li>
-            <li><strong>Account Information:</strong> We use your Google ID and email address solely for authentication and to identify your unique storage area on Google Drive.</li>
-            <li><strong>Local Storage:</strong> The Application stores certain settings and temporary session data in your browser's local storage and IndexedDB.</li>
         </ul>
         <h2>2. Data Storage and Transfer</h2>
-        <p>Leaf is a client-side application. We do <strong>not</strong> collect, store, or transmit your personal information or the content of your files to any external servers owned by the developer or any third parties.</p>
+        <p>Leaf is a client-side application. We do <strong>not</strong> collect, store, or transmit your personal information or the content of your files to any external servers.</p>
         <h2>3. Google API Disclosure (Limited Use)</h2>
         <p>Leaf's use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
     </div>
@@ -41,17 +40,15 @@
         <h1>プライバシーポリシー（Leaf）</h1>
         <p>最終更新日: 2026年2月18日</p>
         <h2>1. 情報の収集と利用</h2>
-        <p>本アプリは、ユーザーが Google ドライブとメモを同期できるようにするクライアントサイドのテキストエディタです。</p>
+        <p>本アプリは機能提供のため、ユーザーの Google アカウントから以下の権限（スコープ）を要求します：</p>
         <ul>
-            <li><strong>Google ユーザーデータ（drive.file スコープ）:</strong> 同期機能を提供するため、本アプリは <code>https://www.googleapis.com/auth/drive.file</code> スコープを使用して、ユーザーの Google ドライブへの限定的なアクセスを要求します。
+            <li><strong>openid:</strong> ユーザーを Google 上の個人情報と関連付け、ログインセッションを管理するために使用します。</li>
+            <li><strong>https://www.googleapis.com/auth/userinfo.email:</strong> Google アカウントのメインのメールアドレスを参照し、個別の保存領域の特定に使用します。</li>
+            <li><strong>https://www.googleapis.com/auth/drive.file:</strong> 本アプリで使用する Google ドライブ上の<strong>特定のファイルとフォルダのみ</strong>の参照、編集、作成、削除に使用します。
                 <ul>
-                    <li>本アプリがアクセスできるのは、本アプリを使用して作成されたファイルとフォルダのみです。</li>
-                    <li>本アプリがアクセスできるのは、本アプリを使用してユーザーが明示的に開いた、またはアップロードしたファイルのみです。</li>
-                    <li>本アプリは、ユーザーの Google ドライブ内の他のファイルを表示したりアクセスしたりすることはできません。</li>
+                    <li>本アプリは、ユーザーの Google ドライブ内にある他のファイルにアクセスすることはできません。</li>
                 </ul>
             </li>
-            <li><strong>アカウント情報:</strong> ユーザーの Google ID およびメールアドレスは、認証および保存領域の特定のみに使用されます。</li>
-            <li><strong>ローカルストレージ:</strong> 本アプリは、設定項目や一時的なセッションデータをブラウザ内に保存します。</li>
         </ul>
         <h2>2. データの保存と転送</h2>
         <p>Leaf はクライアントサイドで動作するアプリケーションです。外部サーバーにユーザーの個人情報やファイルの内容を送信することはありません。</p>
