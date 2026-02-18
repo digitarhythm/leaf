@@ -1692,7 +1692,10 @@ pub fn app() -> Html {
                             let is_nav_key = key == "ArrowUp" || key == "ArrowDown" || key == "ArrowLeft" || key == "ArrowRight" || key == "Enter" || key == " " || key == "Tab" || key == "PageUp" || key == "PageDown" || key == "Home" || key == "End";
                             let is_edit_key = ke.ctrl_key() || ke.meta_key() || (ke.alt_key() && !is_toggle_shortcut && !is_font_size_shortcut) || key.len() == 1;
 
-                            if is_nav_key || is_edit_key {
+                            // プレビュー表示中などは、ナビゲーションキーを遮断せずコンポーネント側に任せる
+                            let skip_nav_block = (preview || help) && is_nav_key;
+
+                            if (is_nav_key || is_edit_key) && !skip_nav_block {
                                 if is_target_in_editor || is_target_body {
                                     e.stop_immediate_propagation();
                                     let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false);
