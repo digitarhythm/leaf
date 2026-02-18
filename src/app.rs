@@ -7,7 +7,7 @@ use crate::components::preview::Preview;
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, set_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
 use crate::db_interop::{save_sheet, save_categories, JSCategory, JSSheet};
-use crate::drive_interop::{upload_file, ensure_directory_structure, list_folders, download_file, list_files, get_file_metadata, delete_file, move_file, parse_date, find_file_by_name};
+use crate::drive_interop::{upload_file, ensure_directory_structure, list_folders, download_file, list_files, get_file_metadata, delete_file, move_file, find_file_by_name};
 use crate::i18n::{self, Language};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
@@ -112,7 +112,7 @@ pub fn app() -> Html {
     let leaf_data_folder_id = use_state(|| None::<String>);
     let auto_save_timer = use_state(|| None::<Timeout>);
     let is_loading = use_state(|| true);
-    let is_saving = use_state(|| false);
+    let saving_sheet_id = use_state(|| None::<String>);
     let is_import_lock = use_state(|| false);
     let is_import_fading_out = use_state(|| false);
     let is_initial_load = use_state(|| true);
@@ -150,7 +150,7 @@ pub fn app() -> Html {
     let active_id_ref = use_mut_ref(|| None::<String>);
     let no_category_id_ref = use_mut_ref(|| None::<String>);
     let is_loading_ref = use_mut_ref(|| true);
-    let is_saving_ref = use_mut_ref(|| false);
+    let saving_id_ref = use_mut_ref(|| None::<String>);
     let is_suppressing_ref = use_mut_ref(|| false);
     let is_preview_ref = use_mut_ref(|| false);
     let is_file_open_ref = use_mut_ref(|| false);
@@ -207,12 +207,14 @@ pub fn app() -> Html {
         let r_s = sheets_ref.clone(); let r_aid = active_id_ref.clone();
         let r_ncid = no_category_id_ref.clone(); let r_ld = is_loading_ref.clone(); let r_sp = is_suppressing_ref.clone();
         let r_prev = is_preview_ref.clone(); let r_open = is_file_open_ref.clone(); let r_help = is_help_ref.clone();
+        let r_saving = saving_id_ref.clone();
 
-        use_effect_with((((*s).clone(), (*aid).clone(), (*ncid).clone()), (*ld, *sp, *prev, *open, *help)), move |deps| {
-            let ((s_val, aid_val, ncid_val), (ld_val, sp_val, prev_val, open_val, help_val)) = deps;
+        use_effect_with((((*s).clone(), (*aid).clone(), (*ncid).clone()), (*ld, *sp, *prev, *open, *help, (*saving_sheet_id).clone())), move |deps| {
+            let ((s_val, aid_val, ncid_val), (ld_val, sp_val, prev_val, open_val, help_val, saving_val)) = deps;
             *r_s.borrow_mut() = s_val.clone(); *r_aid.borrow_mut() = aid_val.clone();
             *r_ncid.borrow_mut() = ncid_val.clone(); *r_ld.borrow_mut() = *ld_val; *r_sp.borrow_mut() = *sp_val;
             *r_prev.borrow_mut() = *prev_val; *r_open.borrow_mut() = *open_val; *r_help.borrow_mut() = *help_val;
+            *r_saving.borrow_mut() = saving_val.clone();
             || ()
         });
     }
@@ -329,10 +331,10 @@ pub fn app() -> Html {
         let ild_h = is_loading.clone();
         let lock_h = is_import_lock.clone();
         let lock_fade_h = is_import_fading_out.clone();
-        let ris_h = is_saving_ref.clone(); let is_saving_h = is_saving.clone();
+        let ris_h = saving_id_ref.clone(); let is_saving_h = saving_sheet_id.clone();
         let ncq_h = name_conflict_queue.clone();
         Callback::from(move |is_manual: bool| {
-            if *ris_h.borrow() { return; }
+            if ris_h.borrow().is_some() { return; }
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
             let r_ncid = r_ncid.clone(); let nc_h = nc_h.clone();
             let ild_h = ild_h.clone();
@@ -385,7 +387,7 @@ pub fn app() -> Html {
                                 let s_state_inner = s_state.clone();
 
                                 s_state.set(cur_s.clone());
-                                is_saving_h.set(true);
+                                is_saving_h.set(Some(id.clone()));
                                 spawn_local(async move {
                                     let result = save_local_file(&content_to_save).await;
                                     if let Some(fname) = result.as_string() {
@@ -404,7 +406,7 @@ pub fn app() -> Html {
                                         }
                                         *rs_cb_inner.borrow_mut() = us.clone();
                                         s_state_inner.set(us);
-                                        is_saving_inner.set(false);
+                                        is_saving_inner.set(None);
                                         ild_inner.set(false);
                                         if *lock_inner {
                                             lock_fade_inner.set(true);
@@ -413,7 +415,7 @@ pub fn app() -> Html {
                                             Timeout::new(300, move || { lf.set(false); l.set(false); il.set(false); }).forget();
                                         }
                                     } else {
-                                        is_saving_inner.set(false);
+                                        is_saving_inner.set(None);
                                         ild_inner.set(false);
                                         if *lock_inner {
                                             lock_fade_inner.set(true);
@@ -466,14 +468,14 @@ pub fn app() -> Html {
                         let ild_inner = ild_h.clone();
                         let lock_inner = lock_h.clone();
                         let lock_fade_inner = lock_fade_h.clone();
-                        *ris_inner.borrow_mut() = true;
-                        is_saving_h.set(true);
+                        *ris_inner.borrow_mut() = Some(id.clone());
+                        is_saving_h.set(Some(id.clone()));
                         
                         spawn_local(async move {
                              let target_folder_id = target_folder_id_val;
                              let sheet = s_clone;
                              let _structure = match ensure_directory_structure().await { Ok(res) => res, Err(_) => { 
-                                 *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
+                                 *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
                                  if *lock_inner {
                                      lock_fade_inner.set(true);
                                      let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
@@ -485,7 +487,7 @@ pub fn app() -> Html {
                              
                              if !sheet.category.is_empty() && sheet.category != "OTHERS" {
                                  if let Err(_) = get_file_metadata(&sheet.category).await {
-                                     *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
+                                     *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
                                      let mut u_s = (*rs_async.borrow()).clone();
                                      if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { 
                                          si.is_modified = true; 
@@ -512,7 +514,7 @@ pub fn app() -> Html {
                                              if let Some(eid_str) = eid.as_string() {
                                                  let mut q = (*ncq_inner).clone();
                                                  q.push(NameConflictData { sheet_id: sheet.id.clone(), filename: fname.clone(), folder_id: target_folder_id.clone(), existing_file_id: eid_str });
-                                                 ncq_inner.set(q); *ris_inner.borrow_mut() = false; is_saving_inner.set(false); ild_inner.set(false); return;
+                                                 ncq_inner.set(q); *ris_inner.borrow_mut() = None; is_saving_inner.set(None); ild_inner.set(false); return;
                                              }
                                          }
                                      }
@@ -525,7 +527,7 @@ pub fn app() -> Html {
                              match res {
                                  Ok(rv) => {
                                      if let Ok(iv) = js_sys::Reflect::get(&rv, &JsValue::from_str("id")) { if let Some(is) = iv.as_string() { n_did = Some(is); } }
-                                     if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { stime = Some(parse_date(&ts) as u64); } }
+                                     if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { stime = Some(crate::drive_interop::parse_date(&ts) as u64); } }
                                  },
                                  Err(_) => {
                                      nc_inner.set(false); let js = sheet.to_js();
@@ -533,7 +535,7 @@ pub fn app() -> Html {
                                      let mut u_s = (*rs_async.borrow()).clone();
                                      if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { si.is_modified = true; }
                                      *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
-                                     *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
+                                     *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
                                      if *lock_inner {
                                          lock_fade_inner.set(true);
                                          let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
@@ -555,7 +557,7 @@ pub fn app() -> Html {
                                  if si.title == fname { crate::js_interop::set_editor_mode(&fname); }
                              }
                              *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
-                             set_gutter_status("none"); *ris_inner.borrow_mut() = false; is_saving_inner.set(false); 
+                             set_gutter_status("none"); *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
                              if *lock_inner {
                                  lock_fade_inner.set(true);
                                  let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
@@ -1760,7 +1762,18 @@ pub fn app() -> Html {
                                     on_change_category={on_change_category_cb} 
                                     on_help={on_help_cb} on_logout={on_logout} current_category={current_cat} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} />
                 <div id="editor" key="ace-editor-fixed-node" class="flex-1 bg-gray-950 z-10" style="width: 100%; min-height: 0;"></div>
-                <StatusBar key="bottom-status-bar" network_status={*network_connected} is_saving={*is_saving} vim_mode={*vim_mode} on_toggle_vim={on_toggle_vim} category_name={current_cat_name} file_name={current_file_name} file_extension={current_file_ext} on_change_extension={on_change_extension_cb} version={env!("CARGO_PKG_VERSION").to_string()} />
+                                <StatusBar 
+                                    key="bottom-status-bar" 
+                                    network_status={*network_connected} 
+                                    is_saving={(*saving_sheet_id).as_ref() == active_sheet_id.as_ref() && active_sheet_id.is_some()}
+                                    vim_mode={*vim_mode}
+                                    on_toggle_vim={on_toggle_vim}
+                                    category_name={current_cat_name}
+                                    file_name={current_file_name}
+                                    file_extension={current_file_ext}
+                                    on_change_extension={on_change_extension_cb}
+                                    version={env!("CARGO_PKG_VERSION").to_string()} 
+                                />
             </main>
             <div id="overlays-layer" class="pointer-events-none fixed inset-0 z-[100]">
                 if !*is_authenticated {
