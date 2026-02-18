@@ -1807,12 +1807,14 @@ pub fn app() -> Html {
                                                         <button onclick={on_login} class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
                                                             { i18n::t("signin_with_google", lang) }
                                                         </button>
-                                                        <div class="mt-6">
-                                                            <a href="privacy.html" target="_blank" class="text-gray-500 hover:text-blue-400 text-xs underline transition-colors">
-                                                                { "Privacy Policy / プライバシーポリシー" }
-                                                            </a>
-                                                        </div>
-                                                        <div class="mt-4 text-gray-500 text-[10px]">{ i18n::t("login_required", lang) }</div>
+                                                                                    <div class="mt-6 flex flex-col items-center space-y-2">
+                                                                                        <a href="terms.html" target="_blank" class="text-gray-500 hover:text-blue-400 text-xs underline transition-colors">
+                                                                                            { "Terms of Service / 利用規約" }
+                                                                                        </a>
+                                                                                        <a href="privacy.html" target="_blank" class="text-gray-500 hover:text-blue-400 text-xs underline transition-colors">
+                                                                                            { "Privacy Policy / プライバシーポリシー" }
+                                                                                        </a>
+                                                                                    </div>                                                        <div class="mt-4 text-gray-500 text-[10px]">{ i18n::t("login_required", lang) }</div>
                                                     </div>
                                                 </div>
                 }

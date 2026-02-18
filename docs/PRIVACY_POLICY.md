@@ -6,19 +6,18 @@ This Privacy Policy describes how "Leaf" (the "Application") handles user data, 
 
 ## 1. Information Collection and Use
 
-The Application is a client-side text editor that allows you to sync your notes with your Google Drive. 
+The Application is a client-side text editor that allows you to sync your notes with your Google Drive. We request the following permissions (OAuth scopes) from your Google account:
 
-- **Google User Data (drive.file scope)**: To provide synchronization features, the Application requests limited access to your Google Drive via the `https://www.googleapis.com/auth/drive.file` scope. This means:
-    - The Application can **only** access files and folders that you create using Leaf.
-    - The Application can **only** access files that you explicitly open or upload using Leaf.
-    - The Application **cannot** see or access any other files in your Google Drive.
-- **Account Information**: We use your Google ID and email address solely for authentication and to identify your unique storage area on Google Drive.
-- **Local Storage**: The Application stores certain settings (e.g., font size, VIM mode) and temporary session data in your browser's local storage and IndexedDB.
+- **openid**: Used to associate you with your personal information on Google and manage your login session.
+- **https://www.googleapis.com/auth/userinfo.email**: Used to view your primary Google Account email address to identify your unique storage area and display your signed-in status.
+- **https://www.googleapis.com/auth/drive.file**: Used to see, edit, create, and delete **only the specific files and folders** that you use with this Application. 
+    - The Application **cannot** access any other files in your Google Drive.
+    - All file contents are managed directly between your browser and Google Drive.
 
 ## 2. Data Storage and Transfer
 
 - **No External Servers**: Leaf is a client-side application. We do **not** collect, store, or transmit your personal information or the content of your files to any external servers owned by the developer or any third parties.
-- **Direct Communication**: All communication with Google Drive APIs happens directly between your browser and Google's servers.
+- **Direct Communication**: All communication with Google APIs happens directly between your browser and Google's servers.
 
 ## 3. Google API Disclosure (Limited Use)
 
@@ -44,19 +43,18 @@ If you have any questions about this Privacy Policy, please contact the develope
 
 ## 1. 情報の収集と利用
 
-本アプリは、ユーザーが Google ドライブとメモを同期できるようにするクライアントサイドのテキストエディタです。
+本アプリは、ユーザーが Google ドライブとメモを同期できるようにするクライアントサイドのテキストエディタです。機能提供のため、ユーザーの Google アカウントから以下の権限（スコープ）を要求します：
 
-- **Google ユーザーデータ（drive.file スコープ）**: 同期機能を提供するため、本アプリは `https://www.googleapis.com/auth/drive.file` スコープを使用して、ユーザーの Google ドライブへの限定的なアクセスを要求します。これにより以下の制限が適用されます：
-    - 本アプリがアクセスできるのは、本アプリを使用して**作成された**ファイルとフォルダのみです。
-    - 本アプリがアクセスできるのは、本アプリを使用してユーザーが**明示的に開いた**、またはアップロードしたファイルのみです。
-    - 本アプリは、ユーザーの Google ドライブ内の**他のファイルを表示したりアクセスしたりすることはできません。**
-- **アカウント情報**: ユーザーの Google ID およびメールアドレスは、認証および Google ドライブ上の個別の保存領域を特定する目的でのみ使用されます。
-- **ローカルストレージ**: 本アプリは、設定項目（フォントサイズ、VIM モード等）や一時的なセッションデータを、ブラウザのローカルストレージおよび IndexedDB に保存します。
+- **openid**: ユーザーを Google 上の個人情報と関連付け、ログインセッションを管理するために使用します。
+- **https://www.googleapis.com/auth/userinfo.email**: Google アカウントのメインのメールアドレスを参照し、個別の保存領域の特定およびログイン状態の表示に使用します。
+- **https://www.googleapis.com/auth/drive.file**: 本アプリで使用する Google ドライブ上の**特定のファイルとフォルダのみ**の参照、編集、作成、削除に使用します。
+    - 本アプリは、ユーザーの Google ドライブ内にある**他のファイルにアクセスすることはできません。**
+    - ファイルの内容は、ユーザーのブラウザと Google ドライブ間で直接やり取りされます。
 
 ## 2. データの保存と転送
 
 - **外部サーバーの不在**: Leaf はクライアントサイドで動作するアプリケーションです。開発者や第三者が所有する外部サーバーに、ユーザーの個人情報やファイルの内容を収集、保存、または送信することはありません。
-- **直接通信**: Google ドライブ API とのすべての通信は、ユーザーのブラウザと Google のサーバー間で直接行われます。
+- **直接通信**: Google API とのすべての通信は、ユーザーのブラウザと Google のサーバー間で直接行われます。
 
 ## 3. Google API に関する開示事項（限定的使用）
 
