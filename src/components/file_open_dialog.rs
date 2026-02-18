@@ -28,6 +28,7 @@ pub struct FilePreview {
 enum FileAction {
     SetFiles(Vec<FilePreview>),
     UpdateContent { id: String, content: String, loaded_bytes: u64 },
+    Remove(String),
     Clear,
 }
 
@@ -49,6 +50,11 @@ impl Reducible for FileState {
                         item.is_prefetched = true;
                     }
                 }
+                Rc::new(FileState { list })
+            }
+            FileAction::Remove(id) => {
+                let mut list = self.list.clone();
+                list.retain(|f| f.id != id);
                 Rc::new(FileState { list })
             }
             FileAction::Clear => Rc::new(FileState { list: Vec::new() }),
@@ -114,7 +120,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let current_category_name = use_state(|| "".to_string());
     let active_dropdown_file_id = use_state(|| None::<String>); 
     let preview_modal_data = use_state(|| None::<FilePreview>);
-    let is_preview_fading_out = use_state(|| false); // プレビュー用のフェードアウト
+    let is_preview_fading_out = use_state(|| false); 
     let is_loading_preview = use_state(|| false); 
     let is_deleting_id = use_state(|| None::<String>);
     let abort_controller = use_state(|| None::<AbortController>);
@@ -292,8 +298,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let lang_str = get_highlight_lang(&name).unwrap_or("").to_string();
                             all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: lang_str, is_prefetched: false });
                         }
+                        let has_files = !all_metadata.is_empty();
                         reducer_inner.dispatch(FileAction::SetFiles(all_metadata));
-                        if is_initial && !*is_fading_inner { if !reducer_inner.list.is_empty() { f_area_inner.set(FocusedArea::Files); } else { f_area_inner.set(FocusedArea::Categories); } }
+                        if is_initial && !*is_fading_inner { if has_files { f_area_inner.set(FocusedArea::Files); } else { f_area_inner.set(FocusedArea::Categories); } }
                         prefetch_inner.emit((0, 12));
                     }
                 }
@@ -498,7 +505,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             spawn_local(async move {
                 if let Ok(_) = move_file(&f_id, &old_cid, &new_cat_id).await {
                     on_ld.emit(false); p_move.set(Some(f_id.clone())); 
-                    Timeout::new(200, move || { reducer.dispatch(FileAction::Clear); }).forget();
+                    Timeout::new(200, move || { reducer.dispatch(FileAction::Remove(f_id.clone())); }).forget();
                 } else { on_ld.emit(false); }
             });
         })
@@ -517,7 +524,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 pending_delete_c.set(None); is_del.set(Some(id_for_anim)); 
                 Timeout::new(200, move || {
                     on_del.emit((id_for_parent.clone(), name_for_parent));
-                    reducer.dispatch(FileAction::Clear); is_del.set(None);
+                    reducer.dispatch(FileAction::Remove(id_for_parent.clone()));
+                    is_del.set(None);
                 }).forget();
             }
         })
