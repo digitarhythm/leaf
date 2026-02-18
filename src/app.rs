@@ -1769,10 +1769,17 @@ pub fn app() -> Html {
                             <img src="icon.svg" class="mx-auto mb-8 shadow-2xl" style="width: 15vmin; height: 15vmin;" alt="Leaf Icon" />
                             <h1 class="text-4xl font-extrabold text-white mb-6 tracking-tight">{ i18n::t("welcome_headline", lang) }</h1>
                             <div class="mb-10 text-gray-300 text-sm leading-relaxed whitespace-pre-wrap opacity-80 bg-gray-800/30 p-6 rounded-lg border border-white/5 shadow-inner text-left">{ Html::from_html_unchecked(i18n::t("app_policy_description", lang).into()) }</div>
-                            <button onclick={on_login} class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">{ i18n::t("signin_with_google", lang) }</button>
-                            <div class="mt-6 text-gray-500 text-xs">{ i18n::t("login_required", lang) }</div>
-                        </div>
-                    </div>
+                                                        <button onclick={on_login} class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
+                                                            { i18n::t("signin_with_google", lang) }
+                                                        </button>
+                                                        <div class="mt-6">
+                                                            <a href="privacy.html" target="_blank" class="text-gray-500 hover:text-blue-400 text-xs underline transition-colors">
+                                                                { "Privacy Policy / プライバシーポリシー" }
+                                                            </a>
+                                                        </div>
+                                                        <div class="mt-4 text-gray-500 text-[10px]">{ i18n::t("login_required", lang) }</div>
+                                                    </div>
+                                                </div>
                 }
                 if *is_file_open_dialog_visible {
                     if let Some(ldid) = (*leaf_data_folder_id).clone() {

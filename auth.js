@@ -15,7 +15,7 @@ export function init_google_auth(clientId, onSuccessCallback) {
     script.onload = () => {
         tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: clientId,
-            scope: 'openid email https://www.googleapis.com/auth/drive',
+            scope: 'openid email https://www.googleapis.com/auth/drive.file',
             callback: (response) => {
                 if (response.error !== undefined) {
                     console.error("Auth Error:", response);
