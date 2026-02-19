@@ -7,6 +7,8 @@ let refreshPromise = null;
 const STORAGE_KEY = 'leaf_google_access_token';
 const EXPIRY_KEY = 'leaf_google_token_expiry';
 
+let reauthPromise = null;
+
 export function init_google_auth(clientId, onSuccessCallback) {
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
@@ -22,6 +24,10 @@ export function init_google_auth(clientId, onSuccessCallback) {
                     if (refreshPromise) {
                         refreshPromise.reject(response);
                         refreshPromise = null;
+                    }
+                    if (reauthPromise) {
+                        reauthPromise.reject(response);
+                        reauthPromise = null;
                     }
                     return;
                 }
@@ -39,6 +45,11 @@ export function init_google_auth(clientId, onSuccessCallback) {
                 if (refreshPromise) {
                     refreshPromise.resolve(accessToken);
                     refreshPromise = null;
+                }
+                
+                if (reauthPromise) {
+                    reauthPromise.resolve(accessToken);
+                    reauthPromise = null;
                 }
 
                 if (onSuccessCallback) {
@@ -172,4 +183,29 @@ export async function sign_out() {
 
     // アプリ側に通知
     window.dispatchEvent(new CustomEvent('leaf-auth-expired'));
+}
+
+export async function force_reauth() {
+    if (!tokenClient) return Promise.reject("TokenClient not initialized");
+    if (reauthPromise) return reauthPromise.promise;
+
+    console.log("[Auth] Forcing re-authentication via popup...");
+    let res, rej;
+    const promise = new Promise((resolve, reject) => {
+        res = resolve;
+        rej = reject;
+    });
+    
+    // ポップアップ待ちのためのPromiseをセット
+    reauthPromise = { promise, resolve: res, reject: rej };
+
+    try {
+        // ポップアップを表示してアカウント選択を促す
+        tokenClient.requestAccessToken({ prompt: 'select_account' });
+        return await promise;
+    } catch (e) {
+        console.error("[Auth] Re-auth popup failed:", e);
+        reauthPromise = null;
+        throw e;
+    }
 }

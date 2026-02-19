@@ -1,7 +1,7 @@
 // drive.js
 // Google Drive API wrapper with automatic token refresh
 
-import { get_access_token, try_silent_refresh, sign_out } from './auth.js';
+import { get_access_token, try_silent_refresh, sign_out, force_reauth } from './auth.js';
 
 export const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const FILE_MIME_TYPE = 'text/plain';
@@ -32,9 +32,17 @@ async function authenticatedFetch(url, options = {}, retry = true) {
             // 新しいトークンで再試行
             return await authenticatedFetch(url, options, false);
         } catch (e) {
-            console.error("[Drive] Automatic refresh failed. Signing out.");
-            sign_out();
-            throw new Error("UNAUTHORIZED");
+            console.warn("[Drive] Silent refresh failed. Triggering popup re-auth...");
+            try {
+                // ポップアップを表示して再認証し、完了を待つ
+                await force_reauth();
+                // 認証成功後、再試行
+                return await authenticatedFetch(url, options, false);
+            } catch (reauthError) {
+                console.error("[Drive] Re-auth failed. Signing out.", reauthError);
+                sign_out();
+                throw new Error("UNAUTHORIZED");
+            }
         }
     }
 
