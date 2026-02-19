@@ -1,4 +1,5 @@
 /*! tailwindcss v4.1.18 | MIT License | https://tailwindcss.com */
+@import url('https://fonts.googleapis.com/css2?family=Petit+Formal+Script&display=swap');
 @layer properties;
 @layer theme, base, components, utilities;
 @layer theme {

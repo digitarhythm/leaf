@@ -1,7 +1,7 @@
 {
     "name": "Leaf",
     "short_name": "Leaf",
-    "id": "/leaf/",
+    "id": "/",
     "start_url": "./",
     "scope": "./",
     "display": "standalone",
