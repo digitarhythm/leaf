@@ -468,9 +468,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_ld_prev_fade = is_preview_fading_out.clone();
         let is_loading_preview_cc = is_loading_preview.clone();
         let h_close_c = handle_close.clone();
+        let is_sub_dialog_open = props.is_sub_dialog_open;
+        let is_creating_cat = props.is_creating_category;
+        let is_loading = props.is_loading;
+        let is_loading_prev = *is_loading_preview;
+        let has_pending_del = pending_delete_file.is_some();
+
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area_c;
-            if preview_modal_c.is_some() || is_sub_dialog_open { return; }
+            if preview_modal_c.is_some() || is_sub_dialog_open || is_creating_cat || is_loading || is_loading_prev || has_pending_del {
+                let key = e.key();
+                if key == "Tab" || key == "Enter" || key == " " || key.starts_with("Arrow") {
+                    e.prevent_default();
+                    e.stop_propagation();
+                }
+                return;
+            }
             if *is_fading_out_cc || is_deleting_cc.is_some() { return; }
             let key = e.key(); let code = e.code(); let key_lower = key.to_lowercase();
             let is_m_shortcut = e.alt_key() && (code == "KeyM" || key_lower == "m" || key_lower == "µ");
@@ -551,7 +564,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let root_ref_c = root_ref.clone();
         let focused_area_c = focused_area.clone();
         let preview_active = preview_modal_data.is_some();
-        let sub_active = props.is_sub_dialog_open;
+        let sub_active = props.is_sub_dialog_open || props.is_creating_category || (*pending_delete_file).is_some() || props.is_loading || *is_loading_preview;
         Callback::from(move |e: FocusEvent| {
             if preview_active || sub_active { return; } 
             let related = e.related_target();
@@ -746,12 +759,19 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         </div>
     };
 
+    let is_modal_active = preview_modal_data.is_some() || (*pending_delete_file).is_some() || props.is_creating_category || is_sub_dialog_open || props.is_loading || *is_loading_preview;
+
     html! {
-        <div ref={root_ref} tabindex="0" onkeydown={on_keydown} onfocusin={on_focus_in} onfocusout={on_focus_out}
-            class={classes!("fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/60", "backdrop-blur-sm", "p-4", "outline-none",
+        <div class={classes!("fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/60", "backdrop-blur-sm", "p-4", "outline-none",
                 if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
             )}>
-            <div class={classes!("bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "overflow-hidden", "flex", "flex-col", "relative",
+            <div ref={root_ref} 
+                tabindex={if is_modal_active { "-1" } else { "0" }}
+                onkeydown={on_keydown}
+                onfocusin={on_focus_in}
+                onfocusout={on_focus_out}
+                class={classes!("bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "overflow-hidden", "flex", "flex-col", "relative", "outline-none",
+                    if is_modal_active { "pointer-events-none select-none" } else { "" },
                     if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
                 )} style="width: 80vw; height: 90vh;">
                 <div class="px-6 py-2 border-b border-gray-700 bg-gray-900 flex justify-between items-center shrink-0">
@@ -805,7 +825,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     let has_more = p.loaded_bytes < p.total_size;
                     let on_change_fs = props.on_change_font_size.clone();
                     let is_fade = *is_preview_fading_out;
-                    html! { <Preview content={content} on_close={handle_close_preview} has_more={has_more} disable_space_scroll={true} is_sub_dialog_open={is_sub_dialog_open} font_size={props.font_size} on_change_font_size={on_change_fs} is_fading_out={is_fade} /> }
+                    let is_sub_active = is_sub_dialog_open || props.is_creating_category || (*pending_delete_file).is_some() || props.is_loading || *is_loading_preview;
+                    html! { <Preview content={content} on_close={handle_close_preview} has_more={has_more} disable_space_scroll={true} is_sub_dialog_open={is_sub_active} font_size={props.font_size} on_change_font_size={on_change_fs} is_fading_out={is_fade} /> }
                 } else { html! { <></> } }
             }
         </div>
