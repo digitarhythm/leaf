@@ -3,7 +3,7 @@
 integrity = "none"
 # 自動 preload を無効化して警告を解消
 preload = false
-public_url = "/leaf/"
+public_url = "/"
 dist = "dist"
 
 [serve]
