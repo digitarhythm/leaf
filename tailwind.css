@@ -1065,6 +1065,12 @@
   .underline {
     text-decoration-line: underline;
   }
+  .decoration-gray-700 {
+    text-decoration-color: var(--color-gray-700);
+  }
+  .underline-offset-4 {
+    text-underline-offset: 4px;
+  }
   .opacity-0 {
     opacity: 0%;
   }

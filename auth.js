@@ -19,7 +19,10 @@ export function init_google_auth(clientId, onSuccessCallback) {
             callback: (response) => {
                 if (response.error !== undefined) {
                     console.error("Auth Error:", response);
-                    if (refreshPromise) refreshPromise.reject(response);
+                    if (refreshPromise) {
+                        refreshPromise.reject(response);
+                        refreshPromise = null;
+                    }
                     return;
                 }
                 accessToken = response.access_token;
@@ -87,15 +90,34 @@ export async function try_silent_refresh() {
         res = resolve;
         rej = reject;
     });
-    refreshPromise = { promise, resolve: res, reject: rej };
+    
+    // 10秒でタイムアウトさせる
+    const timeoutId = setTimeout(() => {
+        if (refreshPromise && refreshPromise.promise === promise) {
+            console.error("[Auth] Silent refresh timed out after 10s.");
+            refreshPromise.reject(new Error("TIMEOUT"));
+            refreshPromise = null;
+        }
+    }, 10000);
+
+    refreshPromise = { promise, resolve: (val) => {
+        clearTimeout(timeoutId);
+        res(val);
+    }, reject: (err) => {
+        clearTimeout(timeoutId);
+        rej(err);
+    } };
 
     try {
         // prompt: 'none' を指定してユーザー操作なしでの更新を試みる
         tokenClient.requestAccessToken({ prompt: 'none' });
         return await promise;
     } catch (e) {
-        console.error("[Auth] Silent refresh request failed:", e);
-        refreshPromise = null;
+        console.error("[Auth] Silent refresh request failed to initiate:", e);
+        if (refreshPromise && refreshPromise.promise === promise) {
+            refreshPromise = null;
+        }
+        clearTimeout(timeoutId);
         throw e;
     }
 }

@@ -502,6 +502,15 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Install Leaf App",
         }.to_string(),
 
+        "privacy_policy" => match lang {
+            Language::Ja => "プライバシーポリシー",
+            _ => "Privacy Policy",
+        }.to_string(),
+        "terms_of_service" => match lang {
+            Language::Ja => "利用規約",
+            _ => "Terms of Service",
+        }.to_string(),
+
         "scroll_for_install" => match lang {
             Language::Ja => "下にスクロールしてインストール",
             _ => "Scroll down for Install button",
