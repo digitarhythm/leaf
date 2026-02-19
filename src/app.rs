@@ -1041,10 +1041,22 @@ pub fn app() -> Html {
 
     {
         let is_auth = is_authenticated.clone();
+        let is_ld = is_loading.clone();
+        let is_fl_ld = is_file_list_loading.clone();
+        let is_fo = is_fading_out.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let is_auth_c = is_auth.clone();
-            let listener_expired = EventListener::new(&window, "leaf-auth-expired", move |_| { gloo::console::warn!("[Leaf-SYSTEM] Auth expired event received. Logging out..."); is_auth_c.set(false); });
+            let is_ld_c = is_ld.clone();
+            let is_fl_ld_c = is_fl_ld.clone();
+            let is_fo_c = is_fo.clone();
+            let listener_expired = EventListener::new(&window, "leaf-auth-expired", move |_| { 
+                gloo::console::warn!("[Leaf-SYSTEM] Auth expired event received. Logging out..."); 
+                is_auth_c.set(false); 
+                is_ld_c.set(false);
+                is_fl_ld_c.set(false);
+                is_fo_c.set(false);
+            });
             let is_auth_r = is_auth.clone();
             let listener_refreshed = EventListener::new(&window, "leaf-token-refreshed", move |_| { gloo::console::log!("[Leaf-SYSTEM] Token refreshed event received."); is_auth_r.set(true); });
             move || { drop(listener_expired); drop(listener_refreshed); }
@@ -1429,7 +1441,7 @@ pub fn app() -> Html {
                                                     </div>
                                                 </div>
                 }
-                if *is_file_open_dialog_visible {
+                if *is_file_open_dialog_visible && *is_authenticated {
                     if let Some(ldid) = (*leaf_data_folder_id).clone() {
                         <div class="pointer-events-auto">
                             <FileOpenDialog 
