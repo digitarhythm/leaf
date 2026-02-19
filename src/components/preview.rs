@@ -61,8 +61,13 @@ pub fn preview(props: &PreviewProps) -> Html {
         use_effect_with(content, move |_| {
             if let Some(div) = node_ref.cast::<web_sys::Element>() {
                 // DOM の更新を待つために少し遅延させる
+                let div_c = div.clone();
                 gloo::timers::callback::Timeout::new(50, move || {
-                    let _ = init_mermaid(&div);
+                    let _ = init_mermaid(&div_c);
+                    // プレビュー表示時にフォーカスを奪い、キーボード操作を可能にする
+                    if let Some(html_el) = div_c.dyn_ref::<web_sys::HtmlElement>() {
+                        let _ = html_el.focus();
+                    }
                 }).forget();
             }
             || ()
@@ -104,10 +109,19 @@ pub fn preview(props: &PreviewProps) -> Html {
                 let is_target_key = if is_help_mode { is_h_key } else { is_l_key };
                 let is_alt_toggle = ke.alt_key() && is_target_key;
 
+                // プレビュー表示中は、すべてのイベントをキャプチャし、
+                // ブラウザや背景への漏洩を防ぐ
+                e.stop_immediate_propagation();
+
                 if is_alt_toggle || key == "Escape" {
                     e.prevent_default();
-                    e.stop_immediate_propagation();
                     on_close.emit(());
+                    return;
+                }
+
+                // Tabキーによるブラウザへのフォーカス漏れを防止
+                if key == "Tab" {
+                    e.prevent_default();
                     return;
                 }
 
@@ -115,13 +129,11 @@ pub fn preview(props: &PreviewProps) -> Html {
                 if ke.alt_key() && !is_help_mode {
                     if code == "Equal" || key == "=" || key == "+" || key == "≠" {
                         e.prevent_default();
-                        e.stop_immediate_propagation();
                         on_change_fs.emit(1);
                         return;
                     }
                     if code == "Minus" || key == "-" || key == "–" {
                         e.prevent_default();
-                        e.stop_immediate_propagation();
                         on_change_fs.emit(-1);
                         return;
                     }
@@ -130,8 +142,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                 if is_up || is_down || is_arrow_up || is_arrow_down || is_space || is_home || is_end {
                     if let Some(el) = node_ref.cast::<web_sys::Element>() {
                         e.prevent_default();
-                        e.stop_immediate_propagation();
-
+                        
                         let client_height = el.client_height();
                         let current_scroll = el.scroll_top();
                         
@@ -149,6 +160,15 @@ pub fn preview(props: &PreviewProps) -> Html {
                             el.set_scroll_top(el.scroll_height());
                         }
                     }
+                    return;
+                }
+
+                // その他のキーもプレビュー表示中は無効化（背景への伝播防止）
+                // ただし、入力キーなどのブラウザ標準動作は必要に応じて除外可能
+                // ここではモーダルとして振る舞うため原則すべてブロック
+                let is_printable = key.len() == 1;
+                if is_printable || key.starts_with("F") {
+                    e.prevent_default();
                 }
             });
             move || { drop(listener); }
@@ -178,7 +198,8 @@ pub fn preview(props: &PreviewProps) -> Html {
             >
                 <div 
                     ref={node_ref}
-                    class="markdown-body max-w-none overflow-y-auto p-6 sm:p-12"
+                    tabindex="0"
+                    class="markdown-body max-w-none overflow-y-auto p-6 sm:p-12 outline-none"
                     style={format!("font-size: {}pt;", props.font_size)}
                 >
                     { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
