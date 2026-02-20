@@ -97,7 +97,8 @@ fn trigger_conflict_check(
     ild: UseStateHandle<bool>,
     ifo: UseStateHandle<bool>,
     lmk: UseStateHandle<&'static str>,
-    is_init: Option<UseStateHandle<bool>>
+    is_init: Option<UseStateHandle<bool>>,
+    on_save: Callback<bool> // 追加
 ) {
     let aid = (*aid_ref.borrow()).clone();
     let sheets = (*s_ref.borrow()).clone();
@@ -108,25 +109,33 @@ fn trigger_conflict_check(
                 let drive_id = drive_id.clone();
                 let sheet_id = sheet.id.clone();
                 let local_content = sheet.content.clone();
-                let local_time = sheet.last_sync_timestamp.unwrap_or(0);
+                let is_modified = sheet.is_modified;
+                // ローカルの最終更新時刻（tempがあればそれを、なければ同期時刻を使用）
+                let local_time = sheet.temp_timestamp.unwrap_or_else(|| sheet.last_sync_timestamp.unwrap_or(0));
+                let last_sync = sheet.last_sync_timestamp.unwrap_or(0);
                 let title = sheet.title.clone();
                 let cq = cq.clone();
                 let ild_inner = ild.clone();
                 let ifo_inner = ifo.clone();
                 let lmk_inner = lmk.clone();
                 let is_init_inner = is_init.clone();
+                let on_save_inner = on_save.clone();
 
-                lmk_inner.set("synchronizing");
-                ild_inner.set(true);
-                ifo_inner.set(false);
-
+                // 競合チェック開始（オーバーレイは出さず、バックグラウンドでメタデータを確認）
                 spawn_local(async move {
                     if let Ok(metadata) = get_file_metadata(&drive_id).await {
                         if let Ok(time_val) = js_sys::Reflect::get(&metadata, &JsValue::from_str("modifiedTime")) {
                             if let Some(time_str) = time_val.as_string() {
                                 let drive_time = crate::drive_interop::parse_date(&time_str) as u64;
+                                gloo::console::log!(format!("[Leaf-SYSTEM] Sync Check: drive={}, last_sync={}, local_temp={}, is_modified={}", drive_time, last_sync, local_time, is_modified));
                                 
-                                if drive_time > local_time + 1000 {
+                                if drive_time > last_sync + 1000 {
+                                    // Googleドライブの方が新しい -> 競合ダイアログを表示
+                                    lmk_inner.set("synchronizing");
+                                    ild_inner.set(true);
+                                    ifo_inner.set(false);
+
+                                    gloo::console::warn!(format!("[Leaf-SYSTEM] Remote conflict! drive_time({}) > last_sync({}). Showing dialog.", drive_time, last_sync));
                                     if let Ok(drive_bytes) = download_file(&drive_id, None, None).await {
                                         let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
                                         let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
@@ -143,20 +152,38 @@ fn trigger_conflict_check(
                                             }
                                         }
                                     }
+                                    
+                                    // インジケータを消してダイアログを表示
+                                    let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = is_init_inner.clone();
+                                    ifo.set(true);
+                                    Timeout::new(300, move || { ild.set(false); ifo.set(false); if let Some(h) = isi { h.set(false); } }).forget();
+                                } else {
+                                    // ローカルの方が新しい、または一致
+                                    if is_modified || local_time > drive_time + 1000 {
+                                        gloo::console::log!(format!("[Leaf-SYSTEM] Local is newer. Triggering silent auto-upload..."));
+                                        on_save_inner.emit(false);
+                                    } else {
+                                        gloo::console::log!("[Leaf-SYSTEM] No sync needed.");
+                                    }
+
+                                    // 初期ロード画面があれば解除
+                                    let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = is_init_inner.clone();
+                                    if *ild || isi.as_ref().map(|v| **v).unwrap_or(false) {
+                                        ifo.set(true);
+                                        Timeout::new(300, move || { ild.set(false); ifo.set(false); if let Some(h) = isi { h.set(false); } }).forget();
+                                    }
                                 }
                             }
                         }
+                    } else {
+                        gloo::console::error!("[Leaf-SYSTEM] Failed to get file metadata.");
+                        // 失敗しても初期ロード画面は解除する
+                        if let Some(ref h) = is_init_inner {
+                            let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = h.clone();
+                            ifo.set(true);
+                            Timeout::new(300, move || { ild.set(false); isi.set(false); ifo.set(false); }).forget();
+                        }
                     }
-                    
-                    ifo_inner.set(true);
-                    let ifo_final = ifo_inner.clone();
-                    let ild_final = ild_inner.clone();
-                    let init_final = is_init_inner.clone();
-                    Timeout::new(300, move || {
-                        ild_final.set(false);
-                        ifo_final.set(false);
-                        if let Some(h) = init_final { h.set(false); }
-                    }).forget();
                 });
                 return;
             }
@@ -191,7 +218,9 @@ pub fn app() -> Html {
     });
     let sheets = use_state(|| Vec::<Sheet>::new());
     let active_sheet_id = use_state(|| None::<String>);
-    let network_connected = use_state(|| true);
+    let network_connected = use_state(|| {
+        web_sys::window().and_then(|w| Some(w.navigator().on_line())).unwrap_or(true)
+    });
     let is_authenticated = use_state(|| false);
     let no_category_folder_id = use_state(|| None::<String>);
     let leaf_data_folder_id = use_state(|| None::<String>);
@@ -394,6 +423,7 @@ pub fn app() -> Html {
         let ild_h = is_loading.clone();
         let lock_h = is_import_lock.clone();
         let lock_fade_h = is_import_fading_out.clone();
+        let lmk_h = loading_message_key.clone();
         let ris_h = saving_id_ref.clone(); let is_saving_h = saving_sheet_id.clone();
         let ncq_h = name_conflict_queue.clone();
         let osh_cb = os_handle.clone();
@@ -410,6 +440,7 @@ pub fn app() -> Html {
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
             let r_ncid = r_ncid.clone(); let nc_h = nc_h.clone();
             let ild_h = ild_h.clone();
+            let lmk_h = lmk_h.clone();
             let lock_h = lock_h.clone();
             let lock_fade_h = lock_fade_h.clone();
             let ris_h = ris_h.clone(); let is_saving_h = is_saving_h.clone();
@@ -432,7 +463,11 @@ pub fn app() -> Html {
                         let sheet = &mut cur_s[idx];
                         if !is_manual && !sheet.is_modified && sheet.content == cur_c { return; }
                         
-                        sheet.content = cur_c.clone(); sheet.is_modified = false;
+                        sheet.content = cur_c.clone(); 
+                        sheet.is_modified = false;
+                        sheet.temp_content = Some(cur_c.clone());
+                        sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
+                        
                         if sheet.drive_id.is_none() && sheet.guid.is_none() && !sheet.category.is_empty() && sheet.category != "__LOCAL__" {
                             let new_guid = generate_uuid();
                             sheet.guid = Some(new_guid.clone());
@@ -451,7 +486,7 @@ pub fn app() -> Html {
                             let s_state_inner = s_state.clone();
 
                             s_state.set(cur_s.clone());
-                            is_saving_h.set(Some(id.clone()));
+                            if is_manual { is_saving_h.set(Some(id.clone())); } // マニュアル時のみIDセット
                             spawn_local(async move {
                                 let result = save_local_file(&content_to_save).await;
                                 if let Some(fname) = result.as_string() {
@@ -514,8 +549,20 @@ pub fn app() -> Html {
                     let ild_inner = ild_h.clone();
                     let lock_inner = lock_h.clone();
                     let lock_fade_inner = lock_fade_h.clone();
-                    *ris_inner.borrow_mut() = Some(id.clone());
+                    
+                    // 手動・自動に関わらず「保存中」状態にする（右下インジケータ用）
+                    *ris_inner.borrow_mut() = Some(id.clone()); 
                     is_saving_h.set(Some(id.clone()));
+
+                    if is_manual {
+                        // 手動保存時のみ画面中央のインジケーターを表示
+                        let lmk = lmk_h.clone();
+                        let ild = ild_h.clone();
+                        let ifo = lock_fade_h.clone(); // フェード制御用
+                        lmk.set("saving");
+                        ild.set(true);
+                        ifo.set(false);
+                    }
                     
                     spawn_local(async move {
                          let target_folder_id = target_folder_id_val;
@@ -1156,6 +1203,7 @@ pub fn app() -> Html {
         let s_ref_effect = sheets_ref.clone();
         let cq_effect = conflict_queue.clone();
         let lmk_effect = loading_message_key.clone();
+        let on_save_for_net = on_save_cb.clone();
 
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
@@ -1183,10 +1231,16 @@ pub fn app() -> Html {
                 let ild = is_ld.clone();
                 let ifo = is_fo.clone();
                 let lmk = lmk_effect.clone();
+                let os_cb = on_save_for_net.clone();
                 EventListener::new(&window, "online", move |_| {
-                    gloo::console::log!("[Leaf-SYSTEM] Network online. Checking for conflicts...");
+                    gloo::console::log!("[Leaf-SYSTEM] Network online. Waiting 500ms for stable connection...");
                     nc.set(true);
-                    trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone(), ild.clone(), ifo.clone(), lmk.clone(), None);
+                    let ar = aid_ref.clone(); let sr = s_ref.clone(); let c = cq.clone();
+                    let il = ild.clone(); let i = ifo.clone(); let l = lmk.clone(); let o = os_cb.clone();
+                    Timeout::new(500, move || {
+                        gloo::console::log!("[Leaf-SYSTEM] connection stable. Checking for conflicts...");
+                        trigger_conflict_check(ar, sr, c, il, i, l, None, o);
+                    }).forget();
                 })
             };
 
@@ -1204,11 +1258,12 @@ pub fn app() -> Html {
                 let ifo = is_fo.clone();
                 let lmk = lmk_effect.clone();
                 let doc = web_sys::window().unwrap().document().unwrap();
+                let os_cb = on_save_for_net.clone();
                 EventListener::new(&doc, "visibilitychange", move |_| {
                     let doc = web_sys::window().unwrap().document().unwrap();
                     if !doc.hidden() {
                         gloo::console::log!("[Leaf-SYSTEM] App visible. Checking for conflicts...");
-                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone(), ild.clone(), ifo.clone(), lmk.clone(), None);
+                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone(), ild.clone(), ifo.clone(), lmk.clone(), None, os_cb.clone());
                     }
                 })
             };
@@ -1218,23 +1273,12 @@ pub fn app() -> Html {
     }
 
     {
-        let is_auth = is_authenticated.clone();
-        let is_ld = is_loading.clone(); let is_fo = is_fading_out.clone(); let is_init = is_initial_load.clone();
-        use_effect_with((), move |_| {
-            let is_auth_c = is_auth.clone();
-            let t = Timeout::new(1500, move || { 
-                if !*is_auth_c {
-                    is_fo.set(true); let ild = is_ld.clone(); let is_init_inner = is_init.clone(); let ifo_inner = is_fo.clone();
-                    Timeout::new(300, move || { ild.set(false); is_init_inner.set(false); ifo_inner.set(false); }).forget();
-                }
-            });
-            move || { drop(t); }
-        });
-    }
-
-    {
         let s_handle = sheets.clone(); let aid_handle = active_sheet_id.clone(); let cats_handle = categories.clone();
         let rs = sheets_ref.clone(); let db_loaded_init = db_ready_state.clone();
+        let is_auth_init = is_authenticated.clone(); let is_ld_init = is_loading.clone();
+        let is_fo_init = is_fading_out.clone(); let is_in_init = is_initial_load.clone();
+        let is_online_init = *network_connected;
+
         use_effect_with((), move |_| {
             spawn_local(async move {
                 if let Err(_) = crate::db_interop::init_db("LeafDB").await { gloo::console::error!("DB init failed"); }
@@ -1253,6 +1297,20 @@ pub fn app() -> Html {
                     let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0 };
                     *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
                 }
+                
+                // オフラインの場合は、認証を待たずに起動
+                if !is_online_init {
+                    gloo::console::log!("[Leaf-SYSTEM] Offline startup. revealing editor UI.");
+                    is_auth_init.set(true);
+                    is_fo_init.set(true);
+                    let ild = is_ld_init.clone(); let isi = is_in_init.clone(); let ifo = is_fo_init.clone();
+                    Timeout::new(300, move || {
+                        ild.set(false);
+                        isi.set(false);
+                        ifo.set(false);
+                    }).forget();
+                }
+
                 db_loaded_init.set(true);
             });
             || ()
@@ -1268,8 +1326,13 @@ pub fn app() -> Html {
         let cq_h = conflict_queue.clone();
         let lmk_h = loading_message_key.clone();
         let aid_ref_h = active_id_ref.clone();
+        let on_save_for_auth = on_save_cb.clone();
+        let is_online = *network_connected;
 
-        use_effect_with((), move |_| {
+        use_effect_with((is_online, ), move |_| {
+            let cleanup = || ();
+            if !is_online { return cleanup; } // オフライン時は何もしない
+            
             let is_auth_cb = is_auth.clone(); let ncid_cb = ncid.clone(); let ldid_cb = ldid.clone();
             let cats_cb = cats_init.clone(); let s_state_cb = s_state.clone(); let rs_cb = rs.clone();
             let ild_cb = ild_h.clone(); let ifo_cb = ifo_h.clone(); let is_init_cb = is_init_h.clone();
@@ -1277,9 +1340,11 @@ pub fn app() -> Html {
             let cq_cb = cq_h.clone();
             let lmk_cb = lmk_h.clone();
             let aid_ref_cb = aid_ref_h.clone();
+            let os_cb_inner = on_save_for_auth.clone();
 
             let callback = Closure::wrap(Box::new(move |_token: String| {
                 let is_auth_inner = is_auth_cb.clone();
+                let os_cb_final = os_cb_inner.clone();
                 if !*is_auth_inner {
                     is_auth_inner.set(true);
                     let ncid_i = ncid_cb.clone(); let ldid_i = ldid_cb.clone(); let cats_i = cats_cb.clone();
@@ -1327,7 +1392,8 @@ pub fn app() -> Html {
                                             ild_inner.clone(),
                                             ifo_inner.clone(),
                                             lmk_inner,
-                                            Some(is_init_inner.clone())
+                                            Some(is_init_inner.clone()),
+                                            os_cb_final
                                         );
                                     }
                                 }
@@ -1343,7 +1409,7 @@ pub fn app() -> Html {
                     });
                 }
             }) as Box<dyn FnMut(String)>);
-            crate::auth_interop::init_google_auth(&client_id, &callback); callback.forget(); || ()
+            crate::auth_interop::init_google_auth(&client_id, &callback); callback.forget(); cleanup
         });
     }
 
@@ -1408,8 +1474,13 @@ pub fn app() -> Html {
                             let mut trigger_drive_sync = false; let mut needs_upd = false;
                             if let Some(sheet) = cur_s.iter_mut().find(|s| s.id == id) {
                                 if sheet.content != cur_c { 
-                                    sheet.content = cur_c.clone(); sheet.is_modified = true; needs_upd = true; 
-                                    let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: sheet.content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: sheet.temp_content.clone(), temp_timestamp: sheet.temp_timestamp, last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes };
+                                    let now = js_sys::Date::now() as u64;
+                                    sheet.content = cur_c.clone(); 
+                                    sheet.is_modified = true; 
+                                    sheet.temp_content = Some(cur_c.clone());
+                                    sheet.temp_timestamp = Some(now);
+                                    needs_upd = true; 
+                                    let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: sheet.content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(cur_c.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes };
                                     spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
                                 }
                                 trigger_drive_sync = (sheet.category != "__LOCAL__" && !sheet.category.is_empty()) || (sheet.category != "__LOCAL__" && sheet.category.is_empty() && !sheet.title.starts_with("Untitled.txt")) || sheet.category == "__LOCAL__";
@@ -1580,7 +1651,7 @@ pub fn app() -> Html {
 
     html! {
         <div class="relative h-screen w-screen overflow-hidden bg-gray-950" key="app-root">
-            <main key="main-editor-surface" class={classes!("absolute", "inset-0", "flex", "flex-col", "text-white", "transition-opacity", "duration-300", if !*is_authenticated { "opacity-0" } else { "opacity-100" } )}>
+            <main key="main-editor-surface" class={classes!("absolute", "inset-0", "flex", "flex-col", "text-white", "transition-opacity", "duration-300", if !*is_authenticated && *network_connected { "opacity-0" } else { "opacity-100" } )}>
                                 <ButtonBar 
                                     key="top-button-bar"
                                     on_new_sheet={on_new_sheet_cb.clone()} 
@@ -1589,7 +1660,19 @@ pub fn app() -> Html {
                                     on_change_font_size={on_change_font_size.clone()} 
                                     on_change_category={on_change_category_cb} 
                                     on_help={on_help_cb} on_logout={on_logout} current_category={current_cat} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} />
-                <div id="editor" key="ace-editor-fixed-node" class="flex-1 bg-gray-900 z-10" style="width: 100%; min-height: 0;"></div>
+                <div class="flex-1 relative overflow-hidden bg-gray-900">
+                    // エディタ本体
+                    <div id="editor" key="ace-editor-fixed-node" class="absolute inset-0 z-10 bg-transparent" style="width: 100%; height: 100%;"></div>
+                    
+                    // フォールバック表示（エディタがロードできなかった場合用）
+                    <div class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 bg-gray-900 z-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-12 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p class="text-sm font-bold uppercase tracking-widest opacity-40">{ "Editor not loaded (Offline)" }</p>
+                        <p class="text-[10px] mt-2 opacity-30">{ "Please reconnect to the internet to initialize the editor." }</p>
+                    </div>
+                </div>
                                 <StatusBar 
                                     key="bottom-status-bar" 
                                     network_status={*network_connected} 
@@ -1604,28 +1687,27 @@ pub fn app() -> Html {
                                 />
             </main>
             <div id="overlays-layer" class="pointer-events-none fixed inset-0 z-[100]">
-                if !*is_authenticated {
+                if !*is_authenticated && *network_connected && !crate::auth_interop::is_signed_in() {
                     <div class="pointer-events-auto fixed inset-0 flex items-center justify-center bg-gray-900 overflow-y-auto p-4">
                         <div class="text-center max-w-2xl">
                             <img src="icon.svg" class="mx-auto mb-8 shadow-2xl" style="width: 15vmin; height: 15vmin;" alt="Leaf Icon" />
                             <h1 class="text-4xl font-extrabold text-white mb-6 tracking-tight">{ i18n::t("welcome_headline", lang) }</h1>
                             <div class="mb-10 text-gray-300 text-sm leading-relaxed whitespace-pre-wrap opacity-80 bg-gray-800/30 p-6 rounded-lg border border-white/5 shadow-inner text-left">{ Html::from_html_unchecked(i18n::t("app_policy_description", lang).into()) }</div>
-                                                        <button onclick={on_login} class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
-                                                            { i18n::t("signin_with_google", lang) }
-                                                        </button>
-                                                                                                                                                                                                                                                                                                                    <div class="mt-6 flex flex-row items-center justify-center space-x-4">
-                                                                                                                                                                                                                                                                                                                        <a href="terms.html" target="_blank" class="text-gray-500 hover:text-blue-400 text-xs underline transition-colors">
-                                                                                                                                                                                                                                                                                                                            { "Terms / 利用規約" }
-                                                                                                                                                                                                                                                                                                                        </a>
-                                                                                                                                                                                                                                                                                                                        <a href="privacy.html" target="_blank" class="text-gray-500 hover:text-blue-400 text-xs underline transition-colors">
-                                                                                                                                                                                                                                                                                                                            { "Privacy / ポリシー" }
-                                                                                                                                                                                                                                                                                                                        </a>
-                                                                                                                                                                                                                                                                                                                        <a href="licenses.html" target="_blank" class="text-gray-500 hover:text-blue-400 text-xs underline transition-colors">
-                                                                                                                                                                                                                                                                                                                            { i18n::t("oss_licenses", lang) }
-                                                                                                                                                                                                                                                                                                                        </a>
-                                                                                                                                                                                                                                                                                                                    </div>
-                                                                                                                                                                                                                                                            
-                                                                                                                                                                                                                                                                                                                                                <div class="mt-4 text-gray-500 text-[10px]">{ i18n::t("login_required", lang) }</div>
+                                                                                                                <button onclick={on_login} class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
+                                                                                                                    { i18n::t("signin_with_google", lang) }
+                                                                                                                </button>
+                                                                                                                <div class="mt-6 flex flex-row items-center justify-center space-x-4">
+                                                                                                                    <a href="terms.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                        { "Terms / 利用規約" }
+                                                                                                                    </a>
+                                                                                                                    <a href="privacy.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                        { "Privacy / ポリシー" }
+                                                                                                                    </a>
+                                                                                                                    <a href="licenses.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                        { i18n::t("oss_licenses", lang) }
+                                                                                                                    </a>
+                                                                                                                </div>
+                                                                                                                                                                                                                                                                                                                                                                                                        <div class="mt-4 text-gray-500 text-[10px]">{ i18n::t("login_required", lang) }</div>
                                                     </div>
                                                 </div>
                 }
@@ -1665,7 +1747,7 @@ pub fn app() -> Html {
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() { let conflict = name_conflict_queue.first().unwrap(); let title = i18n::t("filename_conflict", lang); let message = i18n::t("filename_conflict_message", lang).replace("{}", &conflict.filename); let on_cfm = on_name_conflict_cfm.clone(); let ncq = name_conflict_queue.clone(); let labels = vec![i18n::t("opt_nc_overwrite", lang), i18n::t("opt_nc_new_guid", lang), i18n::t("opt_nc_rename", lang)]; Some(html! { <NameConflictDialog title={title} message={message} current_name={conflict.filename.clone()} labels={labels} on_confirm={on_cfm} on_cancel={move |_| { ncq.set(Vec::new()); }} /> }) } else { None } { <div class="pointer-events-auto">{ nc_diag }</div> }
                 if let Some(import_diag) = if let Some(_) = (*pending_import_data).clone() { let on_cfm = on_confirm_import.clone(); let pending = pending_import_data.clone(); Some(html! { <ConfirmDialog title={i18n::t("confirm_conversion", lang)} message={i18n::t("confirm_conversion", lang)} on_confirm={let on_c = on_cfm.clone(); move |_| on_c.emit(true)} on_cancel={move |_| pending.set(None)} /> }) } else { None } { <div class="pointer-events-auto">{ import_diag }</div> }
                 if *is_import_lock { <div class={classes!("pointer-events-auto", "fixed", "inset-0", "bg-black/50", "backdrop-blur-md", "z-[90]", "transition-opacity", "duration-300", "flex", "items-center", "justify-center", if *is_import_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center"><div class="w-12 h-12 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div><p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t("synchronizing", lang) }</p></div></div> }
-                if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
+                if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
                 if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
             </div>
         </div>

@@ -132,6 +132,10 @@ export function set_window_title(title) {
 }
 
 export function init_editor(element_id, callback) {
+    if (typeof ace === 'undefined') {
+        console.error("[Leaf-SYSTEM] Ace Editor is not defined. Offline startup might have failed to load CDN assets.");
+        return;
+    }
     commandCallback = callback;
     editor = ace.edit(element_id);
     editor.setTheme("ace/theme/gruvbox");

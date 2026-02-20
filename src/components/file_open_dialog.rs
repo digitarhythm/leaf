@@ -629,12 +629,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             <div 
                                 class={classes!(
                                     "group", "relative", "flex", "items-center", "px-3", "py-2", "rounded-md", "cursor-pointer", "transition-all", "duration-200",
-                                    if is_sel { vec!["bg-blue-600/20", "text-blue-400"] } else { vec!["text-gray-400", "hover:bg-white/5", "hover:text-gray-200"] },
-                                    if is_active { vec!["ring-2", "ring-blue-500/50", "bg-blue-600/30"] } else { vec![] }
+                                    if is_sel { vec!["bg-emerald-600/20", "text-emerald-400"] } else { vec!["text-gray-400", "hover:bg-white/5", "hover:text-gray-200"] },
+                                    if is_active { vec!["ring-2", "ring-emerald-500/50", "bg-emerald-600/30"] } else { vec![] }
                                 )}
                                 onclick={move |_| { s_idx_inner.set(i); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); }}
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4", "w-4", "mr-3", if is_sel { "text-blue-500" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4", "w-4", "mr-3", if is_sel { "text-emerald-500" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                                 </svg>
                                 if is_editing {
@@ -649,7 +649,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     <span class="flex-1 truncate text-sm font-medium">{ if cat.name == "OTHERS" { i18n::t("OTHERS", lang) } else { cat.name.clone() } }</span>
                                     if cat.name != "OTHERS" {
                                         <div class="hidden group-hover:flex items-center space-x-1 ml-2">
-                                            <button onclick={let eid = eid_inner.clone(); let ein = ein_inner.clone(); let cid = cid_for_rename.clone(); let cn = cat.name.clone(); move |e: MouseEvent| { e.stop_propagation(); eid.set(Some(cid.clone())); ein.set(cn.clone()); }} class="p-1 hover:text-blue-400 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                                            <button onclick={let eid = eid_inner.clone(); let ein = ein_inner.clone(); let cid = cid_for_rename.clone(); let cn = cat.name.clone(); move |e: MouseEvent| { e.stop_propagation(); eid.set(Some(cid.clone())); ein.set(cn.clone()); }} class="p-1 hover:text-emerald-400 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
                                             <button onclick={let on_del = on_del.clone(); let cid = cid_for_delete.clone(); move |e: MouseEvent| { e.stop_propagation(); on_del.emit(cid.clone()); }} class="p-1 hover:text-red-400 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                         </div>
                                     }
@@ -687,14 +687,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[30%]" } else { "w-[60%]" })}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between bg-gray-950/20">
                     <div class="flex items-center space-x-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                         <h2 class="text-sm font-bold text-gray-200 tracking-tight">{ format!("{} ({})", if *current_category_name == "OTHERS" { i18n::t("OTHERS", lang) } else { (*current_category_name).clone() }, file_list.len()) }</h2>
                     </div>
                 </div>
                 <div ref={file_list_ref} class="flex-1 overflow-y-auto custom-scrollbar flex flex-col p-2">
                     if props.is_loading && file_list.is_empty() {
                         <div class="flex-1 flex flex-col items-center justify-center space-y-4">
-                            <div class="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                            <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
                         </div>
                     } else if file_list.is_empty() {
                         <div class="flex-1 flex flex-col items-center justify-center text-gray-600 space-y-4">
@@ -724,9 +724,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 <div 
                                     class={classes!(
                                         "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "transition-all", "duration-200", "border", "h-[12.5%]", "min-h-[12.5%]", "flex-shrink-0", "mx-1", "mb-1",
-                                        if is_dropdown_open { vec!["z-50", "bg-gray-800/90", "border-blue-500", "shadow-2xl"] }
-                                        else if is_active { vec!["bg-blue-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-blue-500/30", "scale-[1.01]"] } 
-                                        else if is_sel { vec!["bg-blue-600/10", "text-blue-400/80", "border-blue-500/30", "z-0"] }
+                                        if is_dropdown_open { vec!["z-50", "bg-gray-800/90", "border-emerald-500", "shadow-2xl"] }
+                                        else if is_active { vec!["bg-emerald-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-emerald-500/30", "scale-[1.01]"] } 
+                                        else if is_sel { vec!["bg-emerald-600/10", "text-emerald-400/80", "border-emerald-500/30", "z-0"] }
                                         else { vec!["text-gray-400", "hover:bg-white/5", "border-white/10", "z-0"] },
                                         if is_deleting || is_moving { vec!["opacity-0", "scale-95", "translate-x-4"] } else { vec!["opacity-100", "scale-100"] }
                                     )}
@@ -757,7 +757,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                                 { for categories_for_item.iter().filter(|c| c.id != current_cid_for_item).map(|c| {
                                                                     let on_mv = on_move_for_item.clone(); let fid = file_id_inner.clone(); let tcid = c.id.clone();
                                                                     let cname = c.name.clone();
-                                                                    html! { <button onclick={move |e: MouseEvent| { e.stop_propagation(); on_mv.emit((fid.clone(), tcid.clone())); }} class="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-blue-600 hover:text-white transition-colors flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg><span>{ if cname == "OTHERS" { i18n::t("OTHERS", lang) } else { cname } }</span></button> }
+                                                                    html! { <button onclick={move |e: MouseEvent| { e.stop_propagation(); on_mv.emit((fid.clone(), tcid.clone())); }} class="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-emerald-600 hover:text-white transition-colors flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg><span>{ if cname == "OTHERS" { i18n::t("OTHERS", lang) } else { cname } }</span></button> }
                                                                 }) }
                                                             </div>
                                                         </div>
@@ -774,7 +774,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         </div>
                                         <div class={classes!(
                                             "px-3", "text-xs", "font-bold", "line-clamp-5", "leading-tight", "break-all", "flex-1", "overflow-hidden",
-                                            if file.content.is_empty() { "opacity-70" } else if is_sel { "text-blue-50" } else { "text-gray-300" }
+                                            if file.content.is_empty() { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
                                         )}>
                                             { if file.content.is_empty() { 
                                                 let dots = ".".repeat(dot_cnt);
@@ -784,7 +784,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     </div>
                                     if is_processing {
                                         <div class="absolute inset-0 z-[100] bg-gray-900/60 backdrop-blur-[1px] flex items-center justify-center rounded animate-in fade-in duration-200">
-                                            <div class="bg-blue-600 p-2 rounded-full shadow-lg border border-blue-400">
+                                            <div class="bg-emerald-600 p-2 rounded-full shadow-lg border border-emerald-400">
                                                 <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                                             </div>
                                         </div>
@@ -811,7 +811,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     <div class="flex-1 flex flex-col min-h-0">
                         <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
                             <div class="flex items-center space-x-2 min-w-0">
-                                <span class="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-tight flex-shrink-0">{ &file.lang }</span>
+                                <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-tight flex-shrink-0">{ &file.lang }</span>
                                 <h3 class="text-xs font-bold text-gray-300 truncate">{ &file.name }</h3>
                             </div>
                             <div class="flex items-center space-x-2 ml-4 flex-shrink-0">
@@ -823,11 +823,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         <div class="flex-1 overflow-auto custom-scrollbar bg-gray-950 p-6">
                             if is_loading_val && file.content.is_empty() {
                                 <div class="h-full flex flex-col items-center justify-center space-y-4">
-                                    <div class="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                                    <span class="text-[10px] text-blue-500/50 font-bold uppercase tracking-widest animate-pulse">{ "Fetching preview..." }</span>
+                                    <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                                    <span class="text-[10px] text-emerald-500/50 font-bold uppercase tracking-widest animate-pulse">{ i18n::t("fetching_preview", lang) }</span>
                                 </div>
                             } else {
-                                <pre class="text-gray-400 font-mono leading-relaxed selection:bg-blue-500/30 whitespace-pre-wrap break-all" style={format!("font-size: {}px", font_size)}>
+                                <pre class="text-gray-400 font-mono leading-relaxed selection:bg-emerald-500/30 whitespace-pre-wrap break-all" style={format!("font-size: {}px", font_size)}>
                                     { &file.content }
                                     if file.loaded_bytes < file.total_size {
                                         <div class="mt-4 pt-4 border-t border-white/5 text-[10px] text-gray-600 font-bold uppercase italic text-center">{ i18n::t("omitted_below", lang) }</div>
@@ -894,7 +894,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             disabled={selected_file_idx.is_none() || props.is_loading} 
                             class={classes!(
                                 "px-6", "py-1.5", "rounded-md", "text-xs", "font-bold", "text-white", "transition-all", "uppercase", "tracking-widest",
-                                if selected_file_idx.is_none() || props.is_loading { vec!["bg-gray-800", "text-gray-600", "cursor-not-allowed"] } else { vec!["bg-blue-600", "hover:bg-blue-500", "shadow-lg", "shadow-blue-900/20"] }
+                                if selected_file_idx.is_none() || props.is_loading { vec!["bg-gray-800", "text-gray-600", "cursor-not-allowed"] } else { vec!["bg-emerald-600", "hover:bg-emerald-500", "shadow-lg", "shadow-emerald-900/20"] }
                             )}
                         >
                             { i18n::t("ok", lang) }

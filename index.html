@@ -94,8 +94,8 @@
         outline: none !important;
       }
       .ace_search_field:focus {
-        border-color: #3b82f6 !important; /* blue-500 */
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3) !important;
+        border-color: #10b981 !important; /* emerald-500 */
+        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3) !important;
       }
       .ace_searchbtn {
         background-color: #374151 !important; /* gray-700 */
@@ -137,8 +137,8 @@
         cursor: pointer !important;
       }
       .ace_search_option.checked {
-        background-color: #2563eb !important; /* blue-600 */
-        border-color: #3b82f6 !important;
+        background-color: #059669 !important; /* emerald-600 */
+        border-color: #10b981 !important;
         color: #ffffff !important;
       }
       .ace_searchbtn_close {
@@ -241,42 +241,47 @@
       /* --- */
     </style>
 
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/gruvbox-dark.min.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-modelist.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-searchbox.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/gruvbox-dark.min.css" crossorigin="anonymous" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-modelist.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-searchbox.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" crossorigin="anonymous"></script>
     <script>
-      mermaid.initialize({ startOnLoad: false, theme: 'default' });
+      if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({ startOnLoad: false, theme: 'default' });
+      }
       
-      // Mermaid 初期化関数の定義 (Rust から呼び出される)
       window.initMermaid = function(el) {
         if (typeof mermaid !== 'undefined' && el) {
           mermaid.run({ nodes: el.querySelectorAll('.mermaid') });
         }
       };
 
-      ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
+      if (typeof ace !== 'undefined') {
+        ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
+      }
       
-      // Marked のオプション設定
-      marked.setOptions({
-        highlight: function(code, lang) {
-          const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-          return hljs.highlight(code, { language }).value;
-        },
-        langPrefix: 'hljs language-'
-      });
+      if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+        marked.setOptions({
+          highlight: function(code, lang) {
+            const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+            return hljs.highlight(code, { language }).value;
+          },
+          langPrefix: 'hljs language-'
+        });
+      }
 
       // Service Worker 登録
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(reg => {
+          // サブディレクトリ運用に対応するため相対パスで登録
+          navigator.serviceWorker.register('sw.js').then(reg => {
             console.log('[Leaf-PWA] Service Worker registered.', reg.scope);
           }).catch(err => {
             console.error('[Leaf-PWA] Service Worker registration failed:', err);
