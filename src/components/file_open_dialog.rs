@@ -682,6 +682,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let p_del_state = pending_delete_file.clone();
         let dot_cnt = *dot_count;
         let is_wide = *is_wide_layout;
+        let focused_area_h = focused_area.clone();
 
         html! {
             <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[30%]" } else { "w-[60%]" })}>
@@ -730,7 +731,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         else { vec!["text-gray-400", "hover:bg-white/5", "border-white/10", "z-0"] },
                                         if is_deleting || is_moving { vec!["opacity-0", "scale-95", "translate-x-4"] } else { vec!["opacity-100", "scale-100"] }
                                     )}
-                                    onclick={move |_| { s_idx_inner.set(Some(i)); }}
+                                    onclick={let f_area = focused_area_h.clone(); move |_| { s_idx_inner.set(Some(i)); f_area.set(FocusedArea::Files); }}
                                     ondblclick={move |_| on_ok_inner.emit(())}
                                 >
                                     <div class="flex flex-col w-full h-full">
