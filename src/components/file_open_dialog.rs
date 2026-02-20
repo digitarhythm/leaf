@@ -286,6 +286,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_fading_out_h = is_fading_out.clone();
         let f_area_h = focused_area.clone();
         let on_nc_c = props.on_network_status_change.clone();
+        let pending_move = pending_move_file_id.clone(); // 追加
+        let processing_move = processing_move_id.clone(); // 追加
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             if let Some(ctrl) = (*abort_ctrl_state).as_ref() { ctrl.abort(); }
             let new_ctrl = AbortController::new().unwrap();
@@ -295,6 +297,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             files_reducer.dispatch(FileAction::Clear);
             fetching_ids.borrow_mut().clear();
             selected_file_idx.set(None);
+            pending_move.set(None); // カテゴリー切り替え時にクリア
+            processing_move.set(None); // カテゴリー切り替え時にクリア
             current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
             on_loading_change.emit(true);
@@ -762,7 +766,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         </div>
                                         <div class={classes!(
                                             "text-xs", "font-bold", "line-clamp-5", "leading-tight", "break-all", "flex-1", "overflow-hidden",
-                                            if is_sel { "text-blue-50" } else { "text-gray-300" }
+                                            if file.content.is_empty() { "opacity-70" } else if is_sel { "text-blue-50" } else { "text-gray-300" }
                                         )}>
                                             { if file.content.is_empty() { 
                                                 let dots = ".".repeat(dot_cnt);
