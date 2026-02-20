@@ -723,7 +723,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             html! {
                                 <div 
                                     class={classes!(
-                                        "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "transition-all", "duration-200", "border", "h-[12.5%]", "min-h-[12.5%]", "flex-shrink-0", "mx-1", "mb-1",
+                                        "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "transition-all", "duration-200", "border", "h-24", "min-h-[6rem]", "flex-shrink-0", "mx-1", "mb-1", "overflow-visible",
                                         if is_dropdown_open { vec!["z-50", "bg-gray-800/90", "border-emerald-500", "shadow-2xl"] }
                                         else if is_active { vec!["bg-emerald-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-emerald-500/30", "scale-[1.01]"] } 
                                         else if is_sel { vec!["bg-emerald-600/10", "text-emerald-400/80", "border-emerald-500/30", "z-0"] }
@@ -733,19 +733,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     onclick={move |_| { s_idx_inner.set(Some(i)); }}
                                     ondblclick={move |_| on_ok_inner.emit(())}
                                 >
-                                    <div class="flex flex-col space-y-1 w-full h-full">
-                                        <div class="px-3 pt-2 flex items-center justify-between w-full flex-shrink-0">
-                                            <div class="flex items-center space-x-2 overflow-hidden">
-                                                <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-3", "w-3", "flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <div class="flex flex-col w-full h-full">
+                                        // ファイル名表示エリア（高さを半分に、はみ出しを許可）
+                                        <div class="px-3 h-4 flex items-center justify-between w-full flex-shrink-0 relative overflow-visible mt-1.5 mb-1">
+                                            <div class="flex items-center space-x-2 overflow-hidden mr-2">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-2.5", "w-2.5", "flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                 </svg>
-                                                <span class="truncate text-[10px] font-medium opacity-70 leading-none">{ &file.name }</span>
+                                                <span class="truncate text-[11px] font-bold opacity-90 leading-none">{ &file.name }</span>
                                             </div>
-                                            <div class="flex items-center space-x-1">
+                                            <div class="flex items-center space-x-0.5 absolute right-2 top-[-4px] overflow-visible">
                                                 <div class="relative">
                                                     <button 
                                                         onclick={let ads = ads_inner.clone(); let fid = file_id_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); if is_dropdown_open { ads.set(None); } else { ads.set(Some(fid.clone())); } }}
-                                                        class={classes!("p-1.5", "rounded-md", "hover:bg-black/20", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
+                                                        class={classes!("p-1", "rounded-md", "hover:bg-black/20", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
                                                         title="Change Category"
                                                     >
                                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -765,15 +766,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 </div>
                                                 <button 
                                                     onclick={let fid = file_id_inner.clone(); let fname = file_name_inner.clone(); let p_del = p_del_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid.clone(), fname.clone()))); }}
-                                                    class={classes!("p-1.5", "rounded-md", "hover:bg-red-500/40", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
+                                                    class={classes!("p-1", "rounded-md", "hover:bg-red-500/40", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
                                                     title="Delete Sheet"
                                                 >
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                                 </button>
                                             </div>
                                         </div>
+                                        // コンテンツプレビュー（冒頭3行を表示）
                                         <div class={classes!(
-                                            "px-3", "text-xs", "font-bold", "line-clamp-5", "leading-tight", "break-all", "flex-1", "overflow-hidden",
+                                            "px-3", "pb-3", "text-xs", "font-bold", "line-clamp-3", "leading-snug", "break-all", "overflow-hidden",
                                             if file.content.is_empty() { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
                                         )}>
                                             { if file.content.is_empty() { 
