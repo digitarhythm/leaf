@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Open Source Licenses - Leaf</title>
+    <link rel="stylesheet" href="/leaf/tailwind.css">
+    <style>
+        body { background-color: #030712; color: #d1d5db; }
+        .license-card { background-color: #111827; border: 1px solid #1f2937; border-radius: 0.5rem; padding: 1.5rem; margin-bottom: 1rem; }
+        .lib-name { color: #3b82f6; font-weight: bold; font-size: 1.1rem; }
+        .license-type { color: #9ca3af; font-size: 0.875rem; margin-bottom: 0.5rem; }
+        pre { background-color: #030712; padding: 1rem; border-radius: 0.25rem; font-size: 0.75rem; overflow-x: auto; color: #9ca3af; }
+    </style>
+</head>
+<body class="p-6 md:p-12 max-w-4xl mx-auto">
+    <header class="mb-12 border-b border-gray-800 pb-6 text-center">
+        <h1 class="text-3xl font-black text-white tracking-tighter uppercase mb-2">Open Source Licenses</h1>
+        <p class="text-gray-500 font-bold uppercase tracking-widest text-xs">Leaf Notepad Application</p>
+    </header>
+
+    <main class="space-y-8">
+        <section>
+            <h2 class="text-xl font-bold text-gray-200 mb-4 border-l-4 border-blue-600 pl-4 uppercase tracking-widest">Rust Libraries (Wasm)</h2>
+            
+            <div class="license-card">
+                <div class="lib-name">Yew / Wasm-bindgen / Serde / Gloo / console_error_panic_hook</div>
+                <div class="license-type">License: MIT / Apache-2.0</div>
+                <pre>
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-xl font-bold text-gray-200 mb-4 border-l-4 border-blue-600 pl-4 uppercase tracking-widest">Frontend Framework</h2>
+            
+            <div class="license-card">
+                <div class="lib-name">Tailwind CSS</div>
+                <div class="license-type">License: MIT</div>
+                <p class="text-sm text-gray-400 mb-4">Copyright (c) Tailwind Labs, Inc.</p>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-xl font-bold text-gray-200 mb-4 border-l-4 border-blue-600 pl-4 uppercase tracking-widest">Backend Libraries (Auth Proxy)</h2>
+            
+            <div class="license-card">
+                <div class="lib-name">Express / Axios / Cors</div>
+                <div class="license-type">License: MIT</div>
+            </div>
+
+            <div class="license-card">
+                <div class="lib-name">Dotenv</div>
+                <div class="license-type">License: BSD-2-Clause</div>
+                <pre>
+Copyright (c) 2015, Scott Motte
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this
+  list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>
+            </div>
+        </section>
+    </main>
+
+    <footer class="mt-12 pt-12 border-t border-gray-800 text-center">
+        <button onclick="window.close();" class="px-8 py-3 bg-gray-800 hover:bg-gray-700 text-white text-xs font-bold uppercase tracking-widest rounded-md transition-colors">Close Window</button>
+        <p class="mt-8 text-gray-600 text-[10px] uppercase tracking-widest">&copy; 2026 Leaf Notepad</p>
+    </footer>
+</body>
+</html>

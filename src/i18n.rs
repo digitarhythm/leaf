@@ -493,6 +493,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Ja => "利用規約",
             _ => "Terms of Service",
         }.to_string(),
+        "oss_licenses" => match lang {
+            Language::Ja => "オープンソースライセンス",
+            Language::Zh => "开源许可",
+            Language::Ko => "오픈 소스 라이선스",
+            Language::Es => "Licencias de código abierto",
+            Language::De => "Open-Source-Lizenzen",
+            Language::Fr => "Licences open source",
+            Language::It => "Licenze open source",
+            Language::Nl => "Open source licenties",
+            _ => "Open Source Licenses",
+        }.to_string(),
 
         "scroll_for_install" => match lang {
             Language::Ja => "下にスクロールしてインストール",
