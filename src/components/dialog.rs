@@ -142,7 +142,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                                     onclick={move |_| sel.emit(idx)}
                                     class={classes!(
                                         "w-full", "flex", "items-center", "justify-center", "p-4", "rounded-md", "border-2", "transition-all", "font-bold", "outline-none",
-                                        if is_focused { vec!["bg-blue-600", "border-lime-400", "text-white", "scale-[1.02]", "shadow-lg"] } 
+                                        if is_focused { vec!["bg-emerald-600", "border-lime-400", "text-white", "scale-[1.02]", "shadow-lg"] } 
                                         else { vec!["bg-gray-700/50", "border-transparent", "text-gray-200", "hover:bg-gray-700"] }
                                     )}
                                 >
@@ -305,8 +305,8 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                         class={classes!(
                             "px-6", "py-2", "rounded-md", "transition-colors", "shadow-lg", "border-[3px]",
                             if text.trim().is_empty() { "opacity-50 cursor-not-allowed" } else { "" },
-                            if *focused == InputDialogFocus::Ok { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
-                            else { vec!["bg-blue-600", "text-white", "border-transparent"] }
+                            if *focused == InputDialogFocus::Ok { vec!["bg-emerald-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
+                            else { vec!["bg-emerald-600", "text-white", "border-transparent"] }
                         )}
                     >
                         { "OK" }
@@ -569,30 +569,30 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                     <div class="space-y-3">
                         <label class={classes!(
                             "flex", "items-center", "p-3", "rounded-md", "border", "cursor-pointer", "transition-colors",
-                            if *focused == NameConflictFocus::Overwrite { vec!["bg-blue-600/20", "border-lime-400", "text-white"] } 
-                            else if *selected_opt == 0 { vec!["bg-slate-700/50", "border-blue-500/50", "text-gray-200"] }
+                            if *focused == NameConflictFocus::Overwrite { vec!["bg-emerald-600/20", "border-lime-400", "text-white"] } 
+                            else if *selected_opt == 0 { vec!["bg-slate-700/50", "border-emerald-500/50", "text-gray-200"] }
                             else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400"] }
                         )} onclick={|e: MouseEvent| e.stop_propagation()}>
-                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 0} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(0); f.set(NameConflictFocus::Overwrite); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
+                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 0} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(0); f.set(NameConflictFocus::Overwrite); }} class="w-4 h-4 text-emerald-600 bg-gray-700 border-gray-600" />
                             <span class="ml-3 font-medium">{ &props.labels[0] }</span>
                         </label>
                         <label class={classes!(
                             "flex", "items-center", "p-3", "rounded-md", "border", "cursor-pointer", "transition-colors",
-                            if *focused == NameConflictFocus::Guid { vec!["bg-blue-600/20", "border-lime-400", "text-white"] } 
-                            else if *selected_opt == 1 { vec!["bg-slate-700/50", "border-blue-500/50", "text-gray-200"] }
+                            if *focused == NameConflictFocus::Guid { vec!["bg-emerald-600/20", "border-lime-400", "text-white"] } 
+                            else if *selected_opt == 1 { vec!["bg-slate-700/50", "border-emerald-500/50", "text-gray-200"] }
                             else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400"] }
                         )} onclick={|e: MouseEvent| e.stop_propagation()}>
-                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 1} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(1); f.set(NameConflictFocus::Guid); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
+                            <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 1} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(1); f.set(NameConflictFocus::Guid); }} class="w-4 h-4 text-emerald-600 bg-gray-700 border-gray-600" />
                             <span class="ml-3 font-medium">{ &props.labels[1] }</span>
                         </label>
                         <label class={classes!(
                             "flex", "flex-col", "p-3", "rounded-md", "border", "cursor-pointer", "transition-colors",
-                            if *focused == NameConflictFocus::Specify || *focused == NameConflictFocus::Input { vec!["bg-blue-600/20", "border-lime-400", "text-white"] } 
-                            else if *selected_opt == 2 { vec!["bg-slate-700/50", "border-blue-500/50", "text-gray-200"] }
+                            if *focused == NameConflictFocus::Specify || *focused == NameConflictFocus::Input { vec!["bg-emerald-600/20", "border-lime-400", "text-white"] } 
+                            else if *selected_opt == 2 { vec!["bg-slate-700/50", "border-emerald-500/50", "text-gray-200"] }
                             else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400"] }
                         )} onclick={|e: MouseEvent| e.stop_propagation()}>
                             <div class="flex items-center w-full">
-                                <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 2} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(2); f.set(NameConflictFocus::Specify); }} class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600" />
+                                <input type="radio" tabindex="-1" name="nc-opt" checked={*selected_opt == 2} onclick={let s = selected_opt.clone(); let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); s.set(2); f.set(NameConflictFocus::Specify); }} class="w-4 h-4 text-emerald-600 bg-gray-700 border-gray-600" />
                                 <span class="ml-3 font-medium">{ &props.labels[2] }</span>
                             </div>
                             <div class="mt-2 ml-7">
@@ -625,8 +625,8 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
                         tabindex="-1" onclick={let oc = on_confirm.clone(); move |e: MouseEvent| { e.stop_propagation(); oc.emit(()); }} 
                         class={classes!(
                             "px-8", "py-2", "rounded-md", "transition-colors", "shadow-lg", "border-[3px]",
-                            if *focused == NameConflictFocus::Ok { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
-                            else { vec!["bg-blue-600", "text-white", "border-transparent"] }
+                            if *focused == NameConflictFocus::Ok { vec!["bg-emerald-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
+                            else { vec!["bg-emerald-600", "text-white", "border-transparent"] }
                         )}
                     >
                         { "OK" }

@@ -120,7 +120,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                             <div class="py-1 max-h-60 overflow-y-auto">
                                 if props.current_category == "__LOCAL__" {
                                     <button
-                                        class="w-full text-left px-4 py-2 text-xs bg-blue-600 text-white font-bold cursor-default"
+                                        class="w-full text-left px-4 py-2 text-xs bg-emerald-600 text-white font-bold cursor-default"
                                     >
                                         { i18n::t("local_file", lang) }
                                     </button>
@@ -145,7 +145,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                                             onclick={if is_active { Callback::from(|_| ()) } else { Callback::from(move |_| { on_change.emit(id.clone()); on_toggle.emit(false); }) }}
                                             class={classes!(
                                                 "w-full", "text-left", "px-4", "py-2", "text-xs", "transition-colors",
-                                                if is_active { "bg-blue-600 text-white font-bold cursor-default" } else { "text-gray-300 hover:bg-gray-700 hover:text-white" }
+                                                if is_active { "bg-emerald-600 text-white font-bold cursor-default" } else { "text-gray-300 hover:bg-gray-700 hover:text-white" }
                                             )}
                                         >
                                             { display_name }

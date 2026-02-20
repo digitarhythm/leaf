@@ -104,6 +104,10 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Opslaan...",
             _ => "Saving...",
         }.to_string(),
+        "fetching_preview" => match lang {
+            Language::Ja => "プレビュー取得中...",
+            _ => "Fetching preview...",
+        }.to_string(),
         "category_not_found_title" => match lang {
             Language::Ja => "カテゴリが見つかりません",
             Language::Zh => "找不到类别",
