@@ -6,6 +6,8 @@
     "doc": "docs"
   },
   "scripts": {
+    "dev": "node server/index.js & trunk serve",
+    "deploy": "./deploy.sh",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

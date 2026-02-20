@@ -95,7 +95,7 @@ pub fn app() -> Html {
     let lang = Language::detect();
     let config_str = include_str!("../application.toml");
     let config: Config = toml::from_str(config_str).expect("Failed to parse application.toml");
-    let client_id = option_env!("LEAF_CLIENTID").map(|s| s.to_string()).unwrap_or_else(|| config.google_client_id);
+    let client_id = config.google_client_id.clone();
 
     let vim_mode = use_state(|| {
         web_sys::window()
@@ -332,7 +332,8 @@ pub fn app() -> Html {
                 let ncid_val = (*r_ncid.borrow()).clone();
                 let cur_c = captured_content;
                 let mut cur_s = (*r_s.borrow()).clone();
-                let is_online = *nc_h && web_sys::window().unwrap().navigator().on_line();
+                // アプリ側が切断判断していても、ブラウザ自体がオンラインなら再試行を許可する
+                let is_online = web_sys::window().unwrap().navigator().on_line();
                 let sheet_idx = cur_s.iter().position(|s| s.id == id);
                 
                 if let Some(idx) = sheet_idx {
@@ -503,9 +504,11 @@ pub fn app() -> Html {
                              Ok(rv) => {
                                  if let Ok(iv) = js_sys::Reflect::get(&rv, &JsValue::from_str("id")) { if let Some(is) = iv.as_string() { n_did = Some(is); } }
                                  if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { stime = Some(crate::drive_interop::parse_date(&ts) as u64); } }
+                                 nc_inner.set(true); // 成功したのでオンラインに
                              },
                              Err(_) => {
-                                 nc_inner.set(false); let js = sheet.to_js();
+                                 nc_inner.set(false); // 失敗したのでオフライン状態へ
+                                 let js = sheet.to_js();
                                  let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                  let mut u_s = (*rs_async.borrow()).clone();
                                  if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { si.is_modified = true; }
@@ -1044,12 +1047,14 @@ pub fn app() -> Html {
         let is_ld = is_loading.clone();
         let is_fl_ld = is_file_list_loading.clone();
         let is_fo = is_fading_out.clone();
+        let nc = network_connected.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let is_auth_c = is_auth.clone();
             let is_ld_c = is_ld.clone();
             let is_fl_ld_c = is_fl_ld.clone();
             let is_fo_c = is_fo.clone();
+            
             let listener_expired = EventListener::new(&window, "leaf-auth-expired", move |_| { 
                 gloo::console::warn!("[Leaf-SYSTEM] Auth expired event received. Logging out..."); 
                 is_auth_c.set(false); 
@@ -1059,7 +1064,19 @@ pub fn app() -> Html {
             });
             let is_auth_r = is_auth.clone();
             let listener_refreshed = EventListener::new(&window, "leaf-token-refreshed", move |_| { gloo::console::log!("[Leaf-SYSTEM] Token refreshed event received."); is_auth_r.set(true); });
-            move || { drop(listener_expired); drop(listener_refreshed); }
+            
+            let nc_online = nc.clone();
+            let listener_online = EventListener::new(&window, "online", move |_| {
+                gloo::console::log!("[Leaf-SYSTEM] Network online.");
+                nc_online.set(true);
+            });
+            let nc_offline = nc.clone();
+            let listener_offline = EventListener::new(&window, "offline", move |_| {
+                gloo::console::warn!("[Leaf-SYSTEM] Network offline.");
+                nc_offline.set(false);
+            });
+
+            move || { drop(listener_expired); drop(listener_refreshed); drop(listener_online); drop(listener_offline); }
         });
     }
 
@@ -1110,10 +1127,12 @@ pub fn app() -> Html {
         let ldid = leaf_data_folder_id.clone(); let cats_init = categories.clone();
         let client_id = client_id.clone(); let s_state = sheets.clone(); let rs = sheets_ref.clone();
         let ild_h = is_loading.clone(); let ifo_h = is_fading_out.clone(); let is_init_h = is_initial_load.clone();
+        let nc_h = network_connected.clone();
         use_effect_with((), move |_| {
             let is_auth_cb = is_auth.clone(); let ncid_cb = ncid.clone(); let ldid_cb = ldid.clone();
             let cats_cb = cats_init.clone(); let s_state_cb = s_state.clone(); let rs_cb = rs.clone();
             let ild_cb = ild_h.clone(); let ifo_cb = ifo_h.clone(); let is_init_cb = is_init_h.clone();
+            let nc_cb = nc_h.clone();
             let callback = Closure::wrap(Box::new(move |_token: String| {
                 let is_auth_inner = is_auth_cb.clone();
                 if !*is_auth_inner {
@@ -1122,9 +1141,11 @@ pub fn app() -> Html {
                     let s_inner = s_state_cb.clone(); let rs_inner = rs_cb.clone();
                     let ild_inner = ild_cb.clone(); let ifo_inner = ifo_cb.clone(); let is_init_inner = is_init_cb.clone();
                     let is_auth_err = is_auth_inner.clone();
+                    let nc_inner = nc_cb.clone();
                     spawn_local(async move {
                         match ensure_directory_structure().await {
                             Ok(res) => {
+                                nc_inner.set(true);
                                 if let Ok(id_val) = js_sys::Reflect::get(&res, &JsValue::from_str("othersId")) {
                                     if let Some(id) = id_val.as_string() {
                                         ncid_i.set(Some(id.clone()));
@@ -1140,22 +1161,26 @@ pub fn app() -> Html {
                                     if let Some(id) = id_val.as_string() {
                                         ldid_i.set(Some(id.clone()));
                                         let c_state = cats_i.clone();
-                                        spawn_local(async move {
-                                            if let Ok(c_res) = list_folders(&id).await {
-                                                if let Ok(f_val) = js_sys::Reflect::get(&c_res, &JsValue::from_str("files")) {
-                                                    let f_arr = js_sys::Array::from(&f_val); let mut n_cats = Vec::new();
-                                                    for i in 0..f_arr.length() { let v = f_arr.get(i); let ci = js_sys::Reflect::get(&v, &JsValue::from_str("id")).unwrap().as_string().unwrap(); let cn = js_sys::Reflect::get(&v, &JsValue::from_str("name")).unwrap().as_string().unwrap(); n_cats.push(JSCategory { id: ci, name: cn }); }
-                                                    if let Ok(v) = serde_wasm_bindgen::to_value(&n_cats) { let _ = save_categories(v).await; }
-                                                    c_state.set(n_cats);
-                                                }
+                                        if let Ok(c_res) = list_folders(&id).await {
+                                            if let Ok(f_val) = js_sys::Reflect::get(&c_res, &JsValue::from_str("files")) {
+                                                let f_arr = js_sys::Array::from(&f_val); let mut n_cats = Vec::new();
+                                                for i in 0..f_arr.length() { let v = f_arr.get(i); let ci = js_sys::Reflect::get(&v, &JsValue::from_str("id")).unwrap().as_string().unwrap(); let cn = js_sys::Reflect::get(&v, &JsValue::from_str("name")).unwrap().as_string().unwrap(); n_cats.push(JSCategory { id: ci, name: cn }); }
+                                                if let Ok(v) = serde_wasm_bindgen::to_value(&n_cats) { let _ = save_categories(v).await; }
+                                                c_state.set(n_cats);
                                             }
-                                            ifo_inner.set(true); let ifo_final = ifo_inner.clone();
-                                            Timeout::new(300, move || { ild_inner.set(false); is_init_inner.set(false); ifo_final.set(false); }).forget();
-                                        });
+                                        }
+                                        ifo_inner.set(true); let ifo_final = ifo_inner.clone();
+                                        Timeout::new(300, move || { ild_inner.set(false); is_init_inner.set(false); ifo_final.set(false); }).forget();
                                     }
                                 }
                             },
-                            Err(_) => { is_auth_err.set(false); ifo_inner.set(true); let ifo_final = ifo_inner.clone(); Timeout::new(300, move || { ild_inner.set(false); is_init_inner.set(false); ifo_final.set(false); }).forget(); },
+                            Err(_) => { 
+                                is_auth_err.set(true); 
+                                nc_inner.set(false);
+                                ifo_inner.set(true); 
+                                let ifo_final = ifo_inner.clone(); 
+                                Timeout::new(300, move || { ild_inner.set(false); is_init_inner.set(false); ifo_final.set(false); }).forget(); 
+                            },
                         }
                     });
                 }
@@ -1477,7 +1502,7 @@ pub fn app() -> Html {
                 if let Some(import_diag) = if let Some(_) = (*pending_import_data).clone() { let on_cfm = on_confirm_import.clone(); let pending = pending_import_data.clone(); Some(html! { <ConfirmDialog title={i18n::t("confirm_conversion", lang)} message={i18n::t("confirm_conversion", lang)} on_confirm={let on_c = on_cfm.clone(); move |_| on_c.emit(true)} on_cancel={move |_| pending.set(None)} /> }) } else { None } { <div class="pointer-events-auto">{ import_diag }</div> }
                 if *is_import_lock { <div class={classes!("pointer-events-auto", "fixed", "inset-0", "bg-black/50", "backdrop-blur-md", "z-[90]", "transition-opacity", "duration-300", "flex", "items-center", "justify-center", if *is_import_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center"><div class="w-12 h-12 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div><p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t("synchronizing", lang) }</p></div></div> }
                 if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
-                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/leaf/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
+                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
             </div>
         </div>
     }

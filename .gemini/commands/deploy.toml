@@ -1,12 +1,5 @@
 description = "Application deploy prompt for Leaf."
 prompt = """
 # アプリをデプロイする
-* `trunk build --release --public-url /leaf/` を実行して本番用アセットを生成する
-* サーバー「kow@192.168.200.2:22001」の「/home/kow/work_area/usr/develop/leaf」にミラーリングする
-
-# アプリ再起動
-* ミラーリングが完了した後に、下記コマンドでアプリを再起動する
-  ```bash
-  ssh -p 22001 kow@192.168.200.2 "sudo systemctl restart leaf"
-  ```
+* `./deploy.sh` を実行して、ビルド、同期、再起動を一括で行う
 """

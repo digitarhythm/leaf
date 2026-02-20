@@ -23,7 +23,19 @@ async function authenticatedFetch(url, options = {}, retry = true) {
         ...options.headers
     };
 
-    const response = await fetch(url, { ...options, headers });
+    let response;
+    try {
+        response = await fetch(url, { ...options, headers });
+    } catch (e) {
+        console.error("[Drive] Fetch failed (possibly offline):", e);
+        // ネットワーク切断による失敗を明示的にスロー
+        throw new Error("NETWORK_ERROR");
+    }
+
+    if (!response.ok && response.status !== 401 && response.status !== 416 && response.status !== 206) {
+        const errorBody = await response.json().catch(() => ({}));
+        console.error(`[Drive] API Error ${response.status}:`, errorBody);
+    }
 
     if (response.status === 401 && retry) {
         console.warn("[Drive] 401 Unauthorized. Attempting automatic refresh...");
