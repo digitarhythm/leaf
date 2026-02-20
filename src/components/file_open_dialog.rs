@@ -110,6 +110,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let fetching_ids = use_mut_ref(|| HashSet::<String>::new());
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
+    let processing_move_id = use_state(|| None::<String>); // 追加: 移動処理中のファイルID
 
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
@@ -172,11 +173,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let handle_close_preview = {
         let p_data = preview_modal_data.clone();
         let is_p_fading = is_preview_fading_out.clone();
+        let on_prev_toggle = props.on_preview_toggle.clone();
         Callback::from(move |_: ()| {
             is_p_fading.set(true);
             let p_data_c = p_data.clone();
             let is_p_fading_c = is_p_fading.clone();
-            Timeout::new(200, move || { p_data_c.set(None); is_p_fading_c.set(false); }).forget();
+            let on_prev_toggle_c = on_prev_toggle.clone();
+            Timeout::new(200, move || { 
+                p_data_c.set(None); 
+                is_p_fading_c.set(false); 
+                on_prev_toggle_c.emit(false);
+            }).forget();
         })
     };
 
@@ -196,14 +203,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let key = ke.key();
                 
                 if key == "Escape" || key == " " { 
-                    e.prevent_default(); e.stop_propagation(); e.stop_immediate_propagation(); 
+                    e.prevent_default(); 
+                    e.stop_propagation(); 
+                    e.stop_immediate_propagation();
                     close_p_c.emit(()); 
                     return;
                 }
 
                 if let Some(el) = scroll_ref_c.cast::<web_sys::HtmlElement>() {
                     let scroll_step = 40;
-                    let page_step = (el.client_height() as f64 * 0.5) as i32; // 50% 単位
+                    let page_step = (el.client_height() as f64 * 0.5) as i32;
                     match key.as_str() {
                         "ArrowUp" => { e.prevent_default(); e.stop_propagation(); el.set_scroll_top(el.scroll_top() - scroll_step); }
                         "ArrowDown" => { e.prevent_default(); e.stop_propagation(); el.set_scroll_top(el.scroll_top() + scroll_step); }
@@ -311,7 +320,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let size_val = js_sys::Reflect::get(&v, &JsValue::from_str("size")).unwrap_or(JsValue::UNDEFINED);
                             let total_size = size_val.as_string().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
                             let ext = name.split('.').last().unwrap_or("").to_lowercase();
-                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext, is_prefetched: false });
+                            let lang_str = ext.clone();
+                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: lang_str, is_prefetched: false });
                         }
                         all_metadata.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
                         reducer_inner.dispatch(FileAction::Set(all_metadata));
@@ -414,6 +424,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_preview_fading_out_c = is_preview_fading_out.clone();
         let is_loading_preview_cc = is_loading_preview.clone();
         let h_close_c = handle_close.clone();
+        let on_prev_toggle_c = props.on_preview_toggle.clone();
         let is_sub_dialog_open = props.is_sub_dialog_open;
         let is_creating_cat = props.is_creating_category;
         let is_loading = props.is_loading;
@@ -443,15 +454,18 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             
                             if !file.content.is_empty() && file.loaded_bytes >= file.total_size.min(10240) {
                                 is_fade.set(false);
+                                on_prev_toggle_c.emit(true);
                                 p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: file.content.clone(), total_size, loaded_bytes: file.loaded_bytes, is_markdown: is_md, lang: lang_c, is_prefetched: true }));
                             } else {
                                 is_ld_prev.set(true);
+                                let on_pt = on_prev_toggle_c.clone();
                                 spawn_local(async move {
                                     if let Ok(cv) = download_file(&file_id, None, None).await {
                                         let safe = get_safe_chunk(&cv);
                                         let t = js_sys::Reflect::get(&safe, &JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
                                         let b = js_sys::Reflect::get(&safe, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
                                         is_fade.set(false);
+                                        on_pt.emit(true);
                                         p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: t, total_size, loaded_bytes: b, is_markdown: is_md, lang: lang_c, is_prefetched: true }));
                                     }
                                     is_ld_prev.set(false);
@@ -497,21 +511,26 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     let on_move_file = {
         let cur_cid_c = current_category_id.clone();
-        let on_ld_c = props.on_loading_change.clone();
         let files_reducer = files.clone(); 
         let pending_move = pending_move_file_id.clone();
         let ads_state = active_dropdown_file_id.clone();
+        let proc_move = processing_move_id.clone(); // 追加
         Callback::from(move |(file_id, new_cat_id): (String, String)| {
             ads_state.set(None); 
-            let old_cid = (*cur_cid_c).clone(); let on_ld = on_ld_c.clone();
+            let old_cid = (*cur_cid_c).clone();
             let reducer = files_reducer.clone(); let f_id = file_id.clone();
             let p_move = pending_move.clone();
-            on_ld.emit(true); 
+            let proc_m = proc_move.clone();
+            
+            proc_m.set(Some(f_id.clone())); // 個別ローディング開始
             spawn_local(async move {
                 if let Ok(_) = move_file(&f_id, &old_cid, &new_cat_id).await {
-                    on_ld.emit(false); p_move.set(Some(f_id.clone())); 
+                    proc_m.set(None); 
+                    p_move.set(Some(f_id.clone())); 
                     Timeout::new(200, move || { reducer.dispatch(FileAction::Remove(f_id.clone())); }).forget();
-                } else { on_ld.emit(false); }
+                } else { 
+                    proc_m.set(None); // 失敗時もクリア
+                }
             });
         })
     };
@@ -646,6 +665,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let active_dropdown_state = active_dropdown_file_id.clone();
         let is_ld_id = (*is_deleting_id).clone();
         let p_move_id = (*pending_move_file_id).clone();
+        let proc_move_id = (*processing_move_id).clone(); // 追加
         let categories = (*sorted_categories).clone();
         let current_cid = (*current_category_id).clone();
         let on_move = on_move_file.clone();
@@ -673,6 +693,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let is_dropdown_open = active_dropdown.as_ref() == Some(&file.id);
                             let is_deleting = is_ld_id.as_ref() == Some(&file.id);
                             let is_moving = p_move_id.as_ref() == Some(&file.id);
+                            let is_processing = proc_move_id.as_ref() == Some(&file.id); // 移動中かチェック
                             
                             let s_idx_inner = s_idx_state.clone();
                             let on_ok_inner = on_ok.clone();
@@ -749,6 +770,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                             } else { file.content.clone() } }
                                         </div>
                                     </div>
+                                    // 追加: 移動中のローディング・オーバーレイ
+                                    if is_processing {
+                                        <div class="absolute inset-0 z-[100] bg-gray-900/60 backdrop-blur-[1px] flex items-center justify-center rounded-lg animate-in fade-in duration-200">
+                                            <div class="bg-blue-600 p-2 rounded-full shadow-lg border border-blue-400">
+                                                <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                            </div>
+                                        </div>
+                                    }
                                 </div>
                             }
                         }) }
@@ -763,9 +792,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_loading_val = props.is_loading || *is_loading_preview;
         let font_size = props.font_size;
         let on_change_fs = props.on_change_font_size.clone();
+        let is_wide = *is_wide_layout;
 
         html! {
-            <div ref={preview_area_ref} class="flex-1 flex flex-col bg-gray-950 overflow-hidden relative border-l border-white/5">
+            <div ref={preview_area_ref} class={classes!("flex-1", "flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", if is_wide { "border-l" } else { "" }, "border-white/5")}>
                 if let Some(file) = file_opt {
                     <div class="flex-1 flex flex-col min-h-0">
                         <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
@@ -825,10 +855,21 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 // メインコンテンツエリア (Categories + Files + Preview)
-                <div class="flex-1 flex overflow-hidden">
-                    { categories_html }
-                    { files_html }
-                    if *is_wide_layout { { preview_area_html } }
+                <div class={classes!("flex-1", "flex", if *is_wide_layout { "flex-row" } else { "flex-col" }, "overflow-hidden")}>
+                    if *is_wide_layout {
+                        { categories_html }
+                        { files_html }
+                        { preview_area_html }
+                    } else {
+                        // 狭い画面: リスト(上70%) と プレビュー(下30%)
+                        <div class="h-[70%] flex overflow-hidden border-b border-white/5 flex-shrink-0">
+                            { categories_html }
+                            { files_html }
+                        </div>
+                        <div class="h-[30%] flex flex-col overflow-hidden">
+                            { preview_area_html }
+                        </div>
+                    }
                 </div>
 
                 // フッターエリア (横いっぱい)
@@ -867,6 +908,15 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         on_confirm={on_delete_file_confirm} 
                         on_cancel={let pd = pending_delete_file.clone(); Callback::from(move |_| pd.set(None))} 
                     />
+                </div>
+            }
+
+            if *is_loading_preview {
+                <div class="fixed inset-0 z-[400] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] animate-in fade-in duration-200">
+                    <div class="bg-gray-900/90 border border-white/10 p-8 rounded-2xl shadow-2xl flex flex-col items-center space-y-4">
+                        <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                        <p class="text-xs font-bold text-blue-400 uppercase tracking-[0.2em] animate-pulse">{ "Fetching Full Preview" }</p>
+                    </div>
                 </div>
             }
 
