@@ -90,6 +90,62 @@ fn generate_random_color() -> String {
     format!("hsl({}, {}%, {}%)", h, s, l)
 }
 
+fn trigger_conflict_check(aid_ref: Rc<RefCell<Option<String>>>, s_ref: Rc<RefCell<Vec<Sheet>>>, cq: UseStateHandle<Vec<ConflictData>>) {
+    let aid = (*aid_ref.borrow()).clone();
+    let sheets = (*s_ref.borrow()).clone();
+    
+    if let Some(id) = aid {
+        if let Some(sheet) = sheets.iter().find(|s| s.id == id) {
+            if let Some(drive_id) = &sheet.drive_id {
+                let drive_id = drive_id.clone();
+                let sheet_id = sheet.id.clone();
+                let local_content = sheet.content.clone();
+                let local_time = sheet.last_sync_timestamp.unwrap_or(0);
+                let title = sheet.title.clone();
+                let cq = cq.clone();
+
+                spawn_local(async move {
+                    if let Ok(metadata) = get_file_metadata(&drive_id).await {
+                        if let Ok(time_val) = js_sys::Reflect::get(&metadata, &JsValue::from_str("modifiedTime")) {
+                            if let Some(time_str) = time_val.as_string() {
+                                let drive_time = crate::drive_interop::parse_date(&time_str) as u64;
+                                
+                                // 1. タイムスタンプ比較 (ドライブ側が新しい場合のみ詳細チェック)
+                                if drive_time > local_time + 1000 { // 1秒以上の差がある場合
+                                    // 2. 内容の比較
+                                    if let Ok(drive_bytes) = download_file(&drive_id, None, None).await {
+                                        let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
+                                        let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
+                                        let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
+                                        let drive_content = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&drive_bytes)).unwrap().as_string().unwrap_or_default();
+
+                                        if drive_content != local_content {
+                                            // 差異あり -> ダイアログ表示キューへ
+                                            let mut current_q = (*cq).clone();
+                                            if !current_q.iter().any(|c| c.sheet_id == sheet_id) {
+                                                current_q.push(ConflictData {
+                                                    sheet_id,
+                                                    title,
+                                                    drive_id,
+                                                    local_content,
+                                                    drive_time,
+                                                    time_str: time_str.clone(),
+                                                    is_missing_on_drive: false,
+                                                });
+                                                cq.set(current_q);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+    }
+}
+
 #[function_component(App)]
 pub fn app() -> Html {
     let lang = Language::detect();
@@ -248,12 +304,15 @@ pub fn app() -> Html {
         let ldid_s = leaf_data_folder_id.clone(); let cats_s = categories.clone();
         let s_state = sheets.clone(); let aid_handle = active_sheet_id.clone();
         let ifo = is_file_open_dialog_visible.clone(); let il = is_loading.clone();
+        let nc = network_connected.clone();
         Callback::from(move |_: ()| {
             if let Some(id) = (*ldid_s).clone() {
                 let cs = cats_s.clone(); let ss_inner = s_state.clone(); let aid_inner = aid_handle.clone();
                 let ifod = ifo.clone(); let ild_final = il.clone();
+                let nc_inner = nc.clone();
                 spawn_local(async move {
                     if let Ok(cr) = list_folders(&id).await {
+                        nc_inner.set(true); // 成功したのでオンラインに
                         if let Ok(fv) = js_sys::Reflect::get(&cr, &JsValue::from_str("files")) {
                             let fa = js_sys::Array::from(&fv); let mut n_cats = Vec::new();
                             for i in 0..fa.length() { let v = fa.get(i); let ci = js_sys::Reflect::get(&v, &JsValue::from_str("id")).unwrap().as_string().unwrap(); let cn = js_sys::Reflect::get(&v, &JsValue::from_str("name")).unwrap().as_string().unwrap(); n_cats.push(JSCategory { id: ci, name: cn }); }
@@ -332,8 +391,6 @@ pub fn app() -> Html {
                 let ncid_val = (*r_ncid.borrow()).clone();
                 let cur_c = captured_content;
                 let mut cur_s = (*r_s.borrow()).clone();
-                // アプリ側が切断判断していても、ブラウザ自体がオンラインなら再試行を許可する
-                let is_online = web_sys::window().unwrap().navigator().on_line();
                 let sheet_idx = cur_s.iter().position(|s| s.id == id);
                 
                 if let Some(idx) = sheet_idx {
@@ -354,6 +411,7 @@ pub fn app() -> Html {
                         }
                         
                         if sheet.category == "__LOCAL__" {
+                            // ... (local save logic)
                             let content_to_save = cur_c.clone();
                             let is_saving_inner = is_saving_h.clone();
                             let ild_inner = ild_h.clone();
@@ -401,24 +459,6 @@ pub fn app() -> Html {
                                         Timeout::new(300, move || { lf.set(false); l.set(false); _il.set(false); }).forget();
                                     }
                                 }
-                            });
-                            local_save_triggered = true;
-                        } else if !is_online {
-                            sheet.temp_content = Some(cur_c.clone()); sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
-                            sheet.total_size = cur_c.len() as u64; sheet.loaded_bytes = cur_c.len() as u64;
-                            let js = sheet.to_js();
-                            let lock_inner = lock_h.clone();
-                            let lock_fade_inner = lock_fade_h.clone();
-                            let ild_inner = ild_h.clone();
-                            s_state.set(cur_s.clone());
-                            spawn_local(async move { 
-                                let ser = serde_wasm_bindgen::Serializer::json_compatible(); 
-                                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } 
-                                if *lock_inner {
-                                    lock_fade_inner.set(true);
-                                    let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
-                                                                            let _il = ild_inner.clone();
-                                                                            Timeout::new(300, move || { lf.set(false); l.set(false); _il.set(false); }).forget();                                } else { ild_inner.set(false); }
                             });
                             local_save_triggered = true;
                         } else if sheet.category != "__LOCAL__" {
@@ -1048,6 +1088,9 @@ pub fn app() -> Html {
         let is_fl_ld = is_file_list_loading.clone();
         let is_fo = is_fading_out.clone();
         let nc = network_connected.clone();
+        let aid_ref_effect = active_id_ref.clone();
+        let s_ref_effect = sheets_ref.clone();
+        let cq_effect = conflict_queue.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let is_auth_c = is_auth.clone();
@@ -1066,17 +1109,39 @@ pub fn app() -> Html {
             let listener_refreshed = EventListener::new(&window, "leaf-token-refreshed", move |_| { gloo::console::log!("[Leaf-SYSTEM] Token refreshed event received."); is_auth_r.set(true); });
             
             let nc_online = nc.clone();
-            let listener_online = EventListener::new(&window, "online", move |_| {
-                gloo::console::log!("[Leaf-SYSTEM] Network online.");
-                nc_online.set(true);
-            });
+            let listener_online = {
+                let nc = nc_online.clone();
+                let aid_ref = aid_ref_effect.clone();
+                let s_ref = s_ref_effect.clone();
+                let cq = cq_effect.clone();
+                EventListener::new(&window, "online", move |_| {
+                    gloo::console::log!("[Leaf-SYSTEM] Network online. Checking for conflicts...");
+                    nc.set(true);
+                    trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone());
+                })
+            };
+
             let nc_offline = nc.clone();
             let listener_offline = EventListener::new(&window, "offline", move |_| {
                 gloo::console::warn!("[Leaf-SYSTEM] Network offline.");
                 nc_offline.set(false);
             });
 
-            move || { drop(listener_expired); drop(listener_refreshed); drop(listener_online); drop(listener_offline); }
+            let listener_visibility = {
+                let aid_ref = aid_ref_effect.clone();
+                let s_ref = s_ref_effect.clone();
+                let cq = cq_effect.clone();
+                let doc = web_sys::window().unwrap().document().unwrap();
+                EventListener::new(&doc, "visibilitychange", move |_| {
+                    let doc = web_sys::window().unwrap().document().unwrap();
+                    if !doc.hidden() {
+                        gloo::console::log!("[Leaf-SYSTEM] App visible. Checking for conflicts...");
+                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone());
+                    }
+                })
+            };
+
+            move || { drop(listener_expired); drop(listener_refreshed); drop(listener_online); drop(listener_offline); drop(listener_visibility); }
         });
     }
 
@@ -1474,6 +1539,7 @@ pub fn app() -> Html {
                                 on_select={on_file_sel_cb} leaf_data_id={ldid} categories={(*categories).clone()} on_refresh={on_refresh_cats_cb} on_delete_category={on_delete_category_cb} on_rename_category={on_rename_category_cb} on_delete_file={on_delete_file_cb} on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))} 
                                 is_sub_dialog_open={is_sub_overlay_active} is_creating_category={*is_creating_category} on_create_category_toggle={let ic = is_creating_category.clone(); Callback::from(move |v| ic.set(v))} 
                                 refresh_files_trigger={*file_refresh_trigger} is_loading={*is_file_list_loading} on_loading_change={let l = is_file_list_loading.clone(); Callback::from(move |v| l.set(v))} 
+                                on_network_status_change={let nc = network_connected.clone(); Callback::from(move |v| nc.set(v))}
                                 font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()}
                             />
                         </div>

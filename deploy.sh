@@ -20,11 +20,11 @@ fi
 
 # 2. Sync Frontend Assets (Excluding server configs and dependencies)
 echo "🚚 Syncing frontend assets..."
-rsync -avz --delete 
-    --exclude '.env' 
-    --exclude 'server/' 
-    --exclude 'node_modules/' 
-    -e "ssh -p $PORT" 
+rsync -avz --delete \
+    --exclude '.env' \
+    --exclude 'server/' \
+    --exclude 'node_modules/' \
+    -e "ssh -p $PORT" \
     dist/ $USER@$SERVER:$REMOTE_PATH
 if [ $? -ne 0 ]; then
     echo "❌ Frontend sync failed."
@@ -33,11 +33,11 @@ fi
 
 # 3. Sync Backend Code (Excluding dependencies and env)
 echo "🚚 Syncing backend code..."
-rsync -avz 
-    --exclude 'node_modules/' 
-    --exclude '.env' 
-    --exclude '.git/' 
-    -e "ssh -p $PORT" 
+rsync -avz \
+    --exclude 'node_modules/' \
+    --exclude '.env' \
+    --exclude '.git/' \
+    -e "ssh -p $PORT" \
     server/ $USER@$SERVER:$REMOTE_PATH/server
 if [ $? -ne 0 ]; then
     echo "❌ Backend sync failed."

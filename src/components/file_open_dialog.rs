@@ -96,6 +96,8 @@ pub struct FileOpenDialogProps {
     pub refresh_files_trigger: usize,
     pub is_loading: bool,
     pub on_loading_change: Callback<bool>,
+    #[prop_or_default]
+    pub on_network_status_change: Callback<bool>,
     pub font_size: i32,
     pub on_change_font_size: Callback<i32>,
 }
@@ -278,6 +280,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_fading_out_h = is_fading_out.clone();
         let prefetch = trigger_prefetch.clone();
         let f_area_h = focused_area.clone();
+        let on_nc_c = props.on_network_status_change.clone();
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             if let Some(ctrl) = (*abort_ctrl_state).as_ref() { ctrl.abort(); }
             let new_ctrl = AbortController::new().unwrap();
@@ -297,10 +300,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let f_area_inner = f_area_h.clone();
             let is_fading_inner = is_fading_out_h.clone();
             let prefetch_inner = prefetch.clone();
+            let on_nc_inner = on_nc_c.clone();
             spawn_local(async move {
                 let res = list_files(&cid_inner, Some(sig_inner.clone())).await;
                 if sig_inner.aborted() { return; }
                 if let Ok(res_val) = res {
+                    on_nc_inner.emit(true); // 成功したのでオンラインに
                     if let Ok(files_val) = js_sys::Reflect::get(&res_val, &JsValue::from_str("files")) {
                         let array = js_sys::Array::from(&files_val);
                         let mut all_metadata = Vec::new();
