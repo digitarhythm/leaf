@@ -1,5 +1,5 @@
 // drive.js
-// Google Drive API wrapper with automatic token refresh
+// Google Drive API wrapper with automatic token refresh and retry logic
 
 import { get_access_token, try_silent_refresh, sign_out, force_reauth } from './auth.js';
 
@@ -7,15 +7,22 @@ export const FOLDER_MIME_TYPE = 'application/vnd.google-apps.folder';
 const FILE_MIME_TYPE = 'text/plain';
 
 /**
- * 認証付きフェッチ。401エラー時に自動でリフレッシュしてリトライする。
+ * 指数バックオフによる待機
  */
-async function authenticatedFetch(url, options = {}, retry = true) {
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * 認証付きフェッチ。401エラー時のリフレッシュや、ネットワークエラー時のリトライをサポート。
+ */
+async function authenticatedFetch(url, options = {}, retryCount = 2) {
     const token = await get_access_token();
     if (!token) {
-        console.error("[Drive] No token available after checking expiry.");
-        // ここで即座にエラーにするのではなく、一度だけ手動リフレッシュを試みるか、
-        // あるいは呼び出し元にエラーを返してログイン画面へ戻す
         throw new Error("UNAUTHORIZED");
+    }
+
+    // すでに中断されている場合はリクエストしない
+    if (options.signal && options.signal.aborted) {
+        throw new Error("AbortError");
     }
 
     const headers = {
@@ -23,48 +30,41 @@ async function authenticatedFetch(url, options = {}, retry = true) {
         ...options.headers
     };
 
-    let response;
     try {
-        response = await fetch(url, { ...options, headers });
-    } catch (e) {
-        console.error("[Drive] Fetch failed (possibly offline):", e);
-        // ネットワーク切断による失敗を明示的にスロー
-        throw new Error("NETWORK_ERROR");
-    }
+        const response = await fetch(url, { ...options, headers });
 
-    if (!response.ok && response.status !== 401 && response.status !== 416 && response.status !== 206) {
-        const errorBody = await response.json().catch(() => ({}));
-        console.error(`[Drive] API Error ${response.status}:`, errorBody);
-    }
-
-    if (response.status === 401 && retry) {
-        console.warn("[Drive] 401 Unauthorized. Attempting automatic refresh...");
-        try {
-            await try_silent_refresh();
-            // 新しいトークンで再試行
-            return await authenticatedFetch(url, options, false);
-        } catch (e) {
-            console.warn("[Drive] Silent refresh failed. Triggering popup re-auth...");
+        if (response.status === 401 && retryCount > 0) {
+            console.warn("[Drive] 401 Unauthorized. Attempting refresh...");
             try {
-                // ポップアップを表示して再認証し、完了を待つ
-                await force_reauth();
-                // 認証成功後、再試行
-                return await authenticatedFetch(url, options, false);
-            } catch (reauthError) {
-                console.error("[Drive] Re-auth failed. Signing out.", reauthError);
-                sign_out();
-                throw new Error("UNAUTHORIZED");
+                await try_silent_refresh();
+                return await authenticatedFetch(url, options, retryCount - 1);
+            } catch (e) {
+                console.warn("[Drive] Silent refresh failed. Triggering popup re-auth...");
+                try {
+                    await force_reauth();
+                    return await authenticatedFetch(url, options, retryCount - 1);
+                } catch (reauthError) {
+                    sign_out();
+                    throw new Error("UNAUTHORIZED");
+                }
             }
         }
-    }
 
-    if (response.status === 401 && !retry) {
-        console.error("[Drive] 401 Unauthorized even after refresh. Signing out.");
-        sign_out();
-        throw new Error("UNAUTHORIZED");
-    }
+        return response;
+    } catch (e) {
+        if (e.name === 'AbortError') throw e;
 
-    return response;
+        // ネットワークエラー時のみリトライ（指数バックオフ）
+        if (retryCount > 0) {
+            const waitTime = (3 - retryCount) * 1000;
+            console.warn(`[Drive] Network error. Retrying in ${waitTime}ms...`, e);
+            await sleep(waitTime);
+            return await authenticatedFetch(url, options, retryCount - 1);
+        }
+
+        console.error("[Drive] Fetch failed after retries:", e);
+        throw new Error("NETWORK_ERROR");
+    }
 }
 
 export async function list_folders(parentId = 'root') {
@@ -92,8 +92,6 @@ export async function create_folder(folderName, parentId) {
 }
 
 export async function find_or_create_folder(folderName, parentId = 'root') {
-    console.log(`[Drive] Searching for folder: "${folderName}" in parent: "${parentId}"`);
-    
     const query = `mimeType='${FOLDER_MIME_TYPE}' and name='${folderName}' and '${parentId}' in parents and trashed=false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name)`;
     const searchRes = await authenticatedFetch(url);
@@ -105,7 +103,6 @@ export async function find_or_create_folder(folderName, parentId = 'root') {
         return searchData.files[0].id;
     }
     
-    console.log(`[Drive] Folder "${folderName}" not found. Creating...`);
     const createRes = await authenticatedFetch('https://www.googleapis.com/drive/v3/files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,7 +139,6 @@ function buildMultipartBody(filename, content, folderId, boundary) {
     const part2 = `--${boundary}\r\nContent-Type: ${FILE_MIME_TYPE}\r\n\r\n`;
     const end = `\r\n--${boundary}--`;
 
-    // BOMを付与
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
     
     return new Blob([encoder.encode(part1), encoder.encode(part2), bom, content, encoder.encode(end)], 
@@ -168,7 +164,6 @@ export async function rename_folder(folderId, newName) {
 }
 
 export async function upload_file(filename, content, folderId, fileId = null) {
-    // BOMを付与したBlobを作成
     const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
     const contentWithBom = new Blob([bom, content], { type: FILE_MIME_TYPE });
 
@@ -230,18 +225,16 @@ export async function download_file(fileId, range = null, signal = null) {
 
         const response = await authenticatedFetch(url, options);
         
-        // 416 Range Not Satisfiable: ファイルが空（0バイト）の場合にRange指定すると発生する
         if (response.status === 416) return new Uint8Array(0);
         
         if (!response.ok && response.status !== 206) {
-            console.warn(`[Drive] Download failed with status ${response.status} for file ${fileId}`);
             return new Uint8Array(0);
         }
 
         const buffer = await response.arrayBuffer();
         return new Uint8Array(buffer);
     } catch (e) {
-        if (e.name === 'AbortError') return new Uint8Array(0);
+        if (e.name === 'AbortError' || e.message === 'AbortError') return new Uint8Array(0);
         console.error(`[Drive] download_file error for ${fileId}:`, e);
         return new Uint8Array(0);
     }
