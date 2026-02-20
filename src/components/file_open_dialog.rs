@@ -365,6 +365,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             || ()
         });
     }
+    // 選択インデックス変更時の自動スクロール
+    {
+        let file_list_ref_c = file_list_ref.clone();
+        let selected_idx = *selected_file_idx;
+        use_effect_with(selected_idx, move |idx| {
+            if let Some(i) = *idx {
+                if let Some(container) = file_list_ref_c.cast::<web_sys::Element>() {
+                    crate::js_interop::scroll_into_view_graceful(&container, i as u32, 200.0);
+                }
+            }
+            || ()
+        });
+    }
+
     {
         let root = root_ref.clone();
         let f_area = focused_area.clone();

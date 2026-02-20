@@ -401,3 +401,39 @@ export function set_editor_mode(filename) {
     editor.session.setMode(mode);
     pendingMode = null;
 }
+
+export function scroll_into_view_graceful(container, index, duration_ms) {
+    if (!container) return;
+    const item = container.children[index];
+    if (!item) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+
+    let targetScrollTop = container.scrollTop;
+
+    // 要素が上にはみ出している場合、または下にはみ出している場合にスクロール位置を計算
+    if (itemRect.top < containerRect.top) {
+        targetScrollTop -= (containerRect.top - itemRect.top + 8); // 上部に少し余裕を持たせる
+    } else if (itemRect.bottom > containerRect.bottom) {
+        targetScrollTop += (itemRect.bottom - containerRect.bottom + 8); // 下部に少し余裕を持たせる
+    } else {
+        return; // 既に完全に見えている場合は何もしない
+    }
+
+    const start = container.scrollTop;
+    const change = targetScrollTop - start;
+    const startTime = performance.now();
+
+    function animate(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration_ms, 1);
+        
+        // Easing: easeInOutQuad
+        const ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+        
+        container.scrollTop = start + change * ease;
+        if (progress < 1) requestAnimationFrame(animate);
+    }
+    requestAnimationFrame(animate);
+}
