@@ -21,14 +21,13 @@ pub struct CustomDialogProps {
 
 #[derive(PartialEq, Clone, Copy)]
 enum CustomDialogFocus {
-    Options(usize),
-    Ok,
+    Option(usize),
     Cancel,
 }
 
 #[function_component(CustomDialog)]
 pub fn custom_dialog(props: &CustomDialogProps) -> Html {
-    let focused = use_state(|| CustomDialogFocus::Options(0));
+    let focused = use_state(|| CustomDialogFocus::Option(0));
     let is_fading_out = use_state(|| false);
     let root_ref = use_node_ref();
 
@@ -43,24 +42,15 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
         });
     }
 
-    let on_confirm = {
+    let select_option = {
         let on_confirm = props.on_confirm.clone();
         let on_start = props.on_start_processing.clone();
-        let focused = focused.clone();
         let is_fading_out = is_fading_out.clone();
-        Callback::from(move |e: MouseEvent| {
-            e.stop_propagation();
-            let choice = match *focused {
-                CustomDialogFocus::Options(idx) => Some(idx),
-                CustomDialogFocus::Ok => Some(0),
-                _ => None,
-            };
-            if let Some(idx) = choice {
-                is_fading_out.set(true);
-                on_start.emit(());
-                let on_confirm = on_confirm.clone();
-                Timeout::new(200, move || { on_confirm.emit(idx); }).forget();
-            }
+        Callback::from(move |idx: usize| {
+            is_fading_out.set(true);
+            on_start.emit(());
+            let on_confirm = on_confirm.clone();
+            Timeout::new(200, move || { on_confirm.emit(idx); }).forget();
         })
     };
 
@@ -79,7 +69,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
     let on_keydown = {
         let focused = focused.clone();
         let options_len = props.options.len();
-        let on_cfm = on_confirm.clone();
+        let select_opt = select_option.clone();
         let on_cxl = on_cancel.clone();
         Callback::from(move |e: web_sys::KeyboardEvent| {
             e.stop_propagation();
@@ -87,32 +77,31 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                 "ArrowUp" => {
                     e.prevent_default();
                     match *focused {
-                        CustomDialogFocus::Options(idx) if idx > 0 => focused.set(CustomDialogFocus::Options(idx - 1)),
-                        CustomDialogFocus::Ok | CustomDialogFocus::Cancel => focused.set(CustomDialogFocus::Options(options_len - 1)),
+                        CustomDialogFocus::Option(idx) if idx > 0 => focused.set(CustomDialogFocus::Option(idx - 1)),
+                        CustomDialogFocus::Cancel => focused.set(CustomDialogFocus::Option(options_len - 1)),
                         _ => {}
                     }
                 }
                 "ArrowDown" => {
                     e.prevent_default();
                     match *focused {
-                        CustomDialogFocus::Options(idx) if idx + 1 < options_len => focused.set(CustomDialogFocus::Options(idx + 1)),
-                        CustomDialogFocus::Options(_) => focused.set(CustomDialogFocus::Ok),
+                        CustomDialogFocus::Option(idx) if idx + 1 < options_len => focused.set(CustomDialogFocus::Option(idx + 1)),
+                        CustomDialogFocus::Option(_) => focused.set(CustomDialogFocus::Cancel),
                         _ => {}
                     }
                 }
-                "ArrowLeft" | "ArrowRight" | "Tab" => {
+                "Tab" | "ArrowLeft" | "ArrowRight" => {
                     e.prevent_default();
                     match *focused {
-                        CustomDialogFocus::Ok => focused.set(CustomDialogFocus::Cancel),
-                        CustomDialogFocus::Cancel => focused.set(CustomDialogFocus::Ok),
-                        CustomDialogFocus::Options(_) => focused.set(CustomDialogFocus::Ok),
+                        CustomDialogFocus::Cancel => focused.set(CustomDialogFocus::Option(0)),
+                        CustomDialogFocus::Option(_) => focused.set(CustomDialogFocus::Cancel),
                     }
                 }
                 "Enter" => {
                     e.prevent_default();
                     match *focused {
+                        CustomDialogFocus::Option(idx) => select_opt.emit(idx),
                         CustomDialogFocus::Cancel => on_cxl.emit(()),
-                        _ => on_cfm.emit(MouseEvent::new("click").unwrap()),
                     }
                 }
                 "Escape" => {
@@ -146,46 +135,37 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
                     <p class="text-gray-300 mb-6 whitespace-pre-wrap">{ &props.message }</p>
                     <div class="space-y-3">
                         { for props.options.iter().enumerate().map(|(idx, opt)| {
-                            let is_selected = matches!(*focused, CustomDialogFocus::Options(i) if i == idx);
+                            let is_focused = matches!(*focused, CustomDialogFocus::Option(i) if i == idx);
+                            let sel = select_option.clone();
                             html! {
-                                <label class={classes!(
-                                    "flex", "items-center", "p-3", "rounded-md", "border", "cursor-pointer", "transition-colors",
-                                    if is_selected { vec!["bg-blue-600/20", "border-blue-500", "text-white"] } else { vec!["bg-gray-700/30", "border-gray-600", "text-gray-400", "hover:bg-gray-700/50"] }
-                                )} onclick={|e: MouseEvent| e.stop_propagation()}>
-                                    <input 
-                                        type="radio" tabindex="-1" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 focus:ring-0" name="dialog-option" checked={is_selected}
-                                        onclick={let f = focused.clone(); move |e: MouseEvent| { e.stop_propagation(); f.set(CustomDialogFocus::Options(idx)) }}
-                                    />
-                                    <span class="ml-3 font-medium">{ &opt.label }</span>
-                                </label>
+                                <button 
+                                    onclick={move |_| sel.emit(idx)}
+                                    class={classes!(
+                                        "w-full", "flex", "items-center", "justify-center", "p-4", "rounded-md", "border-2", "transition-all", "font-bold", "outline-none",
+                                        if is_focused { vec!["bg-blue-600", "border-lime-400", "text-white", "scale-[1.02]", "shadow-lg"] } 
+                                        else { vec!["bg-gray-700/50", "border-transparent", "text-gray-200", "hover:bg-gray-700"] }
+                                    )}
+                                >
+                                    { &opt.label }
+                                </button>
                             }
                         }) }
                     </div>
                 </div>
-                <div class="px-6 py-2 bg-gray-900/50 flex justify-end space-x-3">
-                    if let Some(_) = &props.on_cancel {
+                if let Some(_) = &props.on_cancel {
+                    <div class="px-6 py-3 bg-gray-900/50 flex justify-end">
                         <button 
-                            tabindex="-1" onclick={let cb = on_cancel.clone(); move |e: MouseEvent| { e.stop_propagation(); cb.emit(()); }}
+                            onclick={let cb = on_cancel.clone(); move |_| cb.emit(())}
                             class={classes!(
-                                "px-6", "py-2", "rounded-md", "transition-colors", "border-[3px]",
-                                if *focused == CustomDialogFocus::Cancel { vec!["bg-gray-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
+                                "px-6", "py-2", "rounded-md", "transition-colors", "border-2", "font-medium", "outline-none",
+                                if *focused == CustomDialogFocus::Cancel { vec!["bg-gray-600", "text-white", "border-lime-400"] }
                                 else { vec!["bg-gray-700", "text-gray-300", "border-transparent"] }
                             )}
                         >
                             { "Cancel" }
                         </button>
-                    }
-                    <button 
-                        tabindex="-1" onclick={on_confirm}
-                        class={classes!(
-                            "px-6", "py-2", "rounded-md", "transition-colors", "shadow-lg", "border-[3px]",
-                            if *focused == CustomDialogFocus::Ok { vec!["bg-blue-600", "text-white", "border-lime-400", "ring-1", "ring-lime-400"] }
-                            else { vec!["bg-blue-600", "text-white", "border-transparent"] }
-                        )}
-                    >
-                        { "OK" }
-                    </button>
-                </div>
+                    </div>
+                }
             </div>
         </div>
     }
@@ -249,7 +229,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
 
     let on_keydown = {
         let on_confirm = on_confirm.clone();
-        let on_cancel = on_cancel.clone();
+        let on_cxl = on_cancel.clone();
         let focused = focused.clone();
         let input_r = input_ref.clone();
         Callback::from(move |e: KeyboardEvent| {
@@ -271,11 +251,11 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                 "Enter" => {
                     e.prevent_default();
                     match *focused {
-                        InputDialogFocus::Cancel => on_cancel.emit(()),
+                        InputDialogFocus::Cancel => on_cxl.emit(()),
                         _ => on_confirm.emit(()),
                     }
                 }
-                "Escape" => { e.prevent_default(); on_cancel.emit(()); }
+                "Escape" => { e.prevent_default(); on_cxl.emit(()); }
                 _ => {}
             }
         })

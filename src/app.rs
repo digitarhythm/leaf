@@ -90,7 +90,15 @@ fn generate_random_color() -> String {
     format!("hsl({}, {}%, {}%)", h, s, l)
 }
 
-fn trigger_conflict_check(aid_ref: Rc<RefCell<Option<String>>>, s_ref: Rc<RefCell<Vec<Sheet>>>, cq: UseStateHandle<Vec<ConflictData>>) {
+fn trigger_conflict_check(
+    aid_ref: Rc<RefCell<Option<String>>>, 
+    s_ref: Rc<RefCell<Vec<Sheet>>>, 
+    cq: UseStateHandle<Vec<ConflictData>>,
+    ild: UseStateHandle<bool>,
+    ifo: UseStateHandle<bool>,
+    lmk: UseStateHandle<&'static str>,
+    is_init: Option<UseStateHandle<bool>>
+) {
     let aid = (*aid_ref.borrow()).clone();
     let sheets = (*s_ref.borrow()).clone();
     
@@ -103,6 +111,14 @@ fn trigger_conflict_check(aid_ref: Rc<RefCell<Option<String>>>, s_ref: Rc<RefCel
                 let local_time = sheet.last_sync_timestamp.unwrap_or(0);
                 let title = sheet.title.clone();
                 let cq = cq.clone();
+                let ild_inner = ild.clone();
+                let ifo_inner = ifo.clone();
+                let lmk_inner = lmk.clone();
+                let is_init_inner = is_init.clone();
+
+                lmk_inner.set("synchronizing");
+                ild_inner.set(true);
+                ifo_inner.set(false);
 
                 spawn_local(async move {
                     if let Ok(metadata) = get_file_metadata(&drive_id).await {
@@ -110,9 +126,7 @@ fn trigger_conflict_check(aid_ref: Rc<RefCell<Option<String>>>, s_ref: Rc<RefCel
                             if let Some(time_str) = time_val.as_string() {
                                 let drive_time = crate::drive_interop::parse_date(&time_str) as u64;
                                 
-                                // 1. タイムスタンプ比較 (ドライブ側が新しい場合のみ詳細チェック)
-                                if drive_time > local_time + 1000 { // 1秒以上の差がある場合
-                                    // 2. 内容の比較
+                                if drive_time > local_time + 1000 {
                                     if let Ok(drive_bytes) = download_file(&drive_id, None, None).await {
                                         let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
                                         let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
@@ -120,17 +134,10 @@ fn trigger_conflict_check(aid_ref: Rc<RefCell<Option<String>>>, s_ref: Rc<RefCel
                                         let drive_content = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&drive_bytes)).unwrap().as_string().unwrap_or_default();
 
                                         if drive_content != local_content {
-                                            // 差異あり -> ダイアログ表示キューへ
                                             let mut current_q = (*cq).clone();
                                             if !current_q.iter().any(|c| c.sheet_id == sheet_id) {
                                                 current_q.push(ConflictData {
-                                                    sheet_id,
-                                                    title,
-                                                    drive_id,
-                                                    local_content,
-                                                    drive_time,
-                                                    time_str: time_str.clone(),
-                                                    is_missing_on_drive: false,
+                                                    sheet_id, title, drive_id, local_content, drive_time, time_str: time_str.clone(), is_missing_on_drive: false,
                                                 });
                                                 cq.set(current_q);
                                             }
@@ -140,10 +147,32 @@ fn trigger_conflict_check(aid_ref: Rc<RefCell<Option<String>>>, s_ref: Rc<RefCel
                             }
                         }
                     }
+                    
+                    ifo_inner.set(true);
+                    let ifo_final = ifo_inner.clone();
+                    let ild_final = ild_inner.clone();
+                    let init_final = is_init_inner.clone();
+                    Timeout::new(300, move || {
+                        ild_final.set(false);
+                        ifo_final.set(false);
+                        if let Some(h) = init_final { h.set(false); }
+                    }).forget();
                 });
+                return;
             }
         }
     }
+    
+    // 衝突チェックが不要な場合（ローカルファイル等）は即座にローディング解除
+    ifo.set(true);
+    let ifo_final = ifo.clone();
+    let ild_final = ild.clone();
+    let init_final = is_init.clone();
+    Timeout::new(300, move || {
+        ild_final.set(false);
+        ifo_final.set(false);
+        if let Some(h) = init_final { h.set(false); }
+    }).forget();
 }
 
 #[function_component(App)]
@@ -811,24 +840,38 @@ pub fn app() -> Html {
         let cq = conflict_queue.clone(); let ss = sheets.clone(); let il = is_loading.clone();
         let ifo = is_fading_out.clone(); let ncid = no_category_folder_id.clone();
         let aid = active_sheet_id.clone();
+        let lmk = loading_message_key.clone();
+        let osa = os_handle.clone();
+        let timer_h = auto_save_timer.clone();
         Callback::from(move |sel: usize| {
             let mut q = (*cq).clone(); if q.is_empty() { return; } let conf = q.remove(0);
             let ss_inner = ss.clone(); let qs = cq.clone(); let ifod = ifo.clone();
             let fid_opt = ncid.as_ref().map(|s| s.clone()); let aid_v = (*aid).clone();
             let aid_inner = aid.clone(); let ild_final = il.clone();
+            let lmk_inner = lmk.clone();
+            let osa_inner = osa.clone();
+            let timer_inner = timer_h.clone();
+
+            lmk_inner.set("synchronizing");
+            ild_final.set(true); 
+            ifod.set(false);
+
             spawn_local(async move {
                 let mut us = (*ss_inner).clone(); let mut deleted = false;
                 if let Some(pos) = us.iter().position(|x| x.id == conf.sheet_id) {
                     let s = &mut us[pos];
                     match sel {
-                        0 => { if let Ok(dv) = download_file(&conf.drive_id, None, None).await { 
-                            let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
-                            let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
-                            let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
-                            let t = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&dv)).unwrap().as_string().unwrap_or_default();
-                            let t_len = t.len() as u64;
-                            s.content = t.clone(); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(conf.drive_time); s.is_modified = false; s.loaded_bytes = t_len; s.total_size = t_len; if Some(s.id.clone()) == aid_v { set_editor_content(&t); } } },
-                        1 => { 
+                        0 => { // Googleドライブのデータを読み込む
+                            if let Ok(dv) = download_file(&conf.drive_id, None, None).await { 
+                                let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
+                                let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
+                                let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
+                                let t = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&dv)).unwrap().as_string().unwrap_or_default();
+                                let t_len = t.len() as u64;
+                                s.content = t.clone(); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(conf.drive_time); s.is_modified = false; s.loaded_bytes = t_len; s.total_size = t_len; if Some(s.id.clone()) == aid_v { set_editor_content(&t); } 
+                            }
+                        },
+                        1 => { // 編集中のデータを上書き
                             if let Some(fid) = fid_opt { 
                                 let did = if conf.is_missing_on_drive { None } else { Some(conf.drive_id.as_str()) };
                                 if let Ok(rv) = upload_file(&format!("{}.txt", s.guid.as_ref().unwrap_or(&generate_uuid())), &JsValue::from_str(&s.content), &fid, did).await {
@@ -838,7 +881,16 @@ pub fn app() -> Html {
                                 }
                             } 
                         },
-                        2 => { if let Some(fid) = fid_opt { let ng = generate_uuid(); let _ = upload_file(&format!("{}.txt", ng), &JsValue::from_str(&s.content), &fid, None).await; s.guid = Some(ng); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(js_sys::Date::now() as u64); s.is_modified = false; s.tab_color = generate_random_color(); } },
+                        2 => { // 別ファイルとして保存
+                            if let Some(fid) = fid_opt { 
+                                let ng = generate_uuid(); 
+                                if let Ok(rv) = upload_file(&format!("{}.txt", ng), &JsValue::from_str(&s.content), &fid, None).await {
+                                    if let Ok(iv) = js_sys::Reflect::get(&rv, &JsValue::from_str("id")) { if let Some(is) = iv.as_string() { s.drive_id = Some(is); } }
+                                    if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { s.last_sync_timestamp = Some(crate::drive_interop::parse_date(&ts) as u64); } }
+                                    s.guid = Some(ng); s.temp_content = None; s.temp_timestamp = None; s.is_modified = false; s.tab_color = generate_random_color(); 
+                                }
+                            } 
+                        },
                         3 => { let _ = crate::db_interop::delete_sheet(&s.id).await; us.remove(pos); deleted = true; },
                         _ => {}
                     }
@@ -856,11 +908,16 @@ pub fn app() -> Html {
                     let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                 } else if deleted { let nid = us.last().unwrap().id.clone(); aid_inner.set(Some(nid)); }
                 ss_inner.set(us.clone()); qs.set(q.clone());
+                
+                // 処理完了後の後始末
                 if q.is_empty() { 
                     ifod.set(true); 
                     let ild = ild_final.clone(); let aid = aid_inner.clone(); let u_final = us.clone(); 
+                    let ifo_inner = ifod.clone();
+                    let osa = osa_inner.clone();
+                    let timer = timer_inner.clone();
                     Timeout::new(350, move || { 
-                        ild.set(false); 
+                        ild.set(false); ifo_inner.set(false);
                         if let Some(id) = (*aid).clone() { 
                             if let Some(s) = u_final.iter().find(|x| x.id == id) { 
                                 set_editor_content(&s.content); 
@@ -869,9 +926,16 @@ pub fn app() -> Html {
                             } 
                         } 
                         focus_editor(); 
+                        
+                        // 自動保存の監視を再開（1秒後にチェック）
+                        if let Some(osa_cb) = (*osa.borrow()).as_ref() {
+                            let osa_cb = osa_cb.clone();
+                            timer.set(Some(Timeout::new(1000, move || { osa_cb.emit(false); })));
+                        }
                     }).forget(); 
                 }
-            });        })
+            });
+        })
     };
 
     let on_file_sel_cb = {
@@ -1091,6 +1155,8 @@ pub fn app() -> Html {
         let aid_ref_effect = active_id_ref.clone();
         let s_ref_effect = sheets_ref.clone();
         let cq_effect = conflict_queue.clone();
+        let lmk_effect = loading_message_key.clone();
+
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let is_auth_c = is_auth.clone();
@@ -1114,10 +1180,13 @@ pub fn app() -> Html {
                 let aid_ref = aid_ref_effect.clone();
                 let s_ref = s_ref_effect.clone();
                 let cq = cq_effect.clone();
+                let ild = is_ld.clone();
+                let ifo = is_fo.clone();
+                let lmk = lmk_effect.clone();
                 EventListener::new(&window, "online", move |_| {
                     gloo::console::log!("[Leaf-SYSTEM] Network online. Checking for conflicts...");
                     nc.set(true);
-                    trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone());
+                    trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone(), ild.clone(), ifo.clone(), lmk.clone(), None);
                 })
             };
 
@@ -1131,12 +1200,15 @@ pub fn app() -> Html {
                 let aid_ref = aid_ref_effect.clone();
                 let s_ref = s_ref_effect.clone();
                 let cq = cq_effect.clone();
+                let ild = is_ld.clone();
+                let ifo = is_fo.clone();
+                let lmk = lmk_effect.clone();
                 let doc = web_sys::window().unwrap().document().unwrap();
                 EventListener::new(&doc, "visibilitychange", move |_| {
                     let doc = web_sys::window().unwrap().document().unwrap();
                     if !doc.hidden() {
                         gloo::console::log!("[Leaf-SYSTEM] App visible. Checking for conflicts...");
-                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone());
+                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone(), ild.clone(), ifo.clone(), lmk.clone(), None);
                     }
                 })
             };
@@ -1193,11 +1265,19 @@ pub fn app() -> Html {
         let client_id = client_id.clone(); let s_state = sheets.clone(); let rs = sheets_ref.clone();
         let ild_h = is_loading.clone(); let ifo_h = is_fading_out.clone(); let is_init_h = is_initial_load.clone();
         let nc_h = network_connected.clone();
+        let cq_h = conflict_queue.clone();
+        let lmk_h = loading_message_key.clone();
+        let aid_ref_h = active_id_ref.clone();
+
         use_effect_with((), move |_| {
             let is_auth_cb = is_auth.clone(); let ncid_cb = ncid.clone(); let ldid_cb = ldid.clone();
             let cats_cb = cats_init.clone(); let s_state_cb = s_state.clone(); let rs_cb = rs.clone();
             let ild_cb = ild_h.clone(); let ifo_cb = ifo_h.clone(); let is_init_cb = is_init_h.clone();
             let nc_cb = nc_h.clone();
+            let cq_cb = cq_h.clone();
+            let lmk_cb = lmk_h.clone();
+            let aid_ref_cb = aid_ref_h.clone();
+
             let callback = Closure::wrap(Box::new(move |_token: String| {
                 let is_auth_inner = is_auth_cb.clone();
                 if !*is_auth_inner {
@@ -1207,6 +1287,10 @@ pub fn app() -> Html {
                     let ild_inner = ild_cb.clone(); let ifo_inner = ifo_cb.clone(); let is_init_inner = is_init_cb.clone();
                     let is_auth_err = is_auth_inner.clone();
                     let nc_inner = nc_cb.clone();
+                    let cq_inner = cq_cb.clone();
+                    let lmk_inner = lmk_cb.clone();
+                    let aid_ref_inner = aid_ref_cb.clone();
+
                     spawn_local(async move {
                         match ensure_directory_structure().await {
                             Ok(res) => {
@@ -1234,8 +1318,17 @@ pub fn app() -> Html {
                                                 c_state.set(n_cats);
                                             }
                                         }
-                                        ifo_inner.set(true); let ifo_final = ifo_inner.clone();
-                                        Timeout::new(300, move || { ild_inner.set(false); is_init_inner.set(false); ifo_final.set(false); }).forget();
+                                        
+                                        // 初期化の最後に衝突チェックを実行
+                                        trigger_conflict_check(
+                                            aid_ref_inner, 
+                                            rs_inner.clone(),
+                                            cq_inner,
+                                            ild_inner.clone(),
+                                            ifo_inner.clone(),
+                                            lmk_inner,
+                                            Some(is_init_inner.clone())
+                                        );
                                     }
                                 }
                             },
@@ -1562,7 +1655,7 @@ pub fn app() -> Html {
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if *is_install_manual_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_manual_title", lang)} message={i18n::t("install_manual_message", lang)} ok_label={i18n::t("ok", lang)} on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)} on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)} /></div> }
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category { let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang); let pending = pending_delete_category.clone(); let on_cfm = on_delete_category_cfm.clone(); Some(html! { <ConfirmDialog title={title} message={message} on_confirm={move |_| { on_cfm.emit(1); }} on_cancel={move |_| { pending.set(None); }} /> }) } else { None } { <div class="pointer-events-auto">{ del_diag }</div> }
-                if let Some(conf_diag) = if !conflict_queue.is_empty() { let conflict = conflict_queue.first().unwrap(); let title = if conflict.is_missing_on_drive { i18n::t("file_not_found", lang) } else { i18n::t("conflict_detected", lang) }; let message = if conflict.is_missing_on_drive { i18n::t("missing_file_message", lang).replace("{}", &conflict.title) } else { i18n::t("conflict_message", lang).replace("{}", &conflict.title) }; let options = if conflict.is_missing_on_drive { vec![DialogOption { id: 1, label: i18n::t("opt_reupload", lang) }, DialogOption { id: 3, label: i18n::t("opt_delete_local", lang) }] } else { vec![DialogOption { id: 0, label: i18n::t("opt_load_drive", lang) }, DialogOption { id: 1, label: i18n::t("opt_overwrite_drive", lang) }, DialogOption { id: 2, label: i18n::t("opt_save_new", lang) }] }; let cq = conflict_queue.clone(); let on_cfm = on_conf_cfm.clone(); Some(html! { <CustomDialog title={title} message={message} options={options} on_confirm={on_cfm} on_cancel={let cq = cq.clone(); Some(Callback::from(move |_| { cq.set(Vec::new()); }))} /> }) } else { None } { <div class="pointer-events-auto">{ conf_diag }</div> }
+                if let Some(conf_diag) = if !conflict_queue.is_empty() { let conflict = conflict_queue.first().unwrap(); let title = if conflict.is_missing_on_drive { i18n::t("file_not_found", lang) } else { i18n::t("conflict_detected", lang) }; let message = if conflict.is_missing_on_drive { i18n::t("missing_file_message", lang).replace("{}", &conflict.title) } else { i18n::t("conflict_message", lang).replace("{}", &conflict.title) }; let options = if conflict.is_missing_on_drive { vec![DialogOption { id: 1, label: i18n::t("opt_reupload", lang) }, DialogOption { id: 3, label: i18n::t("opt_delete_local", lang) }] } else { vec![DialogOption { id: 0, label: i18n::t("opt_load_drive", lang) }, DialogOption { id: 1, label: i18n::t("opt_overwrite_drive", lang) }, DialogOption { id: 2, label: i18n::t("opt_save_new", lang) }] }; let on_cfm = on_conf_cfm.clone(); Some(html! { <CustomDialog title={title} message={message} options={options} on_confirm={on_cfm} /> }) } else { None } { <div class="pointer-events-auto">{ conf_diag }</div> }
                 if let Some(fb_alert) = if let Some(_) = fallback_queue.first() { let on_cfm = on_fallback_cfm.clone(); Some(html! { <CustomDialog title={i18n::t("category_not_found_title", lang)} message={i18n::t("category_not_found_fallback", lang)} options={vec![DialogOption { id: 0, label: i18n::t("ok", lang) }]} on_confirm={on_cfm} on_cancel={let fq = fallback_queue.clone(); Some(Callback::from(move |_| { fq.set(Vec::new()); }))} /> }) } else { None } { <div class="pointer-events-auto">{ fb_alert }</div> }
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() { let conflict = name_conflict_queue.first().unwrap(); let title = i18n::t("filename_conflict", lang); let message = i18n::t("filename_conflict_message", lang).replace("{}", &conflict.filename); let on_cfm = on_name_conflict_cfm.clone(); let ncq = name_conflict_queue.clone(); let labels = vec![i18n::t("opt_nc_overwrite", lang), i18n::t("opt_nc_new_guid", lang), i18n::t("opt_nc_rename", lang)]; Some(html! { <NameConflictDialog title={title} message={message} current_name={conflict.filename.clone()} labels={labels} on_confirm={on_cfm} on_cancel={move |_| { ncq.set(Vec::new()); }} /> }) } else { None } { <div class="pointer-events-auto">{ nc_diag }</div> }
                 if let Some(import_diag) = if let Some(_) = (*pending_import_data).clone() { let on_cfm = on_confirm_import.clone(); let pending = pending_import_data.clone(); Some(html! { <ConfirmDialog title={i18n::t("confirm_conversion", lang)} message={i18n::t("confirm_conversion", lang)} on_confirm={let on_c = on_cfm.clone(); move |_| on_c.emit(true)} on_cancel={move |_| pending.set(None)} /> }) } else { None } { <div class="pointer-events-auto">{ import_diag }</div> }
