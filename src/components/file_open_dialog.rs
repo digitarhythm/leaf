@@ -110,7 +110,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let fetching_ids = use_mut_ref(|| HashSet::<String>::new());
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
-    let processing_move_id = use_state(|| None::<String>); // 追加: 移動処理中のファイルID
+    let processing_move_id = use_state(|| None::<String>); 
 
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
@@ -286,8 +286,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_fading_out_h = is_fading_out.clone();
         let f_area_h = focused_area.clone();
         let on_nc_c = props.on_network_status_change.clone();
-        let pending_move = pending_move_file_id.clone(); // 追加
-        let processing_move = processing_move_id.clone(); // 追加
+        let pending_move = pending_move_file_id.clone();
+        let processing_move = processing_move_id.clone();
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             if let Some(ctrl) = (*abort_ctrl_state).as_ref() { ctrl.abort(); }
             let new_ctrl = AbortController::new().unwrap();
@@ -297,8 +297,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             files_reducer.dispatch(FileAction::Clear);
             fetching_ids.borrow_mut().clear();
             selected_file_idx.set(None);
-            pending_move.set(None); // カテゴリー切り替え時にクリア
-            processing_move.set(None); // カテゴリー切り替え時にクリア
+            pending_move.set(None);
+            processing_move.set(None);
             current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
             on_loading_change.emit(true);
@@ -518,7 +518,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let files_reducer = files.clone(); 
         let pending_move = pending_move_file_id.clone();
         let ads_state = active_dropdown_file_id.clone();
-        let proc_move = processing_move_id.clone(); // 追加
+        let proc_move = processing_move_id.clone();
         Callback::from(move |(file_id, new_cat_id): (String, String)| {
             ads_state.set(None); 
             let old_cid = (*cur_cid_c).clone();
@@ -526,14 +526,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let p_move = pending_move.clone();
             let proc_m = proc_move.clone();
             
-            proc_m.set(Some(f_id.clone())); // 個別ローディング開始
+            proc_m.set(Some(f_id.clone()));
             spawn_local(async move {
                 if let Ok(_) = move_file(&f_id, &old_cid, &new_cat_id).await {
                     proc_m.set(None); 
                     p_move.set(Some(f_id.clone())); 
                     Timeout::new(200, move || { reducer.dispatch(FileAction::Remove(f_id.clone())); }).forget();
                 } else { 
-                    proc_m.set(None); // 失敗時もクリア
+                    proc_m.set(None);
                 }
             });
         })
@@ -594,7 +594,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_wide = *is_wide_layout;
 
         html! {
-            <div class={classes!("flex", "flex-col", if is_wide { "w-64" } else { "w-48" }, "border-r", "border-white/5", "bg-gray-900/50")}>
+            <div class={classes!("flex", "flex-col", if is_wide { "w-[30%]" } else { "w-48" }, "border-r", "border-white/5", "bg-gray-900/50")}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between">
                     <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">{ i18n::t("new_category", lang) }</span>
                     <button 
@@ -614,8 +614,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         let cid_val = cat.id.clone(); 
                         let cname_val = cat.name.clone();
                         let load_inner = load_files_cb.clone(); let s_idx_inner = s_idx_state.clone();
-                        let on_del_inner = on_del_cb.clone(); let on_ren_inner = on_ren_cb.clone();
+                        let on_ren_inner = on_ren_cb.clone();
                         let eid_inner = eid_state.clone(); let ein_inner = ein_state.clone();
+                        let on_del_inner = on_del_cb.clone();
                         let cid_for_rename = cid_val.clone();
                         let cid_for_delete = cid_val.clone();
 
@@ -669,15 +670,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let active_dropdown_state = active_dropdown_file_id.clone();
         let is_ld_id = (*is_deleting_id).clone();
         let p_move_id = (*pending_move_file_id).clone();
-        let proc_move_id = (*processing_move_id).clone(); // 追加
+        let proc_move_id = (*processing_move_id).clone();
         let categories = (*sorted_categories).clone();
         let current_cid = (*current_category_id).clone();
         let on_move = on_move_file.clone();
         let p_del_state = pending_delete_file.clone();
         let dot_cnt = *dot_count;
+        let is_wide = *is_wide_layout;
 
         html! {
-            <div class="flex-1 flex flex-col bg-gray-900 min-w-0 h-full">
+            <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[30%]" } else { "flex-1" })}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between bg-gray-950/20">
                     <div class="flex items-center space-x-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -697,7 +699,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let is_dropdown_open = active_dropdown.as_ref() == Some(&file.id);
                             let is_deleting = is_ld_id.as_ref() == Some(&file.id);
                             let is_moving = p_move_id.as_ref() == Some(&file.id);
-                            let is_processing = proc_move_id.as_ref() == Some(&file.id); // 移動中かチェック
+                            let is_processing = proc_move_id.as_ref() == Some(&file.id);
                             
                             let s_idx_inner = s_idx_state.clone();
                             let on_ok_inner = on_ok.clone();
@@ -774,7 +776,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                             } else { file.content.clone() } }
                                         </div>
                                     </div>
-                                    // 追加: 移動中のローディング・オーバーレイ
                                     if is_processing {
                                         <div class="absolute inset-0 z-[100] bg-gray-900/60 backdrop-blur-[1px] flex items-center justify-center rounded-lg animate-in fade-in duration-200">
                                             <div class="bg-blue-600 p-2 rounded-full shadow-lg border border-blue-400">
@@ -799,7 +800,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_wide = *is_wide_layout;
 
         html! {
-            <div ref={preview_area_ref} class={classes!("flex-1", "flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", if is_wide { "border-l" } else { "" }, "border-white/5")}>
+            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", if is_wide { vec!["w-[40%]", "border-l"] } else { vec!["flex-1"] }, "border-white/5")}>
                 if let Some(file) = file_opt {
                     <div class="flex-1 flex flex-col min-h-0">
                         <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
@@ -855,7 +856,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick={handle_close.reform(|_| ())}></div>
 
             <div class={classes!(
-                "relative", "flex", "flex-col", "bg-gray-900", "border", "border-white/10", "rounded-xl", "shadow-2xl", "w-full", "max-w-6xl", "h-full", "max-h-[80vh]", "overflow-hidden",
+                "relative", "flex", "flex-col", "bg-gray-900", "border", "border-white/10", "rounded-xl", "shadow-2xl", "h-full", "max-h-[80vh]", "overflow-hidden",
+                if *is_wide_layout { vec!["w-[70vw]"] } else { vec!["w-full", "max-w-6xl"] },
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 // メインコンテンツエリア (Categories + Files + Preview)
