@@ -22,7 +22,6 @@ struct FilePreview {
     loaded_bytes: u64,
     is_markdown: bool,
     lang: String,
-    is_prefetched: bool,
 }
 
 enum FileAction {
@@ -238,23 +237,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         sorted
     });
 
+    // 各シートの10KB先読み処理
     let trigger_prefetch = {
         let files_reducer = files.clone();
         let fetching_ids = fetching_ids.clone();
-        Callback::from(move |idx: usize| {
-            let files_list = files_reducer.list.clone();
-            if idx >= files_list.len() { return; }
-            let file = &files_list[idx];
-            if !file.content.is_empty() || fetching_ids.borrow().contains(&file.id) { return; }
+        Callback::from(move |(file_info, signal): ((String, u64), web_sys::AbortSignal)| {
+            let (file_id, total_size) = file_info;
+            if fetching_ids.borrow().contains(&file_id) { return; }
             
-            let file_id = file.id.clone();
-            let total_size = file.total_size;
             fetching_ids.borrow_mut().insert(file_id.clone());
             let reducer = files_reducer.clone();
             let ids = fetching_ids.clone();
             spawn_local(async move {
                 let range = if total_size > 10240 { Some("0-10239") } else { None };
-                if let Ok(cv) = download_file(&file_id, range, None).await {
+                if let Ok(cv) = download_file(&file_id, range, Some(signal)).await {
                     let safe = get_safe_chunk(&cv);
                     let t = js_sys::Reflect::get(&safe, &JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
                     let b = js_sys::Reflect::get(&safe, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
@@ -294,6 +290,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let signal = new_ctrl.signal();
             abort_ctrl_state.set(Some(new_ctrl.clone()));
             if let Some(window) = web_sys::window() { if let Ok(Some(storage)) = window.local_storage() { let _ = storage.set_item(STORAGE_KEY_LAST_CAT, &cat_id); } }
+            
             files_reducer.dispatch(FileAction::Clear);
             fetching_ids.borrow_mut().clear();
             selected_file_idx.set(None);
@@ -302,6 +299,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
             on_loading_change.emit(true);
+
             let reducer_inner = files_reducer.clone();
             let sig_inner = signal.clone();
             let on_ld_inner = on_loading_change.clone();
@@ -309,9 +307,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let f_area_inner = f_area_h.clone();
             let is_fading_inner = is_fading_out_h.clone();
             let on_nc_inner = on_nc_c.clone();
+
             spawn_local(async move {
                 let res = list_files(&cid_inner, Some(sig_inner.clone())).await;
                 if sig_inner.aborted() { return; }
+                
                 if let Ok(res_val) = res {
                     on_nc_inner.emit(true); 
                     if let Ok(files_val) = js_sys::Reflect::get(&res_val, &JsValue::from_str("files")) {
@@ -324,8 +324,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let size_val = js_sys::Reflect::get(&v, &JsValue::from_str("size")).unwrap_or(JsValue::UNDEFINED);
                             let total_size = size_val.as_string().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
                             let ext = name.split('.').last().unwrap_or("").to_lowercase();
-                            let lang_str = ext.clone();
-                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: lang_str, is_prefetched: false });
+                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext });
                         }
                         all_metadata.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
                         reducer_inner.dispatch(FileAction::Set(all_metadata));
@@ -339,12 +338,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
-    // ファイルリストが更新されたら全ファイルの先読みを開始
+    // ファイルリストが更新されたらバックグラウンド読み込みを開始
     {
-        let list_len = files.list.len();
+        let list = files.list.clone();
         let prefetch = trigger_prefetch.clone();
-        use_effect_with(list_len, move |&len| {
-            for i in 0..len { prefetch.emit(i); }
+        let abort_ctrl = abort_controller.clone();
+        use_effect_with(list, move |list| {
+            if let Some(ctrl) = (*abort_ctrl).as_ref() {
+                let signal = ctrl.signal();
+                for file in list.iter() {
+                    if file.content.is_empty() {
+                        prefetch.emit(((file.id.clone(), file.total_size), signal.clone()));
+                    }
+                }
+            }
             || ()
         });
     }
@@ -431,13 +438,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_prev_toggle_c = props.on_preview_toggle.clone();
         let is_sub_dialog_open = props.is_sub_dialog_open;
         let is_creating_cat = props.is_creating_category;
-        let is_loading = props.is_loading;
         let is_loading_prev_val = *is_loading_preview;
         let has_pending_del = pending_delete_file.is_some();
 
         Callback::from(move |e: KeyboardEvent| {
             let current_focus = *focused_area_c;
-            if preview_modal_c.is_some() || is_sub_dialog_open || is_creating_cat || is_loading || is_loading_prev_val || has_pending_del {
+            if preview_modal_c.is_some() || is_sub_dialog_open || is_creating_cat || is_loading_prev_val || has_pending_del {
                 return;
             }
             if *is_fading_out_cc || is_deleting_cc.is_some() { return; }
@@ -459,7 +465,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             if !file.content.is_empty() && file.loaded_bytes >= file.total_size.min(10240) {
                                 is_fade.set(false);
                                 on_prev_toggle_c.emit(true);
-                                p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: file.content.clone(), total_size, loaded_bytes: file.loaded_bytes, is_markdown: is_md, lang: lang_c, is_prefetched: true }));
+                                p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: file.content.clone(), total_size, loaded_bytes: file.loaded_bytes, is_markdown: is_md, lang: lang_c }));
                             } else {
                                 is_ld_prev.set(true);
                                 let on_pt = on_prev_toggle_c.clone();
@@ -470,7 +476,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         let b = js_sys::Reflect::get(&safe, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
                                         is_fade.set(false);
                                         on_pt.emit(true);
-                                        p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: t, total_size, loaded_bytes: b, is_markdown: is_md, lang: lang_c, is_prefetched: true }));
+                                        p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: t, total_size, loaded_bytes: b, is_markdown: is_md, lang: lang_c }));
                                     }
                                     is_ld_prev.set(false);
                                 });
@@ -586,15 +592,15 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let categories = (*sorted_categories).clone();
         let load_files_cb = load_files.clone();
         let s_idx_state = selected_cat_idx.clone();
-        let on_del_cb = props.on_delete_category.clone();
-        let on_ren_cb = props.on_rename_category.clone();
-        let eid_state = editing_category_id.clone();
-        let ein_state = edit_name_input.clone();
+        let on_ren_inner = props.on_rename_category.clone();
+        let eid_inner = editing_category_id.clone();
+        let ein_inner = edit_name_input.clone();
+        let on_del_inner = props.on_delete_category.clone();
         let edit_ref = edit_input_ref.clone();
         let is_wide = *is_wide_layout;
 
         html! {
-            <div class={classes!("flex", "flex-col", if is_wide { "w-[30%]" } else { "w-48" }, "border-r", "border-white/5", "bg-gray-900/50")}>
+            <div class={classes!("flex", "flex-col", if is_wide { "w-[20%]" } else { "w-[40%]" }, "border-r", "border-white/5", "bg-gray-900/50")}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between">
                     <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">{ i18n::t("new_category", lang) }</span>
                     <button 
@@ -614,9 +620,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         let cid_val = cat.id.clone(); 
                         let cname_val = cat.name.clone();
                         let load_inner = load_files_cb.clone(); let s_idx_inner = s_idx_state.clone();
-                        let on_ren_inner = on_ren_cb.clone();
-                        let eid_inner = eid_state.clone(); let ein_inner = ein_state.clone();
-                        let on_del_inner = on_del_cb.clone();
+                        let eid_inner = eid_inner.clone(); let ein_inner = ein_inner.clone();
+                        let on_ren = on_ren_inner.clone(); let on_del = on_del_inner.clone();
                         let cid_for_rename = cid_val.clone();
                         let cid_for_delete = cid_val.clone();
 
@@ -637,7 +642,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         ref={edit_ref.clone()} type="text" value={(*ein_inner).clone()}
                                         oninput={let ein = ein_inner.clone(); move |e: InputEvent| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); ein.set(input.value()); }}
                                         onblur={let eid = eid_inner.clone(); move |_| eid.set(None)}
-                                        onkeydown={let eid = eid_inner.clone(); let ein = ein_inner.clone(); let cid_inner_val = cid_for_rename.clone(); let on_ren = on_ren_inner.clone(); move |e: KeyboardEvent| { if e.key() == "Enter" { let new_name = (*ein).clone(); if !new_name.trim().is_empty() { on_ren.emit((cid_inner_val.clone(), new_name)); } eid.set(None); } else if e.key() == "Escape" { eid.set(None); } }}
+                                        onkeydown={let eid = eid_inner.clone(); let ein = ein_inner.clone(); let cid_inner_val = cid_for_rename.clone(); let on_ren = on_ren.clone(); move |e: KeyboardEvent| { if e.key() == "Enter" { let new_name = (*ein).clone(); if !new_name.trim().is_empty() { on_ren.emit((cid_inner_val.clone(), new_name)); } eid.set(None); } else if e.key() == "Escape" { eid.set(None); } }}
                                         class="bg-gray-800 text-white text-sm border-none outline-none w-full px-1 rounded"
                                     />
                                 } else {
@@ -645,7 +650,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     if cat.name != "OTHERS" {
                                         <div class="hidden group-hover:flex items-center space-x-1 ml-2">
                                             <button onclick={let eid = eid_inner.clone(); let ein = ein_inner.clone(); let cid = cid_for_rename.clone(); let cn = cat.name.clone(); move |e: MouseEvent| { e.stop_propagation(); eid.set(Some(cid.clone())); ein.set(cn.clone()); }} class="p-1 hover:text-blue-400 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
-                                            <button onclick={let on_del = on_del_inner.clone(); let cid = cid_for_delete.clone(); move |e: MouseEvent| { e.stop_propagation(); on_del.emit(cid.clone()); }} class="p-1 hover:text-red-400 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
+                                            <button onclick={let on_del = on_del.clone(); let cid = cid_for_delete.clone(); move |e: MouseEvent| { e.stop_propagation(); on_del.emit(cid.clone()); }} class="p-1 hover:text-red-400 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                                         </div>
                                     }
                                 }
@@ -679,7 +684,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_wide = *is_wide_layout;
 
         html! {
-            <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[30%]" } else { "flex-1" })}>
+            <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[30%]" } else { "w-[60%]" })}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between bg-gray-950/20">
                     <div class="flex items-center space-x-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -687,10 +692,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     </div>
                 </div>
                 <div ref={file_list_ref} class="flex-1 overflow-y-auto custom-scrollbar flex flex-col p-2">
-                    if file_list.is_empty() && !props.is_loading {
+                    if props.is_loading && file_list.is_empty() {
+                        <div class="flex-1 flex flex-col items-center justify-center space-y-4">
+                            <div class="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                        </div>
+                    } else if file_list.is_empty() {
                         <div class="flex-1 flex flex-col items-center justify-center text-gray-600 space-y-4">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
-                            <p class="text-xs uppercase tracking-widest font-bold">{ "No files found" }</p>
+                            <p class="text-xs uppercase tracking-widest font-bold">{ i18n::t("no_files_found", lang) }</p>
                         </div>
                     } else {
                         { for file_list.into_iter().enumerate().map(|(i, file)| {
@@ -714,18 +723,18 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             html! {
                                 <div 
                                     class={classes!(
-                                        "group", "relative", "flex", "flex-col", "p-3", "rounded-lg", "cursor-pointer", "transition-all", "duration-200", "border", "h-[12.5%]", "min-h-[12.5%]", "flex-shrink-0", "mx-1", "mb-1",
+                                        "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "transition-all", "duration-200", "border", "h-[12.5%]", "min-h-[12.5%]", "flex-shrink-0", "mx-1", "mb-1",
                                         if is_dropdown_open { vec!["z-50", "bg-gray-800/90", "border-blue-500", "shadow-2xl"] }
-                                        else if is_sel { vec!["bg-blue-600", "text-white", "shadow-lg", "z-10", "border-white"] } 
+                                        else if is_active { vec!["bg-blue-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-blue-500/30", "scale-[1.01]"] } 
+                                        else if is_sel { vec!["bg-blue-600/10", "text-blue-400/80", "border-blue-500/30", "z-0"] }
                                         else { vec!["text-gray-400", "hover:bg-white/5", "border-white/10", "z-0"] },
-                                        if is_active { vec!["ring-4", "ring-blue-500/30", "scale-[1.01]"] } else { vec![] },
                                         if is_deleting || is_moving { vec!["opacity-0", "scale-95", "translate-x-4"] } else { vec!["opacity-100", "scale-100"] }
                                     )}
                                     onclick={move |_| { s_idx_inner.set(Some(i)); }}
                                     ondblclick={move |_| on_ok_inner.emit(())}
                                 >
                                     <div class="flex flex-col space-y-1 w-full h-full">
-                                        <div class="flex items-center justify-between w-full flex-shrink-0">
+                                        <div class="px-3 pt-2 flex items-center justify-between w-full flex-shrink-0">
                                             <div class="flex items-center space-x-2 overflow-hidden">
                                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-3", "w-3", "flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -733,16 +742,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 <span class="truncate text-[10px] font-medium opacity-70 leading-none">{ &file.name }</span>
                                             </div>
                                             <div class="flex items-center space-x-1">
-                                                <span class={classes!("text-[9px]", "font-mono", "mr-1", if is_sel { "text-blue-200" } else { "text-gray-600" })}>
-                                                    { if file.total_size > 1024 { format!("{:.1} KB", file.total_size as f64 / 1024.0) } else { format!("{} B", file.total_size) } }
-                                                </span>
                                                 <div class="relative">
                                                     <button 
                                                         onclick={let ads = ads_inner.clone(); let fid = file_id_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); if is_dropdown_open { ads.set(None); } else { ads.set(Some(fid.clone())); } }}
-                                                        class={classes!("p-1", "rounded", "hover:bg-black/20", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
+                                                        class={classes!("p-1.5", "rounded-md", "hover:bg-black/20", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
                                                         title="Change Category"
                                                     >
-                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                                                     </button>
                                                     if is_dropdown_open {
                                                         <div ref={dropdown_ref.clone()} class="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-white/10 rounded-lg shadow-2xl z-[60] py-1 animate-in fade-in zoom-in-95 duration-100">
@@ -759,15 +765,15 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 </div>
                                                 <button 
                                                     onclick={let fid = file_id_inner.clone(); let fname = file_name_inner.clone(); let p_del = p_del_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid.clone(), fname.clone()))); }}
-                                                    class={classes!("p-1", "rounded", "hover:bg-red-500/40", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
+                                                    class={classes!("p-1.5", "rounded-md", "hover:bg-red-500/40", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
                                                     title="Delete Sheet"
                                                 >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                                 </button>
                                             </div>
                                         </div>
                                         <div class={classes!(
-                                            "text-xs", "font-bold", "line-clamp-5", "leading-tight", "break-all", "flex-1", "overflow-hidden",
+                                            "px-3", "text-xs", "font-bold", "line-clamp-5", "leading-tight", "break-all", "flex-1", "overflow-hidden",
                                             if file.content.is_empty() { "opacity-70" } else if is_sel { "text-blue-50" } else { "text-gray-300" }
                                         )}>
                                             { if file.content.is_empty() { 
@@ -777,7 +783,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         </div>
                                     </div>
                                     if is_processing {
-                                        <div class="absolute inset-0 z-[100] bg-gray-900/60 backdrop-blur-[1px] flex items-center justify-center rounded-lg animate-in fade-in duration-200">
+                                        <div class="absolute inset-0 z-[100] bg-gray-900/60 backdrop-blur-[1px] flex items-center justify-center rounded animate-in fade-in duration-200">
                                             <div class="bg-blue-600 p-2 rounded-full shadow-lg border border-blue-400">
                                                 <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                                             </div>
@@ -800,7 +806,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_wide = *is_wide_layout;
 
         html! {
-            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", if is_wide { vec!["w-[40%]", "border-l"] } else { vec!["flex-1"] }, "border-white/5")}>
+            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", if is_wide { vec!["w-[50%]", "border-l"] } else { vec!["flex-1"] }, "border-white/5")}>
                 if let Some(file) = file_opt {
                     <div class="flex-1 flex flex-col min-h-0">
                         <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
@@ -824,7 +830,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 <pre class="text-gray-400 font-mono leading-relaxed selection:bg-blue-500/30 whitespace-pre-wrap break-all" style={format!("font-size: {}px", font_size)}>
                                     { &file.content }
                                     if file.loaded_bytes < file.total_size {
-                                        <div class="mt-4 pt-4 border-t border-white/5 text-[10px] text-gray-600 font-bold uppercase italic">{ i18n::t("omitted_below", lang) }</div>
+                                        <div class="mt-4 pt-4 border-t border-white/5 text-[10px] text-gray-600 font-bold uppercase italic text-center">{ i18n::t("omitted_below", lang) }</div>
                                     }
                                 </pre>
                             }
@@ -919,9 +925,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
             if *is_loading_preview {
                 <div class="fixed inset-0 z-[400] flex flex-col items-center justify-center bg-black/40 backdrop-blur-[2px] animate-in fade-in duration-200">
-                    <div class="bg-gray-900/90 border border-white/10 p-8 rounded-2xl shadow-2xl flex flex-col items-center space-y-4">
+                    <div class="bg-gray-900/90 border border-white/10 p-8 rounded-2xl shadow-2xl flex flex-col items-center">
                         <div class="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
-                        <p class="text-xs font-bold text-blue-400 uppercase tracking-[0.2em] animate-pulse">{ "Fetching Full Preview" }</p>
                     </div>
                 </div>
             }
@@ -943,11 +948,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             if file.is_markdown {
                                 <div class="markdown-body" style={format!("font-size: {}px", props.font_size)}>
                                     { Html::from_html_unchecked(AttrValue::from(crate::js_interop::render_markdown(&file.content))) }
-                                    if file.loaded_bytes < file.total_size { <div class="mt-8 pt-8 border-t border-white/5 text-xs text-gray-600 font-bold uppercase italic tracking-widest">{ i18n::t("omitted_below", lang) }</div> }
+                                    if file.loaded_bytes < file.total_size { <div class="mt-8 pt-8 border-t border-white/5 text-xs text-gray-600 font-bold uppercase italic tracking-widest text-center">{ i18n::t("omitted_below", lang) }</div> }
                                 </div>
                             } else {
                                 <pre class="text-gray-300 font-mono leading-relaxed selection:bg-blue-500/30 whitespace-pre-wrap break-all" style={format!("font-size: {}px", props.font_size)}>{ &file.content }</pre>
-                                if file.loaded_bytes < file.total_size { <div class="mt-8 pt-8 border-t border-white/5 text-xs text-gray-600 font-bold uppercase italic tracking-widest">{ i18n::t("omitted_below", lang) }</div> }
+                                if file.loaded_bytes < file.total_size { <div class="mt-8 pt-8 border-t border-white/5 text-xs text-gray-600 font-bold uppercase italic tracking-widest text-center">{ i18n::t("omitted_below", lang) }</div> }
                             }
                         </div>
                         <div class="px-6 py-4 bg-gray-950/50 border-t border-white/5 flex justify-center"><p class="text-[10px] text-gray-600 font-bold uppercase tracking-[0.2em]">{ i18n::t("close_guide", lang) }</p></div>

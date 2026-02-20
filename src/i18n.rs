@@ -245,6 +245,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Weet u zeker dat u dit wilt verwijderen?\n",
             _ => "Are you sure you want to delete this?\n",
         }.to_string(),
+        "no_files_found" => match lang {
+            Language::Ja => "ファイルが見つかりません",
+            Language::Zh => "未找到文件",
+            Language::Ko => "파일을 찾을 수 없습니다",
+            Language::Es => "No se encontraron archivos",
+            Language::De => "Keine Dateien gefunden",
+            Language::Fr => "Aucun fichier trouvé",
+            Language::It => "Nessun file trovato",
+            Language::Nl => "Geen bestanden gevonden",
+            _ => "No files found",
+        }.to_string(),
         "omitted_below" => match lang {
             Language::Ja => "・\n・\n・\n以下省略",
             _ => "・\n・\n・\nOmitted below",
