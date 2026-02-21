@@ -305,18 +305,6 @@ pub fn t(key: &str, lang: Language) -> String {
                     _ => "Filename not specified",
                 }.to_string(),
         
-                "confirm_conversion" => match lang {
-            Language::Ja => "ファイルをBOM付きUTF-8、改行コードLFに変換しますか？\n",
-            _ => "Do you want to convert the file to UTF-8 with BOM and LF line endings?\n",
-        }.to_string(),
-        "btn_convert" => match lang {
-            Language::Ja => "変換",
-            _ => "Convert",
-        }.to_string(),
-        "btn_no_conversion" => match lang {
-            Language::Ja => "無変換",
-            _ => "No conversion",
-        }.to_string(),
         "local_file" => match lang {
             Language::Ja => "ローカルファイル",
             _ => "Local File",
