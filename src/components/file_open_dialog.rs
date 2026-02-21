@@ -771,7 +771,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 <span class={classes!("px-1", "py-0.5", "rounded", "text-[8px]", "font-black", "uppercase", "tracking-tighter", "flex-shrink-0", if is_sel { "bg-white/20 text-white" } else { "bg-emerald-500/10 text-emerald-400/80" })}>{ &file.lang }</span>
                                                 <span class="file-name-fade whitespace-nowrap text-[11px] font-bold opacity-90 leading-none">{ &file.name }</span>
                                             </div>
-                                            <div class="flex items-center space-x-0.5 absolute right-2 top-[-4px] overflow-visible">
+                                            <div class={classes!(
+                                                "flex", "items-center", "space-x-0.5", "absolute", "right-2", "top-[-4px]", "overflow-visible", "transition-opacity", "duration-200",
+                                                if is_dropdown_open { "opacity-100" } else { "opacity-0 group-hover:opacity-100" }
+                                            )}>
                                                 <div class="relative">
                                                     <button 
                                                         onclick={let ads = ads_inner.clone(); let fid = file_id_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); if is_dropdown_open { ads.set(None); } else { ads.set(Some(fid.clone())); } }}
