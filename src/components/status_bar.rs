@@ -17,33 +17,7 @@ pub struct StatusBarProps {
 #[function_component(StatusBar)]
 pub fn status_bar(props: &StatusBarProps) -> Html {
     let lang = Language::detect();
-
-    let extensions = vec![
-        ("txt", "ext_txt"),
-        ("md", "ext_md"),
-        ("js", "ext_js"),
-        ("ts", "ext_ts"),
-        ("rs", "ext_rs"),
-        ("c", "ext_c"),
-        ("cpp", "ext_cpp"),
-        ("h", "ext_h"),
-        ("m", "ext_m"),
-        ("cs", "ext_cs"),
-        ("java", "ext_java"),
-        ("php", "ext_php"),
-        ("rb", "ext_rb"),
-        ("pl", "ext_pl"),
-        ("py", "ext_py"),
-        ("sh", "ext_sh"),
-        ("coffee", "ext_coffee"),
-        ("toml", "ext_toml"),
-        ("json", "ext_json"),
-        ("xml", "ext_xml"),
-        ("html", "ext_html"),
-        ("css", "ext_css"),
-        ("sql", "ext_sql"),
-        ("yaml", "ext_yaml"),
-    ];
+    let extensions = crate::app::SUPPORTED_EXTENSIONS;
 
     html! {
         <div class="flex items-center justify-between px-4 py-1 bg-gray-800 border-t border-gray-700 text-xs text-gray-400 select-none">

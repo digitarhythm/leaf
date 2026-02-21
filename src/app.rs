@@ -37,6 +37,33 @@ pub struct Sheet {
     pub loaded_bytes: u64,
 }
 
+pub const SUPPORTED_EXTENSIONS: &[(&str, &str)] = &[
+    ("txt", "ext_txt"),
+    ("md", "ext_md"),
+    ("js", "ext_js"),
+    ("ts", "ext_ts"),
+    ("rs", "ext_rs"),
+    ("c", "ext_c"),
+    ("cpp", "ext_cpp"),
+    ("h", "ext_h"),
+    ("m", "ext_m"),
+    ("cs", "ext_cs"),
+    ("java", "ext_java"),
+    ("php", "ext_php"),
+    ("rb", "ext_rb"),
+    ("pl", "ext_pl"),
+    ("py", "ext_py"),
+    ("sh", "ext_sh"),
+    ("coffee", "ext_coffee"),
+    ("toml", "ext_toml"),
+    ("json", "ext_json"),
+    ("xml", "ext_xml"),
+    ("html", "ext_html"),
+    ("css", "ext_css"),
+    ("sql", "ext_sql"),
+    ("yaml", "ext_yaml"),
+];
+
 impl Sheet {
     fn to_js(&self) -> JSSheet {
         JSSheet {
@@ -471,9 +498,9 @@ pub fn app() -> Html {
                         if sheet.drive_id.is_none() && sheet.guid.is_none() && !sheet.category.is_empty() && sheet.category != "__LOCAL__" {
                             let new_guid = generate_uuid();
                             let original_ext = sheet.title.split('.').last().unwrap_or("txt").to_lowercase();
-                            // シンタックスハイライト対応拡張子のホワイトリスト
-                            let supported_exts = vec!["rs", "js", "ts", "py", "md", "markdown", "html", "css", "sh", "yml", "yaml", "json", "sql", "txt"];
-                            let final_ext = if supported_exts.contains(&original_ext.as_str()) { original_ext } else { "txt".to_string() };
+                            // フッターの拡張子リストに基づいて判定
+                            let is_supported = SUPPORTED_EXTENSIONS.iter().any(|(ext, _)| *ext == original_ext);
+                            let final_ext = if is_supported { original_ext } else { "txt".to_string() };
                             
                             sheet.guid = Some(new_guid.clone());
                             sheet.title = format!("{}.{}", new_guid, final_ext);
@@ -602,7 +629,7 @@ pub fn app() -> Html {
                              }
                          }
                     
-                         let fname = if let Some(guid) = &sheet.guid { format!("{}.txt", guid) } else { sheet.title.clone() };
+                         let fname = sheet.title.clone();
                     
                          if sheet.drive_id.is_none() && sheet.guid.is_none() {
                              if let Ok(existing) = find_file_by_name(&fname, &target_folder_id).await {
@@ -1045,7 +1072,16 @@ pub fn app() -> Html {
             spawn_local(async move {
                 let mut us = (*rs_inner.borrow()).clone();
                 if let Some(sheet) = us.iter_mut().find(|s| s.drive_id.as_ref() == Some(&d_id)) {
-                    sheet.drive_id = None; let new_guid = generate_uuid(); sheet.guid = Some(new_guid.clone()); sheet.title = format!("{}.txt", new_guid); sheet.is_modified = true; set_gutter_status("unsaved");
+                    sheet.drive_id = None; 
+                    let new_guid = generate_uuid(); 
+                    let original_ext = sheet.title.split('.').last().unwrap_or("txt").to_lowercase();
+                    let is_supported = SUPPORTED_EXTENSIONS.iter().any(|(ext, _)| *ext == original_ext);
+                    let final_ext = if is_supported { original_ext } else { "txt".to_string() };
+                    
+                    sheet.guid = Some(new_guid.clone()); 
+                    sheet.title = format!("{}.{}", new_guid, final_ext); 
+                    sheet.is_modified = true; 
+                    set_gutter_status("unsaved");
                     let js = sheet.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                 }
                 *rs_inner.borrow_mut() = us.clone(); ss.set(us); let _ = delete_file(&d_id).await;
@@ -1118,7 +1154,17 @@ pub fn app() -> Html {
                     let lmk_inner = lmk.clone(); let r_s_inner = r_s.clone(); let os_inner = os.clone();
 
                     if (old_cat_id == "__LOCAL__" || old_cat_id.is_empty()) && !new_cat_id.is_empty() && new_cat_id != "__LOCAL__" {
-                        set_gutter_status("none"); let guid = generate_uuid(); sheet.guid = Some(guid.clone()); sheet.title = format!("{}.txt", guid); clear_local_handle(); sheet.category = new_cat_id;
+                        set_gutter_status("none"); 
+                        let guid = generate_uuid(); 
+                        let original_ext = sheet.title.split('.').last().unwrap_or("txt").to_lowercase();
+                        // フッターの拡張子リストに基づいて判定
+                        let is_supported = SUPPORTED_EXTENSIONS.iter().any(|(ext, _)| *ext == original_ext);
+                        let final_ext = if is_supported { original_ext } else { "txt".to_string() };
+                        
+                        sheet.guid = Some(guid.clone()); 
+                        sheet.title = format!("{}.{}", guid, final_ext); 
+                        clear_local_handle(); 
+                        sheet.category = new_cat_id;
                         let mut us = current_sheets; us[pos] = sheet; *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                         Timeout::new(0, move || { os_inner.emit(true); }).forget(); return;
                     }
@@ -1551,6 +1597,8 @@ pub fn app() -> Html {
                 let oi_cb = on_import_cb.clone(); let is_drop_ev = is_category_dropdown_open.clone();
                 let is_dialog_prev = is_dialog_preview_open.clone(); let is_creating_cat_ev = is_creating_category.clone();
                 let is_ld_ev = is_loading.clone(); let is_fo_ev = is_fading_out.clone();
+                let os_cb_ev = on_save_cb.clone(); let sheets_ev = sheets.clone();
+                let aid_ev = active_sheet_id.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_dialog_prev, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), (*pending_imp).is_some(), !(*ncq_esc).is_empty())), move |deps| {
                     let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, dialog_prev, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_imp, has_nc)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -1562,6 +1610,8 @@ pub fn app() -> Html {
                     let is_logout_conf_c = is_logout_conf.clone(); let ncq_esc_c = ncq_esc.clone();
                     let oi_c = oi_cb.clone(); let is_drop_c = is_drop_ev.clone();
                     let is_creating_cat_c = is_creating_cat_ev.clone();
+                    let os_c = os_cb_ev.clone(); let sheets_c = sheets_ev.clone();
+                    let aid_c = aid_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -1591,7 +1641,20 @@ pub fn app() -> Html {
                             if is_f { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); return; }
                             if is_s { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("saveSheet"); return; }
                             if is_shift_n { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newLocalSheet"); return; }
-                            if is_n && !ke.shift_key() { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newSheet"); return; }
+                            if is_n && !ke.shift_key() { 
+                                e.prevent_default(); e.stop_immediate_propagation(); 
+                                // 現在のシートに変更があれば保存
+                                if let Some(aid) = (*aid_c).clone() {
+                                    if let Some(sheet) = sheets_c.iter().find(|s| s.id == aid) {
+                                        if sheet.is_modified {
+                                            gloo::console::log!("[Leaf-SYSTEM] Current sheet is modified. Saving before creating new sheet...");
+                                            os_c.emit(false); // サイレント保存
+                                        }
+                                    }
+                                }
+                                crate::js_interop::exec_editor_command("newSheet"); 
+                                return; 
+                            }
                         }
                         if is_overlay_active {
                             let target = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok());
