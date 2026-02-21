@@ -221,6 +221,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                                 <a href="terms.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("terms_of_service", lang) }</a>
                                 <a href="privacy.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("privacy_policy", lang) }</a>
                                 <a href="licenses.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("oss_licenses", lang) }</a>
+                                <a href="tutorial.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("tutorial", lang) }</a>
                             </div>
                         }
                     </div>

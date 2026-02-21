@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaf Tutorial - 思考を止めないメモ帳</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>mermaid.initialize({ startOnLoad: true, theme: 'dark' });</script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --emerald: #10b981;
+            --text: #f1f5f9;
+            --text-dim: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 800px;
+            width: 90%;
+            padding: 4rem 0;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+        .logo {
+            font-size: 3rem;
+            font-weight: 900;
+            color: var(--emerald);
+            letter-spacing: -0.05em;
+            margin-bottom: 0.5rem;
+        }
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+        }
+        section {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+        h2 {
+            color: var(--emerald);
+            font-size: 1.5rem;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        h2::before {
+            content: '';
+            width: 4px;
+            height: 1.5rem;
+            background: var(--emerald);
+            border-radius: 2px;
+        }
+        p {
+            color: var(--text-dim);
+        }
+        ul {
+            padding-left: 1.2rem;
+        }
+        li {
+            margin-bottom: 0.75rem;
+            color: var(--text-dim);
+        }
+        strong {
+            color: var(--text);
+        }
+        .kbd {
+            background: #334155;
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: #fff;
+            border-bottom: 2px solid #1e293b;
+        }
+        .mermaid {
+            background: rgba(0,0,0,0.2);
+            padding: 1rem;
+            border-radius: 0.5rem;
+            margin: 1.5rem 0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            text-align: left;
+            padding: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            color: var(--emerald);
+            letter-spacing: 0.1em;
+        }
+        td {
+            font-size: 0.9rem;
+        }
+        footer {
+            text-align: center;
+            padding: 4rem 0;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+        .highlight {
+            color: var(--emerald);
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">Leaf</div>
+            <p class="subtitle">思考をファイル管理の束縛から解放する、次世代のメモ帳</p>
+        </header>
+
+        <section>
+            <h2>デザインコンセプト：管理しない管理</h2>
+            <p>Leafには「フォルダ階層」や「ファイル名に悩む時間」はありません。あなたの思考を即座に記録し、視覚的に管理するための仕組みを提供します。</p>
+            <div class="mermaid">
+                graph LR
+                    A[書き始める] --> B(自動保存)
+                    B --> C{ストレージ}
+                    C -->|標準| D[Google Drive]
+                    C -->|一時的| E[IndexedDB]
+                    D --> F[シート一覧で目視管理]
+                    E --> F
+                    style A fill:#10b981,color:#fff,stroke:none
+                    style F fill:#10b981,color:#fff,stroke:none
+            </div>
+        </section>
+
+        <section>
+            <h2>主な特徴</h2>
+            <ul>
+                <li><strong>Googleドライブ同期</strong>: 全てのシートはマイドライブ内の専用フォルダに保存され、どのデバイスからでも同じ環境で編集できます。</li>
+                <li><strong>カテゴリー & 目視管理</strong>: ファイル名ではなく「カテゴリー」と「内容のプレビュー」で直感的にシートを探せます。 <span class="kbd">Opt/Alt + m</span> で一覧を表示。</li>
+                <li><strong>オートセーブ</strong>: 編集はリアルタイムで保存されます。「保存し忘れ」によるデータの損失を心配する必要はありません。</li>
+                <li><strong>インテリジェント・プレビュー</strong>: <span class="kbd">Opt/Alt + l</span> で、Markdownのレンダリングやソースコードのシンタックスハイライト（Tokyo Nightテーマ）を確認できます。</li>
+                <li><strong>ローカルファイル対応</strong>: <span class="kbd">Opt/Alt + o</span> でPC内のファイルを開けます。既存のエンコードを尊重しつつ、必要に応じてクラウドへ移行可能です。</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2>クイックショートカット</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>キー</th>
+                        <th>機能</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="kbd">Opt/Alt + n</span></td>
+                        <td>新規シート作成（Googleドライブ）</td>
+                    </tr>
+                    <tr>
+                        <td><span class="kbd">Opt/Alt + Shift + n</span></td>
+                        <td>新規ローカルファイル作成（BOM付きUTF-8）</td>
+                    </tr>
+                    <tr>
+                        <td><span class="kbd">Opt/Alt + m</span></td>
+                        <td>シート選択ダイアログを表示</td>
+                    </tr>
+                    <tr>
+                        <td><span class="kbd">Opt/Alt + l</span></td>
+                        <td>プレビュー（Markdown / Code）の切り替え</td>
+                    </tr>
+                    <tr>
+                        <td><span class="kbd">Opt/Alt + o</span></td>
+                        <td>ローカルファイルを開く</td>
+                    </tr>
+                    <tr>
+                        <td><span class="kbd">Opt/Alt + s</span></td>
+                        <td>強制保存（通常は自動保存されます）</td>
+                    </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section>
+            <h2>データ保護ロジック</h2>
+            <p>Leafは、リロード時などの予期せぬトラブルからあなたのデータを守ります。エディタが異常にクリアされたことを検知すると、自動保存を一時停止し、直前の正しい状態を復元します。</p>
+        </section>
+
+        <footer>
+            &copy; 2026 Leaf Notepad Application. Designed for Focus.
+        </footer>
+    </div>
+</body>
+</html>
