@@ -121,18 +121,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     let _is_sub_dialog_open = props.is_sub_dialog_open;
 
-    // Loadingアニメーション用のドットカウント
-    let dot_count = use_state(|| 0usize);
-    {
-        let dot_count_c = dot_count.clone();
-        use_effect_with((), move |_| {
-            let interval = gloo::timers::callback::Interval::new(500, move || {
-                dot_count_c.set((*dot_count_c + 1) % 4);
-            });
-            move || { drop(interval); }
-        });
-    }
-
     // ウィンドウサイズ監視
     {
         let is_wide = is_wide_layout.clone();
@@ -612,6 +600,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_del_inner = props.on_delete_category.clone();
         let edit_ref = edit_input_ref.clone();
         let is_wide = *is_wide_layout;
+        let focused_area_h = focused_area.clone();
 
         html! {
             <div class={classes!("flex", "flex-col", if is_wide { "w-[20%]" } else { "w-[40%]" }, "border-r", "border-white/5", "bg-gray-900/50")}>
@@ -646,7 +635,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     if is_sel { vec!["bg-emerald-600/20", "text-emerald-400"] } else { vec!["text-gray-400", "hover:bg-white/5", "hover:text-gray-200"] },
                                     if is_active { vec!["ring-2", "ring-emerald-500/50", "bg-emerald-600/30"] } else { vec![] }
                                 )}
-                                onclick={move |_| { s_idx_inner.set(i); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); }}
+                                onclick={let f_area = focused_area_h.clone(); move |_| { s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); }}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4", "w-4", "mr-3", if is_sel { "text-emerald-500" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -694,7 +683,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let current_cid = (*current_category_id).clone();
         let on_move = on_move_file.clone();
         let p_del_state = pending_delete_file.clone();
-        let dot_cnt = *dot_count;
         let is_wide = *is_wide_layout;
         let focused_area_h = focused_area.clone();
 
@@ -793,10 +781,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                             "px-3", "pb-3", "text-xs", "font-bold", "line-clamp-3", "leading-snug", "break-all", "overflow-hidden",
                                             if file.content.is_empty() { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
                                         )}>
-                                            { if file.content.is_empty() { 
-                                                let dots = ".".repeat(dot_cnt);
-                                                format!("Loading{}", dots)
-                                            } else { file.content.clone() } }
+                                            if file.content.is_empty() { 
+                                                <div class="flex items-center space-x-2 py-1">
+                                                    <div class="w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                                                    <span class="text-[10px] uppercase tracking-widest animate-pulse font-black text-emerald-500/60">{ "Loading" }</span>
+                                                </div>
+                                            } else {
+                                                { file.content.clone() }
+                                            }
                                         </div>
                                     </div>
                                     if is_processing {
