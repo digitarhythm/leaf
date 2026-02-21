@@ -23,6 +23,7 @@ struct FilePreview {
     loaded_bytes: u64,
     is_markdown: bool,
     lang: String,
+    is_loaded: bool, // 読み込み完了フラグ
 }
 
 enum FileAction {
@@ -44,7 +45,9 @@ impl Reducible for FileState {
             FileAction::UpdateContent(id, content, loaded_bytes) => {
                 let mut list = self.list.clone();
                 if let Some(f) = list.iter_mut().find(|x| x.id == id) {
-                    f.content = content; f.loaded_bytes = loaded_bytes;
+                    f.content = content; 
+                    f.loaded_bytes = loaded_bytes;
+                    f.is_loaded = true; // 内容が（空であっても）確定した
                 }
                 Rc::new(FileState { list })
             }
@@ -313,7 +316,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let size_val = js_sys::Reflect::get(&v, &JsValue::from_str("size")).unwrap_or(JsValue::UNDEFINED);
                             let total_size = size_val.as_string().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
                             let ext = name.split('.').last().unwrap_or("").to_lowercase();
-                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext });
+                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext, is_loaded: false });
                         }
                         all_metadata.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
                         reducer_inner.dispatch(FileAction::Set(all_metadata));
@@ -336,7 +339,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             if let Some(ctrl) = (*abort_ctrl).as_ref() {
                 let signal = ctrl.signal();
                 for file in list.iter() {
-                    if file.content.is_empty() {
+                    if !file.is_loaded {
                         prefetch.emit(((file.id.clone(), file.total_size), signal.clone()));
                     }
                 }
@@ -463,10 +466,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let is_md = file.is_markdown; let lang_c = file.lang.clone();
                             let is_fade = is_preview_fading_out_c.clone();
                             
-                            if !file.content.is_empty() && file.loaded_bytes >= file.total_size.min(10240) {
+                            if file.is_loaded {
                                 is_fade.set(false);
                                 on_prev_toggle_c.emit(true);
-                                p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: file.content.clone(), total_size, loaded_bytes: file.loaded_bytes, is_markdown: is_md, lang: lang_c }));
+                                p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: file.content.clone(), total_size, loaded_bytes: file.loaded_bytes, is_markdown: is_md, lang: lang_c, is_loaded: true }));
                             } else {
                                 is_ld_prev.set(true);
                                 let on_pt = on_prev_toggle_c.clone();
@@ -477,7 +480,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         let b = js_sys::Reflect::get(&safe, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
                                         is_fade.set(false);
                                         on_pt.emit(true);
-                                        p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: t, total_size, loaded_bytes: b, is_markdown: is_md, lang: lang_c }));
+                                        p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: t, total_size, loaded_bytes: b, is_markdown: is_md, lang: lang_c, is_loaded: true }));
                                     }
                                     is_ld_prev.set(false);
                                 });
@@ -735,13 +738,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     ondblclick={move |_| on_ok_inner.emit(())}
                                 >
                                     <div class="flex flex-col w-full h-full">
-                                        // ファイル名表示エリア（高さを半分に、はみ出しを許可）
+                                        // ファイル名表示エリア（高さを半分に、はみ出しを許可、右端フェード）
                                         <div class="px-3 h-4 flex items-center justify-between w-full flex-shrink-0 relative overflow-visible mt-1.5 mb-1">
-                                            <div class="flex items-center space-x-2 overflow-hidden mr-2">
+                                            <div class="flex items-center space-x-2 overflow-hidden pr-14 w-full">
                                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-2.5", "w-2.5", "flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                 </svg>
-                                                <span class="truncate text-[11px] font-bold opacity-90 leading-none">{ &file.name }</span>
+                                                <span class="file-name-fade whitespace-nowrap text-[11px] font-bold opacity-90 leading-none">{ &file.name }</span>
                                             </div>
                                             <div class="flex items-center space-x-0.5 absolute right-2 top-[-4px] overflow-visible">
                                                 <div class="relative">
@@ -777,9 +780,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         // コンテンツプレビュー（冒頭3行を表示）
                                         <div class={classes!(
                                             "px-3", "pb-3", "text-xs", "font-bold", "line-clamp-3", "leading-snug", "break-all", "overflow-hidden",
-                                            if file.content.is_empty() { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
+                                            if !file.is_loaded { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
                                         )}>
-                                            if file.content.is_empty() { 
+                                            if !file.is_loaded { 
                                                 <div class="flex items-center space-x-2 py-1">
                                                     <div class="w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
                                                     <span class="text-[10px] uppercase tracking-widest animate-pulse font-black text-emerald-500/60">{ "Loading" }</span>
@@ -834,8 +837,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             on_close={Callback::from(|_| ())} // 埋め込み時は閉じない
                             font_size={font_size}
                             is_embedded={true}
-                            has_more={!file.content.is_empty() && file.loaded_bytes < file.total_size}
-                            is_loading={file.content.is_empty()}
+                            has_more={file.is_loaded && file.loaded_bytes < file.total_size}
+                            is_loading={!file.is_loaded}
                         />
                     </div>
                 } else {
@@ -943,7 +946,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     font_size={props.font_size}
                     on_change_font_size={props.on_change_font_size.clone()}
                     is_fading_out={*is_preview_fading_out}
-                    has_more={!file.content.is_empty() && file.loaded_bytes < file.total_size}
+                    has_more={file.is_loaded && file.loaded_bytes < file.total_size}
+                    close_on_space={true}
                 />
             }
         </div>

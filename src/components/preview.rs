@@ -28,6 +28,8 @@ pub struct PreviewProps {
     pub on_change_font_size: Callback<i32>,
     #[prop_or_default]
     pub is_embedded: bool, // ダイアログ内埋め込みモード
+    #[prop_or_default]
+    pub close_on_space: bool, // スペースキーで閉じるか
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen]
@@ -84,8 +86,9 @@ pub fn preview(props: &PreviewProps) -> Html {
         let is_help_mode = props.is_help;
         let on_change_font_size = props.on_change_font_size.clone();
         let is_embedded = props.is_embedded;
-        use_effect_with((is_help_mode, is_sub_dialog_open, on_change_font_size, is_embedded), move |deps| {
-            let (is_help_mode, is_sub_open, on_change_fs, is_embedded) = deps.clone();
+        let close_on_space = props.close_on_space;
+        use_effect_with((is_help_mode, is_sub_dialog_open, on_change_font_size, is_embedded, close_on_space), move |deps| {
+            let (is_help_mode, is_sub_open, on_change_fs, is_embedded, close_on_space) = deps.clone();
             if is_embedded { return Box::new(|| ()) as Box<dyn FnOnce()>; }
 
             let on_close = on_close_cb.clone();
@@ -105,7 +108,10 @@ pub fn preview(props: &PreviewProps) -> Html {
                 let is_home = key == "Home";
                 let is_end = key == "End";
                 e.stop_immediate_propagation();
-                if is_space || key == "Escape" { e.prevent_default(); on_close.emit(()); return; }
+                
+                // ESCキー または (設定されている場合の) スペースキーで閉じる
+                if (is_space && close_on_space) || key == "Escape" { e.prevent_default(); on_close.emit(()); return; }
+                
                 let is_l_key = code == "KeyL" || key.to_lowercase() == "l" || key == "¬";
                 let is_h_key = code == "KeyH" || key.to_lowercase() == "h" || key == "˙";
                 let is_target_key = if is_help_mode { is_h_key } else { is_l_key };
@@ -115,13 +121,13 @@ pub fn preview(props: &PreviewProps) -> Html {
                     if code == "Equal" || key == "=" || key == "+" || key == "≠" { e.prevent_default(); on_change_fs.emit(1); return; }
                     if code == "Minus" || key == "-" || key == "–" { e.prevent_default(); on_change_fs.emit(-1); return; }
                 }
-                if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end {
+                if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end || is_space {
                     if let Some(el) = node_ref.cast::<web_sys::Element>() {
                         e.prevent_default();
                         let client_height = el.client_height();
                         let current_scroll = el.scroll_top();
                         if is_up { el.set_scroll_top(current_scroll - client_height / 2); } 
-                        else if is_down { el.set_scroll_top(current_scroll + client_height / 2); } 
+                        else if is_down || is_space { el.set_scroll_top(current_scroll + client_height / 2); } 
                         else if is_arrow_up { el.set_scroll_top(current_scroll - 40); } 
                         else if is_arrow_down { el.set_scroll_top(current_scroll + 40); } 
                         else if is_home { el.set_scroll_top(0); } 

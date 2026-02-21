@@ -1681,7 +1681,7 @@ pub fn app() -> Html {
                                     on_toggle_vim={on_toggle_vim}
                                     category_name={current_cat_name}
                                     file_name={current_file_name}
-                                    file_extension={current_file_ext}
+                                    file_extension={current_file_ext.clone()}
                                     on_change_extension={on_change_extension_cb}
                                     version={env!("CARGO_PKG_VERSION").to_string()} 
                                 />
@@ -1729,7 +1729,7 @@ pub fn app() -> Html {
                     let aid = (*active_sheet_id).clone(); 
                     let c = if let Some(id) = aid { sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default() } else { "".to_string() }; 
                     let iv = is_preview_visible.clone(); 
-                    Some(html! { <Preview content={c} on_close={Callback::from(move |_| { iv.set(false); focus_editor(); })} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()} /> }) 
+                    Some(html! { <Preview content={c} lang={current_file_ext.clone()} on_close={Callback::from(move |_| { iv.set(false); focus_editor(); })} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()} /> }) 
                 } else if *is_help_visible { 
                     let ih = is_help_visible.clone(); 
                     let c = i18n::t("help_shortcuts", lang); 
