@@ -71,6 +71,7 @@ pub struct FileOpenDialogProps {
     pub on_delete_category: Callback<String>,
     pub on_rename_category: Callback<(String, String)>,
     pub on_delete_file: Callback<(String, String)>,
+    pub on_move_file: Callback<(String, String)>, // (drive_id, new_category_id)
     pub on_start_processing: Callback<()>,
     pub on_preview_toggle: Callback<bool>,
     pub is_sub_dialog_open: bool,
@@ -81,6 +82,7 @@ pub struct FileOpenDialogProps {
     pub on_loading_change: Callback<bool>,
     #[prop_or_default]
     pub on_network_status_change: Callback<bool>,
+    pub on_sub_active_change: Callback<bool>, // 追加
     pub font_size: i32,
     pub on_change_font_size: Callback<i32>,
 }
@@ -156,6 +158,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let r = root_ref_c.clone();
                 Timeout::new(150, move || { if let Some(div) = r.cast::<web_sys::HtmlElement>() { let _ = div.focus(); } }).forget();
             }
+            || ()
+        });
+    }
+
+    // サブダイアログ状態の親への通知
+    {
+        let p_modal = preview_modal_data.clone();
+        let p_del = pending_delete_file.clone();
+        let on_sub_change = props.on_sub_active_change.clone();
+        use_effect_with((p_modal, p_del), move |(m, d)| {
+            on_sub_change.emit(m.is_some() || d.is_some());
             || ()
         });
     }
@@ -463,15 +476,51 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_preview_fading_out_c = is_preview_fading_out.clone();
         let is_loading_preview_cc = is_loading_preview.clone();
         let h_close_c = handle_close.clone();
+        let h_close_preview_c = handle_close_preview.clone();
+        let on_create_toggle_c = props.on_create_category_toggle.clone();
+        let root_ref_for_esc = root_ref.clone();
         let on_prev_toggle_c = props.on_preview_toggle.clone();
         let is_sub_dialog_open = props.is_sub_dialog_open;
         let is_creating_cat = props.is_creating_category;
         let is_loading_prev_val = *is_loading_preview;
-        let has_pending_del = pending_delete_file.is_some();
+        let has_pending_del = pending_delete_file.clone(); // ステートとしてキャプチャ
 
         Callback::from(move |e: KeyboardEvent| {
+            let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
+            let key = ke.key();
+            
+            // サブダイアログ表示中の Escape キー処理
+            if key == "Escape" {
+                let p_modal = preview_modal_c.clone();
+                let p_del = has_pending_del.clone();
+                let is_creating = is_creating_cat;
+                
+                let mut handled = false;
+                if p_modal.is_some() {
+                    h_close_preview_c.emit(());
+                    handled = true;
+                } else if (*p_del).is_some() {
+                    p_del.set(None);
+                    handled = true;
+                } else if is_creating {
+                    on_create_toggle_c.emit(false);
+                    handled = true;
+                }
+                
+                if handled {
+                    e.prevent_default();
+                    e.stop_immediate_propagation();
+                    
+                    let rr = root_ref_for_esc.clone();
+                    Timeout::new(10, move || {
+                        if let Some(el) = rr.cast::<web_sys::HtmlElement>() { let _ = el.focus(); }
+                    }).forget();
+                    return;
+                }
+            }
+
             let current_focus = *focused_area_c;
-            if preview_modal_c.is_some() || is_sub_dialog_open || is_creating_cat || is_loading_prev_val || has_pending_del {
+            if preview_modal_c.is_some() || is_sub_dialog_open || is_creating_cat || is_loading_prev_val || (*has_pending_del).is_some() {
                 return;
             }
             if *is_fading_out_cc || is_deleting_cc.is_some() { return; }
@@ -553,18 +602,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let pending_move = pending_move_file_id.clone();
         let ads_state = active_dropdown_file_id.clone();
         let proc_move = processing_move_id.clone();
+        let on_p_move_parent = props.on_move_file.clone(); // 外側でクローン
         Callback::from(move |(file_id, new_cat_id): (String, String)| {
             ads_state.set(None); 
             let old_cid = (*cur_cid_c).clone();
             let reducer = files_reducer.clone(); let f_id = file_id.clone();
             let p_move = pending_move.clone();
             let proc_m = proc_move.clone();
+            let on_p_move = on_p_move_parent.clone(); // クロージャ内で使用
+            let n_cat_id = new_cat_id.clone();
             
             proc_m.set(Some(f_id.clone()));
             spawn_local(async move {
-                if let Ok(_) = move_file(&f_id, &old_cid, &new_cat_id).await {
+                if let Ok(_) = move_file(&f_id, &old_cid, &n_cat_id).await {
                     proc_m.set(None); 
                     p_move.set(Some(f_id.clone())); 
+                    on_p_move.emit((f_id.clone(), n_cat_id));
                     Timeout::new(200, move || { reducer.dispatch(FileAction::Remove(f_id.clone())); }).forget();
                 } else { 
                     proc_m.set(None);
