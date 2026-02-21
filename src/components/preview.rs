@@ -1,5 +1,5 @@
 use yew::prelude::*;
-use crate::js_interop::render_markdown;
+use crate::js_interop::{render_markdown, highlight_code};
 use crate::i18n::{self, Language};
 use wasm_bindgen::JsCast;
 use gloo::timers::callback::Timeout;
@@ -15,8 +15,6 @@ pub struct PreviewProps {
     #[prop_or_default]
     pub is_loading: bool,
     #[prop_or_default]
-    pub disable_space_scroll: bool,
-    #[prop_or_default]
     pub on_install: Option<Callback<()>>,
     #[prop_or_default]
     pub is_help: bool,
@@ -29,19 +27,13 @@ pub struct PreviewProps {
     #[prop_or_default]
     pub on_change_font_size: Callback<i32>,
     #[prop_or_default]
-    pub is_embedded: bool, // ダイアログ内埋め込みモードか
+    pub is_embedded: bool, // ダイアログ内埋め込みモード
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = initMermaid)]
     fn init_mermaid(el: &web_sys::Element);
-}
-
-#[wasm_bindgen::prelude::wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen::prelude::wasm_bindgen(js_namespace = hljs, js_name = highlightElement)]
-    fn highlight_element(el: &web_sys::Element);
 }
 
 #[function_component(Preview)]
@@ -65,30 +57,19 @@ pub fn preview(props: &PreviewProps) -> Html {
         })
     };
 
-    // ハイライトとMermaidの適用
+    // Mermaidの適用とフォーカス制御
     {
         let content = props.content.clone();
         let node_ref = node_ref.clone();
-        let file_lang = props.lang.clone();
-        use_effect_with((content, file_lang.clone()), move |(content, file_lang)| {
+        use_effect_with(content, move |_| {
             if let Some(div) = node_ref.cast::<web_sys::Element>() {
                 let div_c = div.clone();
-                let file_lang_c = file_lang.clone();
-                gloo::timers::callback::Timeout::new(50, move || {
+                gloo::timers::callback::Timeout::new(100, move || {
                     let _ = init_mermaid(&div_c);
-                    
-                    if file_lang_c != "md" && file_lang_c != "markdown" {
-                        if let Ok(code_els) = div_c.query_selector_all("code") {
-                            for i in 0..code_els.length() {
-                                if let Some(code_el) = code_els.get(i).and_then(|n| n.dyn_into::<web_sys::Element>().ok()) {
-                                    highlight_element(&code_el);
-                                }
-                            }
-                        }
-                    }
-
                     if let Some(html_el) = div_c.dyn_ref::<web_sys::HtmlElement>() {
-                        let _ = html_el.focus();
+                        if html_el.get_attribute("tabindex").map(|t| t == "0").unwrap_or(false) {
+                            let _ = html_el.focus();
+                        }
                     }
                 }).forget();
             }
@@ -96,16 +77,15 @@ pub fn preview(props: &PreviewProps) -> Html {
         });
     }
 
-    // キーボード操作 (全画面モード時のみ)
+    // キーボード操作
     {
         let node_ref = node_ref.clone();
-        let disable_space = props.disable_space_scroll;
         let on_close_cb = handle_close.clone();
         let is_help_mode = props.is_help;
         let on_change_font_size = props.on_change_font_size.clone();
         let is_embedded = props.is_embedded;
-        use_effect_with((disable_space, is_help_mode, is_sub_dialog_open, on_change_font_size, is_embedded), move |deps| {
-            let (_disable_space, is_help_mode, is_sub_open, on_change_fs, is_embedded) = deps.clone();
+        use_effect_with((is_help_mode, is_sub_dialog_open, on_change_font_size, is_embedded), move |deps| {
+            let (is_help_mode, is_sub_open, on_change_fs, is_embedded) = deps.clone();
             if is_embedded { return Box::new(|| ()) as Box<dyn FnOnce()>; }
 
             let on_close = on_close_cb.clone();
@@ -114,56 +94,27 @@ pub fn preview(props: &PreviewProps) -> Html {
             opts.passive = false;
             let listener = gloo::events::EventListener::new_with_options(&window, "keydown", opts, move |e| {
                 if is_sub_open { return; }
-
                 let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                 let key = ke.key();
                 let code = ke.code();
-                
                 let is_up = key == "PageUp" || key == "RollUp";
                 let is_down = key == "PageDown" || key == "RollDown";
                 let is_arrow_up = key == "ArrowUp";
                 let is_arrow_down = key == "ArrowDown";
-                let is_space = key == " "; // スペースキーは閉じる動作に戻す
+                let is_space = key == " ";
                 let is_home = key == "Home";
                 let is_end = key == "End";
-
                 e.stop_immediate_propagation();
-
-                // スペースキーまたは ESC キーで閉じる
-                if is_space || key == "Escape" {
-                    e.prevent_default();
-                    on_close.emit(());
-                    return;
-                }
-
-                // Alt + L/H ショートカットトグルでも閉じる
+                if is_space || key == "Escape" { e.prevent_default(); on_close.emit(()); return; }
                 let is_l_key = code == "KeyL" || key.to_lowercase() == "l" || key == "¬";
                 let is_h_key = code == "KeyH" || key.to_lowercase() == "h" || key == "˙";
                 let is_target_key = if is_help_mode { is_h_key } else { is_l_key };
-                if ke.alt_key() && is_target_key {
-                    e.prevent_default();
-                    on_close.emit(());
-                    return;
-                }
-
-                if key == "Tab" {
-                    e.prevent_default();
-                    return;
-                }
-
+                if ke.alt_key() && is_target_key { e.prevent_default(); on_close.emit(()); return; }
+                if key == "Tab" { e.prevent_default(); return; }
                 if ke.alt_key() && !is_help_mode {
-                    if code == "Equal" || key == "=" || key == "+" || key == "≠" {
-                        e.prevent_default();
-                        on_change_fs.emit(1);
-                        return;
-                    }
-                    if code == "Minus" || key == "-" || key == "–" {
-                        e.prevent_default();
-                        on_change_fs.emit(-1);
-                        return;
-                    }
+                    if code == "Equal" || key == "=" || key == "+" || key == "≠" { e.prevent_default(); on_change_fs.emit(1); return; }
+                    if code == "Minus" || key == "-" || key == "–" { e.prevent_default(); on_change_fs.emit(-1); return; }
                 }
-
                 if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end {
                     if let Some(el) = node_ref.cast::<web_sys::Element>() {
                         e.prevent_default();
@@ -178,11 +129,8 @@ pub fn preview(props: &PreviewProps) -> Html {
                     }
                     return;
                 }
-
                 let is_printable = key.len() == 1;
-                if is_printable || key.starts_with("F") {
-                    e.prevent_default();
-                }
+                if is_printable || key.starts_with("F") { e.prevent_default(); }
             });
             Box::new(move || { drop(listener); }) as Box<dyn FnOnce()>
         });
@@ -190,22 +138,21 @@ pub fn preview(props: &PreviewProps) -> Html {
 
     let is_markdown = props.lang == "md" || props.lang == "markdown";
     let rendered_html = if is_markdown {
-        Html::from_html_unchecked(AttrValue::from(render_markdown(&props.content)))
+        render_markdown(&props.content)
     } else {
-        html! {
-            <pre class="font-mono leading-relaxed break-all whitespace-pre-wrap selection:bg-emerald-500/30">
-                <code class={format!("language-{}", props.lang)}>{ &props.content }</code>
-            </pre>
-        }
+        // highlight.js を使用してハイライト済みの HTML 文字列を生成
+        let code_html = highlight_code(&props.content, &props.lang);
+        format!(r#"<pre class="hljs"><code class="hljs language-{}">{}</code></pre>"#, props.lang, code_html)
     };
 
-    let content_html = html! {
+    let content_node = html! {
         <div 
-            ref={node_ref}
-            tabindex="0"
+            ref={node_ref.clone()}
+            tabindex={if props.is_embedded { "-1" } else { "0" }}
             class={classes!(
-                "markdown-body", "max-w-none", "outline-none", "relative",
-                if props.is_embedded { "flex-1 overflow-auto custom-scrollbar bg-gray-950 p-6" } else { "overflow-y-auto p-6 sm:p-12" }
+                if is_markdown { "markdown-body" } else { "hljs" },
+                "max-w-none", "outline-none", "relative",
+                if props.is_embedded { "flex-1 overflow-auto custom-scrollbar bg-[#1a1b26] p-6" } else { "overflow-y-auto p-6 sm:p-12 bg-[#1a1b26]" }
             )}
             style={format!("font-size: {}pt;", props.font_size)}
         >
@@ -220,7 +167,7 @@ pub fn preview(props: &PreviewProps) -> Html {
             }
 
             if !props.content.is_empty() {
-                { rendered_html }
+                { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
                 if props.has_more {
                     <>
                         if !props.is_embedded { <div class="h-32 -mt-32 bg-gradient-to-t from-[#0d1117] via-[#0d1117]/80 to-transparent pointer-events-none relative z-10"></div> }
@@ -234,7 +181,7 @@ pub fn preview(props: &PreviewProps) -> Html {
     };
 
     if props.is_embedded {
-        return content_html;
+        return content_node;
     }
 
     html! {
@@ -248,26 +195,18 @@ pub fn preview(props: &PreviewProps) -> Html {
             <div 
                 class={classes!(
                     "w-full", "max-w-5xl", "max-h-full", "bg-[#0d1117]", "rounded-xl", "shadow-2xl", "border", "border-gray-800", "flex", "flex-col", "overflow-hidden", "relative",
-                    if props.is_help {
-                        if is_fading_out { "animate-help-out" } else { "animate-help-in" }
-                    } else {
-                        if is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
-                    }
+                    if props.is_help { if is_fading_out { "animate-help-out" } else { "animate-help-in" } } 
+                    else { if is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" } }
                 )}
                 onclick={|e: MouseEvent| e.stop_propagation()}
             >
-                { content_html }
+                { content_node }
                 
                 if props.on_install.is_some() || props.is_help {
                     <div class="px-6 py-4 bg-gray-900/50 border-t border-gray-800 flex flex-col items-center space-y-4">
                         if let Some(on_install) = &props.on_install {
-                            <button 
-                                onclick={on_install.reform(|_| ())}
-                                class="px-8 py-3 bg-lime-600 hover:bg-lime-700 text-white font-bold rounded-lg shadow-lg transition-all flex items-center space-x-2"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                                </svg>
+                            <button onclick={on_install.reform(|_| ())} class="px-8 py-3 bg-lime-600 hover:bg-lime-700 text-white font-bold rounded-lg shadow-lg transition-all flex items-center space-x-2">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
                                 <span>{ i18n::t("install_app_button", lang) }</span>
                             </button>
                         }

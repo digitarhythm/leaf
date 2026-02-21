@@ -881,6 +881,9 @@
   .bg-\[\#0d1117\] {
     background-color: #0d1117;
   }
+  .bg-\[\#1a1b26\] {
+    background-color: #1a1b26;
+  }
   .bg-black\/40 {
     background-color: color-mix(in srgb, #000 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -1455,20 +1458,6 @@
     &:is(:where(.group):hover *) {
       @media (hover: hover) {
         display: flex;
-      }
-    }
-  }
-  .selection\:bg-emerald-500\/30 {
-    & *::selection {
-      background-color: color-mix(in srgb, oklch(69.6% 0.17 162.48) 30%, transparent);
-      @supports (color: color-mix(in lab, red, red)) {
-        background-color: color-mix(in oklab, var(--color-emerald-500) 30%, transparent);
-      }
-    }
-    &::selection {
-      background-color: color-mix(in srgb, oklch(69.6% 0.17 162.48) 30%, transparent);
-      @supports (color: color-mix(in lab, red, red)) {
-        background-color: color-mix(in oklab, var(--color-emerald-500) 30%, transparent);
       }
     }
   }

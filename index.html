@@ -238,10 +238,28 @@
       .markdown-body tr:nth-child(2n) { background-color: #0d1117; }
       .markdown-body img { max-width: 100%; box-sizing: content-box; background-color: #0d1117; }
       /* --- */
+      /* --- HLJS Container (For code-only files) --- */
+      .hljs-container {
+        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+        background-color: #1d2021; /* Gruvbox Dark background */
+      }
+      .hljs-container pre.hljs {
+        background: transparent !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        white-space: pre-wrap !important;
+        word-break: break-all !important;
+        font-size: inherit;
+        color: #ebdbb2; /* Base text color */
+      }
+      .hljs-container code.hljs {
+        padding: 0 !important;
+        background: transparent !important;
+      }
       /* --- */
     </style>
 
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/gruvbox-dark.min.css" crossorigin="anonymous" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css" crossorigin="anonymous" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js" crossorigin="anonymous"></script>
