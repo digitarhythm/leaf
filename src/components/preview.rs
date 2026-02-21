@@ -148,7 +148,7 @@ pub fn preview(props: &PreviewProps) -> Html {
     } else {
         // highlight.js を使用してハイライト済みの HTML 文字列を生成
         let code_html = highlight_code(&props.content, &props.lang);
-        format!(r#"<pre class="hljs"><code class="hljs language-{}">{}</code></pre>"#, props.lang, code_html)
+        format!(r#"<pre class="hljs whitespace-pre-wrap break-all"><code class="hljs language-{}">{}</code></pre>"#, props.lang, code_html)
     };
 
     let content_node = html! {
