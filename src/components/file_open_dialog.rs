@@ -768,6 +768,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-2.5", "w-2.5", "flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                 </svg>
+                                                <span class={classes!("px-1", "py-0.5", "rounded", "text-[8px]", "font-black", "uppercase", "tracking-tighter", "flex-shrink-0", if is_sel { "bg-white/20 text-white" } else { "bg-emerald-500/10 text-emerald-400/80" })}>{ &file.lang }</span>
                                                 <span class="file-name-fade whitespace-nowrap text-[11px] font-bold opacity-90 leading-none">{ &file.name }</span>
                                             </div>
                                             <div class="flex items-center space-x-0.5 absolute right-2 top-[-4px] overflow-visible">
