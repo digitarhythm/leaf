@@ -79,3 +79,9 @@
   animation: help-out 0.2s ease-in forwards; 
   transform-origin: calc(100% - 120px) 2rem;
 }
+
+/* --- Filename Fade Out --- */
+.file-name-fade {
+  mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
+}

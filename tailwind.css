@@ -1123,6 +1123,9 @@
   .pt-12 {
     padding-top: calc(var(--spacing) * 12);
   }
+  .pr-14 {
+    padding-right: calc(var(--spacing) * 14);
+  }
   .pb-3 {
     padding-bottom: calc(var(--spacing) * 3);
   }
@@ -1225,6 +1228,9 @@
   }
   .break-all {
     word-break: break-all;
+  }
+  .whitespace-nowrap {
+    white-space: nowrap;
   }
   .whitespace-pre-wrap {
     white-space: pre-wrap;
@@ -1718,6 +1724,10 @@
 .animate-help-out {
   animation: help-out 0.2s ease-in forwards;
   transform-origin: calc(100% - 120px) 2rem;
+}
+.file-name-fade {
+  mask-image: linear-gradient(to right, black 80%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
 }
 @property --tw-translate-x {
   syntax: "*";
