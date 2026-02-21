@@ -275,7 +275,7 @@ pub fn app() -> Html {
     let is_logout_confirm_visible = use_state(|| false);
     let is_file_open_dialog_visible = use_state(|| false);
     let is_creating_category = use_state(|| false);
-    let is_dialog_preview_open = use_state(|| false);
+    let is_file_dialog_sub_active = use_state(|| false);
     let file_refresh_trigger = use_state(|| 0usize);
     let is_file_list_loading = use_state(|| false);
     let font_size = use_state(|| crate::js_interop::get_font_size());
@@ -1107,6 +1107,20 @@ pub fn app() -> Html {
         })
     };
 
+    let on_move_file_cb = {
+        let s_state = sheets.clone(); let rs = sheets_ref.clone();
+        Callback::from(move |(drive_id, new_category_id): (String, String)| {
+            let mut us = (*rs.borrow()).clone();
+            if let Some(sheet) = us.iter_mut().find(|s| s.drive_id.as_ref() == Some(&drive_id)) {
+                sheet.category = new_category_id;
+                let js = sheet.to_js();
+                let ser = serde_wasm_bindgen::Serializer::json_compatible(); 
+                if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
+            }
+            *rs.borrow_mut() = us.clone(); s_state.set(us);
+        })
+    };
+
     let lock_for_import = is_import_lock.clone();
     let il_for_import = is_loading.clone();
     let ifo_for_import = is_fading_out.clone();
@@ -1627,12 +1641,12 @@ pub fn app() -> Html {
                 let is_logout_conf = is_logout_confirm_visible.clone();
                 let ncq_esc = name_conflict_queue.clone(); let is_imp_lock = is_import_lock.clone();
                 let oi_cb = on_import_cb.clone(); let is_drop_ev = is_category_dropdown_open.clone();
-                let is_dialog_prev = is_dialog_preview_open.clone(); let is_creating_cat_ev = is_creating_category.clone();
+                let is_fd_sub = is_file_dialog_sub_active.clone(); let is_creating_cat_ev = is_creating_category.clone();
                 let is_ld_ev = is_loading.clone(); let is_fo_ev = is_fading_out.clone();
                 let os_cb_ev = on_save_cb.clone(); let sheets_ev = sheets.clone();
                 let aid_ev = active_sheet_id.clone();
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_dialog_prev, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty())), move |deps| {
-                    let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, dialog_prev, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc)) = *deps;
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty())), move |deps| {
+                    let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
@@ -1703,10 +1717,10 @@ pub fn app() -> Html {
                             let skip_nav_block = (preview || help) && is_nav_key;
                             if (is_nav_key || is_edit_key) && !skip_nav_block { if is_target_in_editor || is_target_body { e.stop_immediate_propagation(); let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false); if !is_input { e.prevent_default(); } } }
                             if key == "Escape" {
-                                if dialog_prev { 
-                                    // プレビュー表示中はFileOpenDialog側のリスナーが処理するので、
-                                    // グローバル側では伝播を止めて何もしない。
-                                    e.stop_immediate_propagation(); e.prevent_default(); 
+                                if fd_sub { 
+                                    // FileOpenDialog側のサブダイアログ（削除確認など）が表示中は、
+                                    // グローバルリスナーでは何もしない。これによりバブリングフェーズの
+                                    // FileOpenDialog.on_keydown が正しく実行される。
                                     return; 
                                 }
                                 e.stop_immediate_propagation(); e.prevent_default();
@@ -1818,7 +1832,8 @@ pub fn app() -> Html {
                         <div class="pointer-events-auto">
                             <FileOpenDialog 
                                 on_close={let iv = is_file_open_dialog_visible.clone(); let sp = is_suppressing_changes.clone(); let aid = active_id_ref.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); move |_| { iv.set(false); sp.set(false); focus_editor(); let aid_val = (*aid.borrow()).clone(); let rs_c = rs.clone(); let s_state_c = s_state.clone(); if let Some(id) = aid_val { let sheets_list = (*rs_c.borrow()).clone(); if let Some(sheet) = sheets_list.iter().find(|s| s.id == id) { if !sheet.category.is_empty() && sheet.category != "__LOCAL__" { if let Some(did) = sheet.drive_id.clone() { let sheet_id = id.clone(); spawn_local(async move { if let Err(_) = crate::drive_interop::get_file_metadata(&did).await { let mut us = (*rs_c.borrow()).clone(); if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) { s.drive_id = None; s.category = "OTHERS".to_string(); s.is_modified = true; set_gutter_status("unsaved"); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } } *rs_c.borrow_mut() = us.clone(); s_state_c.set(us); } }); } } } } } } 
-                                on_select={on_file_sel_cb} leaf_data_id={ldid} categories={(*categories).clone()} on_refresh={on_refresh_cats_cb} on_delete_category={on_delete_category_cb} on_rename_category={on_rename_category_cb} on_delete_file={on_delete_file_cb} on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} on_preview_toggle={let idp = is_dialog_preview_open.clone(); Callback::from(move |v| idp.set(v))} 
+                                on_select={on_file_sel_cb} leaf_data_id={ldid} categories={(*categories).clone()} on_refresh={on_refresh_cats_cb} on_delete_category={on_delete_category_cb} on_rename_category={on_rename_category_cb} on_delete_file={on_delete_file_cb} on_move_file={on_move_file_cb} on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} on_preview_toggle={let ifds = is_file_dialog_sub_active.clone(); Callback::from(move |v| ifds.set(v))} 
+                                on_sub_active_change={let ifds = is_file_dialog_sub_active.clone(); Callback::from(move |v| ifds.set(v))}
                                 is_sub_dialog_open={is_sub_overlay_active} is_creating_category={*is_creating_category} on_create_category_toggle={let ic = is_creating_category.clone(); Callback::from(move |v| ic.set(v))} 
                                 refresh_files_trigger={*file_refresh_trigger} is_loading={*is_file_list_loading} on_loading_change={let l = is_file_list_loading.clone(); Callback::from(move |v| l.set(v))} 
                                 on_network_status_change={let nc = network_connected.clone(); Callback::from(move |v| nc.set(v))}
