@@ -807,7 +807,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     let preview_area_html = {
         let file_opt = current_preview_file;
-        let is_loading_val = props.is_loading || *is_loading_preview;
         let font_size = props.font_size;
         let on_change_fs = props.on_change_font_size.clone();
         let is_wide = *is_wide_layout;
@@ -828,7 +827,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             </div>
                         </div>
                         
-                        // 統一プレビューコンポーネントを使用
                         <Preview 
                             key={file.id.clone()}
                             content={file.content.clone()} 
@@ -837,7 +835,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             font_size={font_size}
                             is_embedded={true}
                             has_more={!file.content.is_empty() && file.loaded_bytes < file.total_size}
-                            is_loading={is_loading_val && file.content.is_empty()}
+                            is_loading={file.content.is_empty()}
                         />
                     </div>
                 } else {
@@ -945,7 +943,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     font_size={props.font_size}
                     on_change_font_size={props.on_change_font_size.clone()}
                     is_fading_out={*is_preview_fading_out}
-                    has_more={file.loaded_bytes < file.total_size}
+                    has_more={!file.content.is_empty() && file.loaded_bytes < file.total_size}
                 />
             }
         </div>

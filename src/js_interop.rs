@@ -16,6 +16,7 @@ extern "C" {
     pub fn get_font_size() -> i32;
     pub fn change_font_size(delta: i32) -> i32;
     pub fn render_markdown(text: &str) -> String;
+    pub fn highlight_code(code: &str, lang: &str) -> String;
     pub fn init_mermaid(element: &web_sys::Element);
     pub fn set_preview_active(active: bool);
     pub fn set_editor_mode(filename: &str);

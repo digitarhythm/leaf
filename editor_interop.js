@@ -384,6 +384,36 @@ export function set_preview_active(active) {
     previewActive = active;
 }
 
+export function highlight_code(code, lang) {
+    if (typeof hljs === 'undefined') return code;
+    
+    // 拡張子から hljs の言語名へのマッピング
+    const langMap = {
+        'rs': 'rust',
+        'js': 'javascript',
+        'ts': 'typescript',
+        'py': 'python',
+        'md': 'markdown',
+        'sh': 'bash',
+        'yml': 'yaml'
+    };
+    
+    const targetLang = langMap[lang] || lang;
+    const language = hljs.getLanguage(targetLang) ? targetLang : null;
+    
+    try {
+        if (language) {
+            return hljs.highlight(code, { language }).value;
+        } else {
+            // 言語が特定できない場合は自動判定
+            return hljs.highlightAuto(code).value;
+        }
+    } catch (e) {
+        console.error("[Leaf-SYSTEM] Highlighting failed:", e);
+        return code;
+    }
+}
+
 export function exec_editor_command(command) {
     if (editor) {
         editor.execCommand(command);
