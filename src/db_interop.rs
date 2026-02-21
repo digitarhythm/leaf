@@ -18,7 +18,11 @@ pub struct JSSheet {
     pub total_size: u64,
     #[serde(default)]
     pub loaded_bytes: u64,
+    #[serde(default = "default_true")]
+    pub needs_bom: bool,
 }
+
+fn default_true() -> bool { true }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct JSCategory {

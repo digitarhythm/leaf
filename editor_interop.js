@@ -42,8 +42,22 @@ export async function open_local_file() {
         });
         localFileHandle = handle;
         const file = await handle.getFile();
-        const text = await file.text();
-        return { name: file.name, content: text };
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        
+        // 1. UTF-8 でデコードを試みる (不正なバイトがあれば例外を投げる設定)
+        const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
+        let text;
+        try {
+            text = utf8Decoder.decode(bytes);
+        } catch (e) {
+            // 2. UTF-8 が失敗した場合は Shift_JIS を試す
+            console.log("[Leaf-SYSTEM] UTF-8 decoding failed. Trying Shift_JIS for legacy support...");
+            const sjisDecoder = new TextDecoder('shift-jis');
+            text = sjisDecoder.decode(bytes);
+        }
+
+        return { name: file.name, content: text, bytes: bytes };
     } catch (e) {
         if (e.name === 'AbortError') return null;
         console.error("Local open failed:", e);
@@ -51,7 +65,7 @@ export async function open_local_file() {
     }
 }
 
-export async function save_local_file(content) {
+export async function save_local_file(content, needs_bom) {
     try {
         // ハンドルがない場合は新規作成ダイアログを表示
         if (!localFileHandle) {
@@ -72,9 +86,10 @@ export async function save_local_file(content) {
             }
         }
         const writable = await localFileHandle.createWritable();
-        // BOMを付与
-        const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-        await writable.write(bom);
+        if (needs_bom) {
+            const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
+            await writable.write(bom);
+        }
         await writable.write(content);
         await writable.close();
         return localFileHandle.name;
@@ -121,8 +136,6 @@ export function get_safe_chunk(uint8array) {
     const consumed = uint8array.slice(0, end);
     const decoder = new TextDecoder('utf-8');
     let text = decoder.decode(consumed);
-    // 先頭のBOM除去 (ファイル冒頭のみ)
-    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
     
     return { text, bytes_consumed: end };
 }
