@@ -578,12 +578,23 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_del_id_c = is_deleting_id.clone();
         let files_reducer = files.clone();
         let on_parent_delete_c = props.on_delete_file.clone();
+        let root_ref_for_del = root_ref.clone();
         Callback::from(move |_: ()| {
             if let Some((id, name)) = (*pending_delete_c).clone() {
                 let id_for_anim = id.clone(); let id_for_parent = id.clone(); let name_for_parent = name.clone();
                 let reducer = files_reducer.clone(); let on_del = on_parent_delete_c.clone();
                 let is_del = is_del_id_c.clone();
+                let root_ref_inner = root_ref_for_del.clone();
+                
                 pending_delete_c.set(None); is_del.set(Some(id_for_anim)); 
+                
+                // フォーカス復帰処理
+                Timeout::new(50, move || {
+                    if let Some(root) = root_ref_inner.cast::<web_sys::HtmlElement>() {
+                        let _ = root.focus();
+                    }
+                }).forget();
+
                 Timeout::new(200, move || {
                     on_del.emit((id_for_parent.clone(), name_for_parent));
                     reducer.dispatch(FileAction::Remove(id_for_parent.clone()));
@@ -881,7 +892,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     html! {
         <div 
-            ref={root_ref}
+            ref={root_ref.clone()}
             tabindex="0"
             onkeydown={on_keydown}
             onfocusin={on_focus_in}
@@ -951,7 +962,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     <crate::components::dialog::ConfirmDialog 
                         title={i18n::t("delete", lang)} message={format!("{}{}", i18n::t("confirm_delete_file", lang), name)} 
                         on_confirm={on_delete_file_confirm} 
-                        on_cancel={let pd = pending_delete_file.clone(); Callback::from(move |_| pd.set(None))} 
+                        on_cancel={let pd = pending_delete_file.clone(); let rr = root_ref.clone(); Callback::from(move |_| { 
+                            pd.set(None); 
+                            if let Some(root) = rr.cast::<web_sys::HtmlElement>() { let _ = root.focus(); }
+                        })} 
                     />
                 </div>
             }
