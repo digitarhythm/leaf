@@ -9,6 +9,8 @@ pub struct PreviewProps {
     pub content: String,
     pub on_close: Callback<()>,
     #[prop_or_default]
+    pub lang: String, // ファイル拡張子
+    #[prop_or_default]
     pub has_more: bool,
     #[prop_or_default]
     pub is_loading: bool,
@@ -26,12 +28,20 @@ pub struct PreviewProps {
     pub font_size: i32,
     #[prop_or_default]
     pub on_change_font_size: Callback<i32>,
+    #[prop_or_default]
+    pub is_embedded: bool, // ダイアログ内埋め込みモードか
 }
 
 #[wasm_bindgen::prelude::wasm_bindgen]
 extern "C" {
     #[wasm_bindgen::prelude::wasm_bindgen(js_name = initMermaid)]
     fn init_mermaid(el: &web_sys::Element);
+}
+
+#[wasm_bindgen::prelude::wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen::prelude::wasm_bindgen(js_namespace = hljs, js_name = highlightElement)]
+    fn highlight_element(el: &web_sys::Element);
 }
 
 #[function_component(Preview)]
@@ -55,16 +65,28 @@ pub fn preview(props: &PreviewProps) -> Html {
         })
     };
 
+    // ハイライトとMermaidの適用
     {
         let content = props.content.clone();
         let node_ref = node_ref.clone();
-        use_effect_with(content, move |_| {
+        let file_lang = props.lang.clone();
+        use_effect_with((content, file_lang.clone()), move |(content, file_lang)| {
             if let Some(div) = node_ref.cast::<web_sys::Element>() {
-                // DOM の更新を待つために少し遅延させる
                 let div_c = div.clone();
+                let file_lang_c = file_lang.clone();
                 gloo::timers::callback::Timeout::new(50, move || {
                     let _ = init_mermaid(&div_c);
-                    // プレビュー表示時にフォーカスを奪い、キーボード操作を可能にする
+                    
+                    if file_lang_c != "md" && file_lang_c != "markdown" {
+                        if let Ok(code_els) = div_c.query_selector_all("code") {
+                            for i in 0..code_els.length() {
+                                if let Some(code_el) = code_els.get(i).and_then(|n| n.dyn_into::<web_sys::Element>().ok()) {
+                                    highlight_element(&code_el);
+                                }
+                            }
+                        }
+                    }
+
                     if let Some(html_el) = div_c.dyn_ref::<web_sys::HtmlElement>() {
                         let _ = html_el.focus();
                     }
@@ -74,15 +96,18 @@ pub fn preview(props: &PreviewProps) -> Html {
         });
     }
 
-    // キーボード操作
+    // キーボード操作 (全画面モード時のみ)
     {
         let node_ref = node_ref.clone();
         let disable_space = props.disable_space_scroll;
         let on_close_cb = handle_close.clone();
         let is_help_mode = props.is_help;
         let on_change_font_size = props.on_change_font_size.clone();
-        use_effect_with((disable_space, is_help_mode, is_sub_dialog_open, on_change_font_size), move |deps| {
-            let (disable_space, is_help_mode, is_sub_open, on_change_fs) = deps.clone();
+        let is_embedded = props.is_embedded;
+        use_effect_with((disable_space, is_help_mode, is_sub_dialog_open, on_change_font_size, is_embedded), move |deps| {
+            let (_disable_space, is_help_mode, is_sub_open, on_change_fs, is_embedded) = deps.clone();
+            if is_embedded { return Box::new(|| ()) as Box<dyn FnOnce()>; }
+
             let on_close = on_close_cb.clone();
             let window = web_sys::window().unwrap();
             let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
@@ -94,38 +119,38 @@ pub fn preview(props: &PreviewProps) -> Html {
                 let key = ke.key();
                 let code = ke.code();
                 
-                // ナビゲーションキーの判定
                 let is_up = key == "PageUp" || key == "RollUp";
                 let is_down = key == "PageDown" || key == "RollDown";
                 let is_arrow_up = key == "ArrowUp";
                 let is_arrow_down = key == "ArrowDown";
-                let is_space = key == " " && !disable_space;
+                let is_space = key == " "; // スペースキーは閉じる動作に戻す
                 let is_home = key == "Home";
                 let is_end = key == "End";
 
-                // ショートカットトグル (適切なキーのみに反応)
-                let is_l_key = code == "KeyL" || key.to_lowercase() == "l" || key == "¬";
-                let is_h_key = code == "KeyH" || key.to_lowercase() == "h" || key == "˙";
-                let is_target_key = if is_help_mode { is_h_key } else { is_l_key };
-                let is_alt_toggle = ke.alt_key() && is_target_key;
-
-                // プレビュー表示中は、すべてのイベントをキャプチャし、
-                // ブラウザや背景への漏洩を防ぐ
                 e.stop_immediate_propagation();
 
-                if is_alt_toggle || key == "Escape" {
+                // スペースキーまたは ESC キーで閉じる
+                if is_space || key == "Escape" {
                     e.prevent_default();
                     on_close.emit(());
                     return;
                 }
 
-                // Tabキーによるブラウザへのフォーカス漏れを防止
+                // Alt + L/H ショートカットトグルでも閉じる
+                let is_l_key = code == "KeyL" || key.to_lowercase() == "l" || key == "¬";
+                let is_h_key = code == "KeyH" || key.to_lowercase() == "h" || key == "˙";
+                let is_target_key = if is_help_mode { is_h_key } else { is_l_key };
+                if ke.alt_key() && is_target_key {
+                    e.prevent_default();
+                    on_close.emit(());
+                    return;
+                }
+
                 if key == "Tab" {
                     e.prevent_default();
                     return;
                 }
 
-                // フォントサイズ変更 (Alt + = / -) - ヘルプモード以外で有効
                 if ke.alt_key() && !is_help_mode {
                     if code == "Equal" || key == "=" || key == "+" || key == "≠" {
                         e.prevent_default();
@@ -139,43 +164,78 @@ pub fn preview(props: &PreviewProps) -> Html {
                     }
                 }
 
-                if is_up || is_down || is_arrow_up || is_arrow_down || is_space || is_home || is_end {
+                if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end {
                     if let Some(el) = node_ref.cast::<web_sys::Element>() {
                         e.prevent_default();
-                        
                         let client_height = el.client_height();
                         let current_scroll = el.scroll_top();
-                        
-                        if is_up {
-                            el.set_scroll_top(current_scroll - client_height / 2);
-                        } else if is_down || is_space {
-                            el.set_scroll_top(current_scroll + client_height / 2);
-                        } else if is_arrow_up {
-                            el.set_scroll_top(current_scroll - 40);
-                        } else if is_arrow_down {
-                            el.set_scroll_top(current_scroll + 40);
-                        } else if is_home {
-                            el.set_scroll_top(0);
-                        } else if is_end {
-                            el.set_scroll_top(el.scroll_height());
-                        }
+                        if is_up { el.set_scroll_top(current_scroll - client_height / 2); } 
+                        else if is_down { el.set_scroll_top(current_scroll + client_height / 2); } 
+                        else if is_arrow_up { el.set_scroll_top(current_scroll - 40); } 
+                        else if is_arrow_down { el.set_scroll_top(current_scroll + 40); } 
+                        else if is_home { el.set_scroll_top(0); } 
+                        else if is_end { el.set_scroll_top(el.scroll_height()); }
                     }
                     return;
                 }
 
-                // その他のキーもプレビュー表示中は無効化（背景への伝播防止）
-                // ただし、入力キーなどのブラウザ標準動作は必要に応じて除外可能
-                // ここではモーダルとして振る舞うため原則すべてブロック
                 let is_printable = key.len() == 1;
                 if is_printable || key.starts_with("F") {
                     e.prevent_default();
                 }
             });
-            move || { drop(listener); }
+            Box::new(move || { drop(listener); }) as Box<dyn FnOnce()>
         });
     }
 
-    let rendered_html = render_markdown(&props.content);
+    let is_markdown = props.lang == "md" || props.lang == "markdown";
+    let rendered_html = if is_markdown {
+        Html::from_html_unchecked(AttrValue::from(render_markdown(&props.content)))
+    } else {
+        html! {
+            <pre class="font-mono leading-relaxed break-all whitespace-pre-wrap selection:bg-emerald-500/30">
+                <code class={format!("language-{}", props.lang)}>{ &props.content }</code>
+            </pre>
+        }
+    };
+
+    let content_html = html! {
+        <div 
+            ref={node_ref}
+            tabindex="0"
+            class={classes!(
+                "markdown-body", "max-w-none", "outline-none", "relative",
+                if props.is_embedded { "flex-1 overflow-auto custom-scrollbar bg-gray-950 p-6" } else { "overflow-y-auto p-6 sm:p-12" }
+            )}
+            style={format!("font-size: {}pt;", props.font_size)}
+        >
+            if props.is_loading {
+                <div class={classes!(
+                    "flex", "flex-col", "items-center", "justify-center", "space-y-4",
+                    if props.is_embedded { vec!["absolute", "inset-0", "z-50", "bg-gray-950"] } else { vec!["min-h-[200px]"] }
+                )}>
+                    <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                    <span class="text-[10px] text-emerald-500/50 font-bold uppercase tracking-widest animate-pulse">{ i18n::t("fetching_preview", lang) }</span>
+                </div>
+            }
+
+            if !props.content.is_empty() {
+                { rendered_html }
+                if props.has_more {
+                    <>
+                        if !props.is_embedded { <div class="h-32 -mt-32 bg-gradient-to-t from-[#0d1117] via-[#0d1117]/80 to-transparent pointer-events-none relative z-10"></div> }
+                        <div class="py-8 text-center text-gray-500 font-mono whitespace-pre-wrap leading-relaxed opacity-60 relative z-20">
+                            { i18n::t("omitted_below", lang) }
+                        </div>
+                    </>
+                }
+            }
+        </div>
+    };
+
+    if props.is_embedded {
+        return content_html;
+    }
 
     html! {
         <div 
@@ -196,28 +256,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                 )}
                 onclick={|e: MouseEvent| e.stop_propagation()}
             >
-                <div 
-                    ref={node_ref}
-                    tabindex="0"
-                    class="markdown-body max-w-none overflow-y-auto p-6 sm:p-12 outline-none"
-                    style={format!("font-size: {}pt;", props.font_size)}
-                >
-                    { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
-                    if props.has_more {
-                        <>
-                            <div class="h-32 -mt-32 bg-gradient-to-t from-[#0d1117] via-[#0d1117]/80 to-transparent pointer-events-none relative z-10"></div>
-                            <div class="py-8 text-center text-gray-500 font-mono whitespace-pre-wrap leading-relaxed opacity-60 relative z-20">
-                                { i18n::t("omitted_below", lang) }
-                            </div>
-                        </>
-                    }
-                </div>
-                
-                if props.is_loading {
-                    <div class="absolute inset-0 z-50 flex items-center justify-center bg-black/30">
-                        <div class="w-12 h-12 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
-                    </div>
-                }
+                { content_html }
                 
                 if props.on_install.is_some() || props.is_help {
                     <div class="px-6 py-4 bg-gray-900/50 border-t border-gray-800 flex flex-col items-center space-y-4">
