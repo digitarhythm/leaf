@@ -493,6 +493,15 @@ pub fn app() -> Html {
 
                     {
                         let sheet = &mut cur_s[idx];
+
+                        // 自動保存時の空データ保護:
+                        // エディタが空で、かつ元のデータが空でない場合、異常事態とみなして復元する。
+                        if !is_manual && cur_c.is_empty() && !sheet.content.is_empty() {
+                            gloo::console::warn!("[Leaf-SYSTEM] Auto-save blocked: captured content is empty. Restoring from state.");
+                            set_editor_content(&sheet.content);
+                            return;
+                        }
+
                         if !is_manual && !sheet.is_modified && sheet.content == cur_c { return; }
                         
                         sheet.content = cur_c.clone(); 
@@ -1517,11 +1526,17 @@ pub fn app() -> Html {
                     else if cmd == "change" {
                         if *sp_ref_cb.borrow() { return; }
                         let cur_c_val = get_editor_content(); let cur_c = if let Some(s) = cur_c_val.as_string() { s } else { return; };
+                        
                         let aid = (*r_aid_i.borrow()).clone();
                         if let Some(id) = aid {
                             let mut cur_s = (*r_s_i.borrow()).clone();
                             let mut trigger_drive_sync = false; let mut needs_upd = false;
                             if let Some(sheet) = cur_s.iter_mut().find(|s| s.id == id) {
+                                // 空データ保護: 
+                                // エディタが空の場合、IndexedDB（状態）への同期を行わない。
+                                // ただし元のデータも空だった場合は編集可能とする。
+                                if cur_c.is_empty() && !sheet.content.is_empty() { return; }
+
                                 if sheet.content != cur_c { 
                                     let now = js_sys::Date::now() as u64;
                                     sheet.content = cur_c.clone(); 
