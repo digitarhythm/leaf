@@ -1479,13 +1479,13 @@ pub fn app() -> Html {
                 let s_state = s_init.clone(); let r_prev_i = r_prev.clone();
                 let r_open_i = r_open.clone(); let r_help_i = r_help.clone();
                 let timer = ast.clone(); let vim_val = *v_init; 
-                let sp_cb = sp_init.clone(); let r_s_i = r_s.clone(); let r_aid_i = r_aid.clone();
+                let sp_ref_cb = is_suppressing_ref.clone(); let r_s_i = r_s.clone(); let r_aid_i = r_aid.clone();
                 let aid_state_for_cb = aid_for_editor_init.clone();
                 let callback = Closure::wrap(Box::new(move |cmd: String| {
                     if cmd == "save" { os_i.emit(true); }
                     else if cmd == "new_sheet" { on_i.emit(()); }
                     else if cmd == "new_local_sheet" {
-                        let s = s_state.clone(); let aid_ref = r_aid_i.clone(); let sp = sp_cb.clone();
+                        let s = s_state.clone(); let aid_ref = r_aid_i.clone(); let sp = sp_init.clone();
                         let aid_state = aid_state_for_cb.clone(); let rs = r_s_i.clone(); let os_cb = os_i.clone();
                         let aid_val = (*aid_ref.borrow()).clone();
                         let mut needs_save = false;
@@ -1510,12 +1510,12 @@ pub fn app() -> Html {
                             spawn_local(async move { let js = ns.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } os_final.emit(true); });
                         }).forget();
                     }
-                    else if cmd == "open" { let val = !*r_open_i.borrow(); iv_i.set(val); sp_cb.set(val); }
+                    else if cmd == "open" { let val = !*r_open_i.borrow(); iv_i.set(val); sp_init.set(val); }
                     else if cmd == "import" { oi_i.emit(()); }
                     else if cmd == "preview" { let cur_c_val = get_editor_content(); let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true); if !*r_prev_i.borrow() && is_empty { return; } ip_i.set(!*r_prev_i.borrow()); }
                     else if cmd == "help" { ih_i.set(!*r_help_i.borrow()); }
                     else if cmd == "change" {
-                        if *sp_cb { return; }
+                        if *sp_ref_cb.borrow() { return; }
                         let cur_c_val = get_editor_content(); let cur_c = if let Some(s) = cur_c_val.as_string() { s } else { return; };
                         let aid = (*r_aid_i.borrow()).clone();
                         if let Some(id) = aid {
@@ -1548,14 +1548,18 @@ pub fn app() -> Html {
     {
         let aid = active_sheet_id.clone(); let is_ld = is_loading.clone();
         let s_handle = sheets.clone(); let db_ready = db_ready_state.clone();
+        let sp = is_suppressing_changes.clone();
         use_effect_with((aid, is_ld, s_handle, db_ready), move |deps| {
             let (aid_val, ld_val, s_val, ready_val) = deps;
             if **ready_val && !**ld_val { 
                 if let Some(id) = &**aid_val { 
                     if let Some(s) = s_val.iter().find(|x| x.id == *id) { 
+                        sp.set(true);
                         set_editor_content(&s.content); 
                         let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" }; 
                         set_gutter_status(mode); crate::js_interop::set_editor_mode(&s.title); focus_editor(); 
+                        let sp_c = sp.clone();
+                        Timeout::new(100, move || { sp_c.set(false); }).forget();
                     } 
                 } 
             }
