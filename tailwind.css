@@ -1264,6 +1264,12 @@
       color: color-mix(in oklab, var(--color-emerald-500) 50%, transparent);
     }
   }
+  .text-emerald-500\/60 {
+    color: color-mix(in srgb, oklch(69.6% 0.17 162.48) 60%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      color: color-mix(in oklab, var(--color-emerald-500) 60%, transparent);
+    }
+  }
   .text-emerald-600 {
     color: var(--color-emerald-600);
   }
