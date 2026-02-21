@@ -9,6 +9,7 @@ use crate::js_interop::get_safe_chunk;
 use crate::drive_interop::{list_files, download_file, move_file};
 use crate::i18n::{self, Language};
 use crate::db_interop::JSCategory;
+use crate::components::preview::Preview;
 use web_sys::AbortController;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -369,12 +370,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     {
         let root = root_ref.clone();
-        let f_area = focused_area.clone();
         use_effect_with(root, move |r| {
             let mut _listener = None;
             if let Some(el) = r.get() {
-                let f_area_c = f_area.clone();
-                _listener = Some(EventListener::new(&el, "leaf-focus-recovery", move |_| { f_area_c.set(FocusedArea::Categories); }));
+                _listener = Some(EventListener::new(&el, "leaf-focus-recovery", move |_| { }));
             }
             || ()
         });
@@ -570,7 +569,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let on_focus_in = { let is_root_f = is_root_focused.clone(); Callback::from(move |_| is_root_f.set(true)) };
     let on_focus_out = {
         let root_ref_c = root_ref.clone();
-        let focused_area_c = focused_area.clone();
         let preview_active = preview_modal_data.is_some();
         let sub_active = props.is_sub_dialog_open || props.is_creating_category || (*pending_delete_file).is_some() || props.is_loading || *is_loading_preview;
         Callback::from(move |e: FocusEvent| {
@@ -578,8 +576,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let related = e.related_target();
             let outside = if let Some(target) = related { if let Some(root_el) = root_ref_c.cast::<web_sys::Node>() { !root_el.contains(Some(&target.unchecked_into::<web_sys::Node>())) } else { true } } else { true };
             if outside {
-                let root_inner = root_ref_c.clone(); let f_area_inner = focused_area_c.clone();
-                Timeout::new(10, move || { if let Some(div) = root_inner.cast::<web_sys::HtmlElement>() { let _ = div.focus(); f_area_inner.set(FocusedArea::Categories); } }).forget();
+                let root_inner = root_ref_c.clone();
+                Timeout::new(10, move || { if let Some(div) = root_inner.cast::<web_sys::HtmlElement>() { let _ = div.focus(); } }).forget();
             }
         })
     };
@@ -829,21 +827,18 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 <button onclick={let fs = font_size; let cb = on_change_fs.clone(); move |_| cb.emit(fs + 1)} class="p-1 hover:bg-white/10 rounded text-gray-500 hover:text-gray-300 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg></button>
                             </div>
                         </div>
-                        <div class="flex-1 overflow-auto custom-scrollbar bg-gray-950 p-6">
-                            if is_loading_val && file.content.is_empty() {
-                                <div class="h-full flex flex-col items-center justify-center space-y-4">
-                                    <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
-                                    <span class="text-[10px] text-emerald-500/50 font-bold uppercase tracking-widest animate-pulse">{ i18n::t("fetching_preview", lang) }</span>
-                                </div>
-                            } else {
-                                <pre class="text-gray-400 font-mono leading-relaxed selection:bg-emerald-500/30 whitespace-pre-wrap break-all" style={format!("font-size: {}px", font_size)}>
-                                    { &file.content }
-                                    if file.loaded_bytes < file.total_size {
-                                        <div class="mt-4 pt-4 border-t border-white/5 text-[10px] text-gray-600 font-bold uppercase italic text-center">{ i18n::t("omitted_below", lang) }</div>
-                                    }
-                                </pre>
-                            }
-                        </div>
+                        
+                        // 統一プレビューコンポーネントを使用
+                        <Preview 
+                            key={file.id.clone()}
+                            content={file.content.clone()} 
+                            lang={file.lang.clone()}
+                            on_close={Callback::from(|_| ())} // 埋め込み時は閉じない
+                            font_size={font_size}
+                            is_embedded={true}
+                            has_more={!file.content.is_empty() && file.loaded_bytes < file.total_size}
+                            is_loading={is_loading_val && file.content.is_empty()}
+                        />
                     </div>
                 } else {
                     <div class="flex-1 flex flex-col items-center justify-center text-gray-800 space-y-4">
@@ -941,32 +936,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             }
 
             if let Some(file) = (*preview_modal_data).clone() {
-                <div class={classes!(
-                    "fixed", "inset-0", "z-[300]", "flex", "items-center", "justify-center", "p-4", "md:p-12", "bg-black/80", "backdrop-blur-md", "transition-opacity", "duration-200",
-                    if *is_preview_fading_out { "opacity-0" } else { "opacity-100" }
-                )}>
-                    <div class="relative bg-gray-900 border border-white/10 rounded-2xl shadow-2xl w-full max-w-5xl h-full overflow-hidden flex flex-col">
-                        <div class="px-6 py-4 border-b border-white/5 flex items-center justify-between bg-gray-950/50">
-                            <div class="flex items-center space-x-3">
-                                <span class="px-2 py-1 rounded bg-blue-500 text-white text-[10px] font-bold uppercase tracking-wider">{ &file.lang }</span>
-                                <h3 class="text-sm font-bold text-gray-200">{ &file.name }</h3>
-                            </div>
-                            <button onclick={handle_close_preview.reform(|_| ())} class="p-2 hover:bg-white/10 rounded-full text-gray-500 hover:text-white transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg></button>
-                        </div>
-                        <div ref={preview_modal_scroll_ref} class="flex-1 overflow-auto custom-scrollbar p-8">
-                            if file.is_markdown {
-                                <div class="markdown-body" style={format!("font-size: {}px", props.font_size)}>
-                                    { Html::from_html_unchecked(AttrValue::from(crate::js_interop::render_markdown(&file.content))) }
-                                    if file.loaded_bytes < file.total_size { <div class="mt-8 pt-8 border-t border-white/5 text-xs text-gray-600 font-bold uppercase italic tracking-widest text-center">{ i18n::t("omitted_below", lang) }</div> }
-                                </div>
-                            } else {
-                                <pre class="text-gray-300 font-mono leading-relaxed selection:bg-blue-500/30 whitespace-pre-wrap break-all" style={format!("font-size: {}px", props.font_size)}>{ &file.content }</pre>
-                                if file.loaded_bytes < file.total_size { <div class="mt-8 pt-8 border-t border-white/5 text-xs text-gray-600 font-bold uppercase italic tracking-widest text-center">{ i18n::t("omitted_below", lang) }</div> }
-                            }
-                        </div>
-                        <div class="px-6 py-4 bg-gray-950/50 border-t border-white/5 flex justify-center"><p class="text-[10px] text-gray-600 font-bold uppercase tracking-[0.2em]">{ i18n::t("close_guide", lang) }</p></div>
-                    </div>
-                </div>
+                <Preview 
+                    key={file.id.clone()}
+                    content={file.content.clone()} 
+                    lang={file.lang.clone()}
+                    on_close={handle_close_preview.clone()}
+                    is_sub_dialog_open={props.is_sub_dialog_open}
+                    font_size={props.font_size}
+                    on_change_font_size={props.on_change_font_size.clone()}
+                    is_fading_out={*is_preview_fading_out}
+                    has_more={file.loaded_bytes < file.total_size}
+                />
             }
         </div>
     }
