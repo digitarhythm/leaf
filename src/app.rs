@@ -470,8 +470,13 @@ pub fn app() -> Html {
                         
                         if sheet.drive_id.is_none() && sheet.guid.is_none() && !sheet.category.is_empty() && sheet.category != "__LOCAL__" {
                             let new_guid = generate_uuid();
+                            let original_ext = sheet.title.split('.').last().unwrap_or("txt").to_lowercase();
+                            // シンタックスハイライト対応拡張子のホワイトリスト
+                            let supported_exts = vec!["rs", "js", "ts", "py", "md", "markdown", "html", "css", "sh", "yml", "yaml", "json", "sql", "txt"];
+                            let final_ext = if supported_exts.contains(&original_ext.as_str()) { original_ext } else { "txt".to_string() };
+                            
                             sheet.guid = Some(new_guid.clone());
-                            sheet.title = format!("{}.txt", new_guid);
+                            sheet.title = format!("{}.{}", new_guid, final_ext);
                         }
                         
                         if sheet.category == "__LOCAL__" {

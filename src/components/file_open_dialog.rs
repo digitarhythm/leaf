@@ -357,6 +357,30 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             || ()
         });
     }
+    // ドロップダウンの外側クリックで閉じる
+    {
+        let ads_state = active_dropdown_file_id.clone();
+        let dr = dropdown_ref.clone();
+        use_effect_with((*active_dropdown_file_id).clone(), move |active_id| {
+            let mut _listener = None;
+            if active_id.is_some() {
+                let ads = ads_state.clone();
+                let dr = dr.clone();
+                let window = web_sys::window().unwrap();
+                _listener = Some(EventListener::new(&window, "mousedown", move |e| {
+                    let target = e.target();
+                    if let (Some(target), Some(dropdown_el)) = (target, dr.get()) {
+                        let node = target.unchecked_into::<web_sys::Node>();
+                        if !dropdown_el.contains(Some(&node)) {
+                            ads.set(None);
+                        }
+                    }
+                }));
+            }
+            || { drop(_listener); }
+        });
+    }
+
     // 選択インデックス変更時の自動スクロール
     {
         let file_list_ref_c = file_list_ref.clone();
