@@ -1389,7 +1389,7 @@ pub fn app() -> Html {
 
         use_effect_with((is_online, ), move |_| {
             let cleanup = || ();
-            if !is_online { return cleanup; } // オフライン時は何もしない
+            if !is_online { return cleanup; } 
             
             let is_auth_cb = is_auth.clone(); let ncid_cb = ncid.clone(); let ldid_cb = ldid.clone();
             let cats_cb = cats_init.clone(); let s_state_cb = s_state.clone(); let rs_cb = rs.clone();
@@ -1400,8 +1400,23 @@ pub fn app() -> Html {
             let aid_ref_cb = aid_ref_h.clone();
             let os_cb_inner = on_save_for_auth.clone();
 
+            // タイムアウトによる救済ロジック
+            // Auth初期化から数秒経っても応答がない場合はローディングを外す
+            let ild_timeout = ild_cb.clone();
+            let ifo_timeout = ifo_cb.clone();
+            let isi_timeout = is_init_cb.clone();
+            Timeout::new(2000, move || {
+                if !*is_auth_cb {
+                    gloo::console::warn!("[Leaf-SYSTEM] Auth initialization timed out or user not signed in. revealing login screen.");
+                    ifo_timeout.set(true);
+                    let ild = ild_timeout.clone(); let ifo = ifo_timeout.clone(); let isi = isi_timeout.clone();
+                    Timeout::new(300, move || { ild.set(false); ifo.set(false); isi.set(false); }).forget();
+                }
+            }).forget();
+
+            let is_auth_cb_final = is_auth.clone(); 
             let callback = Closure::wrap(Box::new(move |_token: String| {
-                let is_auth_inner = is_auth_cb.clone();
+                let is_auth_inner = is_auth_cb_final.clone();
                 let os_cb_final = os_cb_inner.clone();
                 if !*is_auth_inner {
                     is_auth_inner.set(true);
@@ -1789,6 +1804,9 @@ pub fn app() -> Html {
                                                                                                                     </a>
                                                                                                                     <a href="licenses.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { i18n::t("oss_licenses", lang) }
+                                                                                                                    </a>
+                                                                                                                    <a href="tutorial.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                        { i18n::t("tutorial", lang) }
                                                                                                                     </a>
                                                                                                                 </div>
                                                                                                                                                                                                                                                                                                                                                                                                         <div class="mt-4 text-gray-500 text-[10px]">{ i18n::t("login_required", lang) }</div>
