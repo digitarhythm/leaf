@@ -901,8 +901,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     let preview_area_html = {
         let file_opt = current_preview_file;
-        let font_size = props.font_size;
-        let on_change_fs = props.on_change_font_size.clone();
         let is_wide = *is_wide_layout;
 
         html! {
@@ -913,11 +911,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             <div class="flex items-center space-x-2 min-w-0">
                                 <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-tight flex-shrink-0">{ &file.lang }</span>
                             </div>
-                            <div class="flex items-center space-x-2 ml-4 flex-shrink-0">
-                                <button onclick={let fs = font_size; let cb = on_change_fs.clone(); move |_| cb.emit(fs - 1)} class="p-1 hover:bg-white/10 rounded text-gray-500 hover:text-gray-300 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" /></svg></button>
-                                <span class="text-[10px] font-mono text-gray-600 min-w-[20px] text-center">{ font_size }</span>
-                                <button onclick={let fs = font_size; let cb = on_change_fs.clone(); move |_| cb.emit(fs + 1)} class="p-1 hover:bg-white/10 rounded text-gray-500 hover:text-gray-300 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg></button>
-                            </div>
                         </div>
                         
                         <Preview 
@@ -925,7 +918,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             content={file.content.clone()} 
                             lang={file.lang.clone()}
                             on_close={Callback::from(|_| ())} // 埋め込み時は閉じない
-                            font_size={font_size}
                             is_embedded={true}
                             has_more={file.is_loaded && file.loaded_bytes < file.total_size}
                             is_loading={!file.is_loaded}
