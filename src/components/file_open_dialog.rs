@@ -833,7 +833,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                                                 </svg>
                                                 <span class={classes!("px-1", "py-0.5", "rounded", "text-[8px]", "font-black", "uppercase", "tracking-tighter", "flex-shrink-0", if is_sel { "bg-white/20 text-white" } else { "bg-emerald-500/10 text-emerald-400/80" })}>{ &file.lang }</span>
-                                                <span class="file-name-fade whitespace-nowrap text-[11px] font-bold opacity-90 leading-none">{ &file.name }</span>
                                             </div>
                                             <div class={classes!(
                                                 "flex", "items-center", "space-x-0.5", "absolute", "right-2", "top-[-4px]", "overflow-visible", "transition-opacity", "duration-200",
@@ -913,7 +912,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
                             <div class="flex items-center space-x-2 min-w-0">
                                 <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-tight flex-shrink-0">{ &file.lang }</span>
-                                <h3 class="text-xs font-bold text-gray-300 truncate">{ &file.name }</h3>
                             </div>
                             <div class="flex items-center space-x-2 ml-4 flex-shrink-0">
                                 <button onclick={let fs = font_size; let cb = on_change_fs.clone(); move |_| cb.emit(fs - 1)} class="p-1 hover:bg-white/10 rounded text-gray-500 hover:text-gray-300 transition-colors"><svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" /></svg></button>
