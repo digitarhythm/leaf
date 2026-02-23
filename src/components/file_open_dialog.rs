@@ -526,8 +526,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             if *is_fading_out_cc || is_deleting_cc.is_some() { return; }
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
             let key = ke.key(); let code = ke.code(); let key_lower = key.to_lowercase();
-            let is_m_shortcut = e.alt_key() && (code == "KeyM" || key_lower == "m" || key_lower == "µ");
-            if is_m_shortcut { e.prevent_default(); e.stop_immediate_propagation(); h_close_c.emit(()); return; }
             match key.as_str() {
                 " " => {
                     e.prevent_default();
@@ -776,7 +774,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let focused_area_h = focused_area.clone();
 
         html! {
-            <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[30%]" } else { "w-[60%]" })}>
+            <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[40%]" } else { "w-[60%]" })}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between bg-gray-950/20">
                     <div class="flex items-center space-x-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
@@ -870,7 +868,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         </div>
                                         // コンテンツプレビュー（冒頭3行を表示）
                                         <div class={classes!(
-                                            "px-3", "pb-3", "text-xs", "font-bold", "line-clamp-3", "leading-snug", "break-all", "overflow-hidden",
+                                            "px-3", "pb-3", "text-xs", "font-bold", "line-clamp-3", "leading-snug", "break-all", "overflow-hidden", "whitespace-pre-wrap",
                                             if !file.is_loaded { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
                                         )}>
                                             if !file.is_loaded { 
@@ -904,7 +902,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_wide = *is_wide_layout;
 
         html! {
-            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", if is_wide { vec!["w-[50%]", "border-l"] } else { vec!["flex-1"] }, "border-white/5")}>
+            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", if is_wide { vec!["w-[40%]", "border-l"] } else { vec!["flex-1"] }, "border-white/5")}>
                 if let Some(file) = file_opt {
                     <div class="flex-1 flex flex-col min-h-0">
                         <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
