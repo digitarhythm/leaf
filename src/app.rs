@@ -1,7 +1,7 @@
 use yew::prelude::*;
 use crate::components::button_bar::ButtonBar;
 use crate::components::status_bar::StatusBar;
-use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameConflictDialog};
+use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameConflictDialog, LoadingOverlay};
 use crate::components::file_open_dialog::FileOpenDialog;
 use crate::components::preview::Preview;
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, set_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
@@ -290,6 +290,7 @@ pub fn app() -> Html {
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
+    let is_processing_dialog = use_state(|| false);
     let is_install_confirm_visible = use_state(|| false);
     let is_install_manual_visible = use_state(|| false);
 
@@ -863,6 +864,7 @@ pub fn app() -> Html {
         let s_state = sheets.clone(); let rs = sheets_ref.clone(); let ncid_state = no_category_folder_id.clone();
         let cats_state = categories.clone();
         let file_refresh_trigger_h = file_refresh_trigger.clone();
+        let is_processing = is_processing_dialog.clone();
         let is_file_list_loading_h = is_file_list_loading.clone();
         Callback::from(move |_: usize| {
             if let Some(tcid) = (*pending).clone() {
@@ -870,12 +872,13 @@ pub fn app() -> Html {
                 let ss = s_state.clone(); let rs_inner = rs.clone(); let ncid_s = ncid_state.clone();
                 let cs_inner = cats_state.clone(); let target_cid = tcid.clone();
                 let file_refresh_trigger = file_refresh_trigger_h.clone();
+                let is_processing_h = is_processing.clone();
                 let is_file_list_loading = is_file_list_loading_h.clone();
                 
-                pending_inner.set(None); is_file_list_loading.set(true);
+                pending_inner.set(None); is_processing_h.set(true); is_file_list_loading.set(true);
 
                 spawn_local(async move {
-                    let structure = match ensure_directory_structure().await { Ok(res) => res, Err(_) => { is_file_list_loading.set(false); return; } };
+                    let structure = match ensure_directory_structure().await { Ok(res) => res, Err(_) => { is_processing_h.set(false); is_file_list_loading.set(false); return; } };
                     let ncid = js_sys::Reflect::get(&structure, &JsValue::from_str("othersId")).unwrap().as_string().unwrap();
                     ncid_s.set(Some(ncid.clone()));
 
@@ -902,12 +905,15 @@ pub fn app() -> Html {
                     let trigger_handle = file_refresh_trigger.clone();
                     let cs_inner_final = cs_inner.clone();
                     let target_cid_final = target_cid.clone();
+                    let is_proc_final = is_processing_h.clone();
                     Timeout::new(10, move || {
                         let mut current_cats = (*cs_inner_final).clone();
                         current_cats.retain(|c| c.id != target_cid_final);
                         cs_inner_final.set(current_cats);
                         on_refresh_inner.emit(());
                         trigger_handle.set(*trigger_handle + 1);
+                        is_proc_final.set(false);
+                        is_file_list_loading.set(false);
                     }).forget();
                 });
             }
@@ -1674,10 +1680,38 @@ pub fn app() -> Html {
                         let is_toggle_shortcut = ke.alt_key() && (is_l_key || is_h_key || is_m_key);
                         let is_font_size_shortcut = ke.alt_key() && (is_plus_key || is_minus_key);
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
+                        
+                        // Alt + L (Preview) のトグル
+                        if ke.alt_key() && is_l_key && (!is_overlay_active || *is_preview_c) {
+                            e.prevent_default(); e.stop_immediate_propagation(); 
+                            let cur_c_val = get_editor_content(); 
+                            let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true); 
+                            if !*is_preview_c && is_empty { return; } 
+                            let val = !*is_preview_c;
+                            is_preview_c.set(val); 
+                            if !val { focus_editor(); }
+                            return; 
+                        }
+                        
+                        // Alt + M (FileOpen) のトグル
+                        if ke.alt_key() && is_m_key && (!is_overlay_active || *is_file_open_c) {
+                            e.prevent_default(); e.stop_immediate_propagation(); 
+                            let val = !*is_file_open_c; 
+                            is_file_open_c.set(val); sp_c.set(val); 
+                            if !val { focus_editor(); }
+                            return; 
+                        }
+                        
+                        // Alt + H (Help) のトグル
+                        if ke.alt_key() && is_h_key && (!is_overlay_active || *is_help_c) {
+                            e.prevent_default(); e.stop_immediate_propagation(); 
+                            let val = !*is_help_c;
+                            is_help_c.set(val); 
+                            if !val { focus_editor(); }
+                            return; 
+                        }
+
                         if ke.alt_key() && !is_overlay_active {
-                            if is_l_key { e.prevent_default(); e.stop_immediate_propagation(); let cur_c_val = get_editor_content(); let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true); if !*is_preview_c && is_empty { return; } is_preview_c.set(!*is_preview_c); return; }
-                            if is_m_key { e.prevent_default(); e.stop_immediate_propagation(); let val = !*is_file_open_c; is_file_open_c.set(val); sp_c.set(val); return; }
-                            if is_h_key { e.prevent_default(); e.stop_immediate_propagation(); is_help_c.set(!*is_help_c); return; }
                             if is_font_size_shortcut { e.prevent_default(); e.stop_immediate_propagation(); if is_plus_key { crate::js_interop::change_font_size(1); } else { crate::js_interop::change_font_size(-1); } return; }
                             let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
                             let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
@@ -1839,6 +1873,7 @@ pub fn app() -> Html {
                                 refresh_files_trigger={*file_refresh_trigger} is_loading={*is_file_list_loading} on_loading_change={let l = is_file_list_loading.clone(); Callback::from(move |v| l.set(v))} 
                                 on_network_status_change={let nc = network_connected.clone(); Callback::from(move |v| nc.set(v))}
                                 font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()}
+                                is_processing={*is_processing_dialog}
                             />
                         </div>
                     }
@@ -1863,7 +1898,7 @@ pub fn app() -> Html {
                 if let Some(conf_diag) = if !conflict_queue.is_empty() { let conflict = conflict_queue.first().unwrap(); let title = if conflict.is_missing_on_drive { i18n::t("file_not_found", lang) } else { i18n::t("conflict_detected", lang) }; let message = if conflict.is_missing_on_drive { i18n::t("missing_file_message", lang).replace("{}", &conflict.title) } else { i18n::t("conflict_message", lang).replace("{}", &conflict.title) }; let options = if conflict.is_missing_on_drive { vec![DialogOption { id: 1, label: i18n::t("opt_reupload", lang) }, DialogOption { id: 3, label: i18n::t("opt_delete_local", lang) }] } else { vec![DialogOption { id: 0, label: i18n::t("opt_load_drive", lang) }, DialogOption { id: 1, label: i18n::t("opt_overwrite_drive", lang) }, DialogOption { id: 2, label: i18n::t("opt_save_new", lang) }] }; let on_cfm = on_conf_cfm.clone(); Some(html! { <CustomDialog title={title} message={message} options={options} on_confirm={on_cfm} /> }) } else { None } { <div class="pointer-events-auto">{ conf_diag }</div> }
                 if let Some(fb_alert) = if let Some(_) = fallback_queue.first() { let on_cfm = on_fallback_cfm.clone(); Some(html! { <CustomDialog title={i18n::t("category_not_found_title", lang)} message={i18n::t("category_not_found_fallback", lang)} options={vec![DialogOption { id: 0, label: i18n::t("ok", lang) }]} on_confirm={on_cfm} on_cancel={let fq = fallback_queue.clone(); Some(Callback::from(move |_| { fq.set(Vec::new()); }))} /> }) } else { None } { <div class="pointer-events-auto">{ fb_alert }</div> }
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() { let conflict = name_conflict_queue.first().unwrap(); let title = i18n::t("filename_conflict", lang); let message = i18n::t("filename_conflict_message", lang).replace("{}", &conflict.filename); let on_cfm = on_name_conflict_cfm.clone(); let ncq = name_conflict_queue.clone(); let labels = vec![i18n::t("opt_nc_overwrite", lang), i18n::t("opt_nc_new_guid", lang), i18n::t("opt_nc_rename", lang)]; Some(html! { <NameConflictDialog title={title} message={message} current_name={conflict.filename.clone()} labels={labels} on_confirm={on_cfm} on_cancel={move |_| { ncq.set(Vec::new()); }} /> }) } else { None } { <div class="pointer-events-auto">{ nc_diag }</div> }
-                if *is_import_lock { <div class={classes!("pointer-events-auto", "fixed", "inset-0", "bg-black/50", "backdrop-blur-md", "z-[90]", "transition-opacity", "duration-300", "flex", "items-center", "justify-center", if *is_import_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center"><div class="w-12 h-12 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div><p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t("synchronizing", lang) }</p></div></div> }
+                <LoadingOverlay is_visible={*is_import_lock} message={i18n::t("synchronizing", lang)} is_fading_out={*is_import_fading_out} z_index="z-[90]" />
                 if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
                 if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
             </div>

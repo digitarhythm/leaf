@@ -10,6 +10,7 @@ use crate::drive_interop::{list_files, download_file, move_file};
 use crate::i18n::{self, Language};
 use crate::db_interop::JSCategory;
 use crate::components::preview::Preview;
+use crate::components::dialog::LoadingOverlay;
 use web_sys::AbortController;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -82,9 +83,10 @@ pub struct FileOpenDialogProps {
     pub on_loading_change: Callback<bool>,
     #[prop_or_default]
     pub on_network_status_change: Callback<bool>,
-    pub on_sub_active_change: Callback<bool>, // 追加
+    pub on_sub_active_change: Callback<bool>, 
     pub font_size: i32,
     pub on_change_font_size: Callback<i32>,
+    pub is_processing: bool,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -475,7 +477,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let preview_modal_c = preview_modal_data.clone();
         let is_preview_fading_out_c = is_preview_fading_out.clone();
         let is_loading_preview_cc = is_loading_preview.clone();
-        let h_close_c = handle_close.clone();
         let h_close_preview_c = handle_close_preview.clone();
         let on_create_toggle_c = props.on_create_category_toggle.clone();
         let root_ref_for_esc = root_ref.clone();
@@ -525,7 +526,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             }
             if *is_fading_out_cc || is_deleting_cc.is_some() { return; }
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
-            let key = ke.key(); let code = ke.code(); let key_lower = key.to_lowercase();
+            let key = ke.key();
             match key.as_str() {
                 " " => {
                     e.prevent_default();
@@ -1033,6 +1034,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     close_on_space={true}
                 />
             }
+
+            <LoadingOverlay is_visible={props.is_processing} message={i18n::t("synchronizing", lang)} z_index="z-[500]" />
         </div>
     }
 }
