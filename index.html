@@ -1,322 +1,440 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Leaf</title>
-    
-    <link data-trunk rel="rust" data-target-name="leaf" data-integrity="none" />
-    <link data-trunk rel="css" href="tailwind.css" data-integrity="none" />
-    
-    <link data-trunk rel="copy-file" href="manifest.json" />
-    <link rel="manifest" href="manifest.json" />
-    
-    <link data-trunk rel="copy-file" href="editor_interop.js" />
-    <link data-trunk rel="copy-file" href="sw.js" />
-    <link data-trunk rel="copy-file" href="auth.js" />
-    <link data-trunk rel="copy-file" href="db.js" />
-    <link data-trunk rel="copy-file" href="drive.js" />
-    <link data-trunk rel="copy-file" href="privacy.html" />
-    <link data-trunk rel="copy-file" href="terms.html" />
-    <link data-trunk rel="copy-file" href="licenses.html" />
-    <link data-trunk rel="copy-file" href="tutorial.html" />
-    <link data-trunk rel="copy-file" href="icon.svg" />
-    <link data-trunk rel="copy-file" href="icon-192.png" />
-    <link data-trunk rel="copy-file" href="icon-512.png" />
-    <link rel="icon" type="image/svg+xml" href="icon.svg" />
 
-    <script>
-      // PWA インストールプロンプトを早期に捕捉
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        window.leafDeferredPrompt = e;
-        console.log("[Leaf-PWA] beforeinstallprompt captured in index.html");
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Leaf</title>
+
+  <link data-trunk rel="rust" data-target-name="leaf" data-integrity="none" />
+  <link data-trunk rel="css" href="tailwind.css" data-integrity="none" />
+
+  <link data-trunk rel="copy-file" href="manifest.json" />
+  <link rel="manifest" href="manifest.json" />
+
+  <link data-trunk rel="copy-file" href="editor_interop.js" />
+  <link data-trunk rel="copy-file" href="sw.js" />
+  <link data-trunk rel="copy-file" href="auth.js" />
+  <link data-trunk rel="copy-file" href="db.js" />
+  <link data-trunk rel="copy-file" href="drive.js" />
+  <link data-trunk rel="copy-file" href="privacy.html" />
+  <link data-trunk rel="copy-file" href="terms.html" />
+  <link data-trunk rel="copy-file" href="licenses.html" />
+  <link data-trunk rel="copy-file" href="features_ja.html" />
+  <link data-trunk rel="copy-file" href="features_en.html" />
+  <link data-trunk rel="copy-file" href="features_zh.html" />
+  <link data-trunk rel="copy-file" href="features_ko.html" />
+  <link data-trunk rel="copy-file" href="features_es.html" />
+  <link data-trunk rel="copy-file" href="features_de.html" />
+  <link data-trunk rel="copy-file" href="features_fr.html" />
+  <link data-trunk rel="copy-file" href="features_it.html" />
+  <link data-trunk rel="copy-file" href="features_nl.html" />
+  <link data-trunk rel="copy-file" href="icon.svg" />
+  <link data-trunk rel="copy-file" href="icon-192.png" />
+  <link data-trunk rel="copy-file" href="icon-512.png" />
+  <link rel="icon" type="image/svg+xml" href="icon.svg" />
+
+  <script>
+    // PWA インストールプロンプトを早期に捕捉
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      window.leafDeferredPrompt = e;
+      console.log("[Leaf-PWA] beforeinstallprompt captured in index.html");
+    });
+  </script>
+
+  <style>
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+      background-color: #111827;
+      overflow: hidden;
+    }
+
+    #root {
+      height: 100%;
+    }
+
+    /* --- カーソルスタイル修正：Gruvboxテーマ対応版（極限強化） --- */
+
+    /* ノーマル/ビジュアルモード時：ブロックカーソルを維持 */
+    .ace_editor.ace-gruvbox.leaf-normal-mode .ace_cursor {
+      background-color: #ebdbb2 !important;
+      border-left: none !important;
+      width: 0.6em !important;
+      opacity: 0.6 !important;
+      display: block !important;
+    }
+
+    /* 【挿入モード時】確実に「縦棒（バー）」にする設定 */
+    .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor {
+      background-color: transparent !important;
+      border-left: 2px solid #ebdbb2 !important;
+      width: 2px !important;
+      opacity: 1 !important;
+      display: block !important;
+    }
+
+    /* Vim専用の別ブロック要素が存在する場合、挿入モードでは隠す */
+    .ace_editor.leaf-insert-mode .ace_cursor-vimmode,
+    .ace_editor.leaf-insert-mode .ace_cursor.ace_cursor-vimmode {
+      display: none !important;
+      opacity: 0 !important;
+    }
+
+    /* --- 検索ダイアログのカスタマイズ --- */
+    .ace_search {
+      position: fixed !important;
+      top: 50% !important;
+      left: 50% !important;
+      transform: translate(-50%, -50%) !important;
+      z-index: 100 !important;
+      background-color: #1f2937 !important;
+      /* gray-800 */
+      border: 1px solid #374151 !important;
+      /* gray-700 */
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
+      border-radius: 0.5rem !important;
+      /* rounded-lg */
+      padding: 1.25rem !important;
+      width: auto !important;
+      height: auto !important;
+      color: #e5e7eb !important;
+      /* gray-200 */
+      font-family: inherit !important;
+    }
+
+    .ace_search_form,
+    .ace_replace_form {
+      margin-bottom: 0.75rem !important;
+      display: flex !important;
+      align-items: center !important;
+    }
+
+    .ace_search_field {
+      background-color: #030712 !important;
+      /* gray-950 */
+      border: 1px solid #374151 !important;
+      /* gray-700 */
+      color: #ffffff !important;
+      border-radius: 0.375rem !important;
+      /* rounded-md */
+      padding: 0.4rem 0.75rem !important;
+      margin-right: 0.5rem !important;
+      outline: none !important;
+    }
+
+    .ace_search_field:focus {
+      border-color: #10b981 !important;
+      /* emerald-500 */
+      box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3) !important;
+    }
+
+    .ace_searchbtn {
+      background-color: #374151 !important;
+      /* gray-700 */
+      border: 1px solid #4b5563 !important;
+      /* gray-600 */
+      color: #d1d5db !important;
+      /* gray-300 */
+      border-radius: 0.375rem !important;
+      padding: 0.25rem 0.75rem !important;
+      margin-left: 0.25rem !important;
+      cursor: pointer !important;
+      transition: all 0.2s !important;
+      font-size: 12px !important;
+      height: 28px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+    }
+
+    .ace_searchbtn:hover {
+      background-color: #4b5563 !important;
+      /* gray-600 */
+      color: #ffffff !important;
+    }
+
+    .ace_searchbtn.prev,
+    .ace_searchbtn.next {
+      font-weight: bold !important;
+    }
+
+    .ace_search_options {
+      margin-top: 0.5rem !important;
+      padding-top: 0.5rem !important;
+      border-top: 1px solid #374151 !important;
+      display: flex !important;
+      flex-wrap: wrap !important;
+      gap: 0.5rem !important;
+    }
+
+    .ace_search_option {
+      background-color: #374151 !important;
+      border: 1px solid #4b5563 !important;
+      color: #9ca3af !important;
+      border-radius: 0.25rem !important;
+      padding: 0.1rem 0.5rem !important;
+      font-size: 10px !important;
+      cursor: pointer !important;
+    }
+
+    .ace_search_option.checked {
+      background-color: #059669 !important;
+      /* emerald-600 */
+      border-color: #10b981 !important;
+      color: #ffffff !important;
+    }
+
+    .ace_searchbtn_close {
+      position: absolute !important;
+      top: 0.5rem !important;
+      right: 0.5rem !important;
+      color: #9ca3af !important;
+      cursor: pointer !important;
+      font-size: 18px !important;
+      opacity: 0.6 !important;
+    }
+
+    .ace_searchbtn_close:hover {
+      opacity: 1 !important;
+      color: #ffffff !important;
+    }
+
+    /* --- */
+    /* --- 未保存状態の行番号スタイル --- */
+    .leaf-unsaved-gutter .ace_gutter-cell {
+      color: #fb923c !important;
+      /* orange-400 */
+      font-weight: bold !important;
+    }
+
+    .leaf-local-gutter .ace_gutter-cell {
+      color: #22c55e !important;
+      /* green-500 */
+      font-weight: bold !important;
+    }
+
+    /* --- */
+    /* --- Markdown Preview Styling (GitHub Dark Inspired) --- */
+    .markdown-body {
+      color: #c9d1d9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      font-size: 16px;
+      line-height: 1.6;
+      word-wrap: break-word;
+    }
+
+    .markdown-body h1,
+    .markdown-body h2,
+    .markdown-body h3 {
+      margin-top: 24px;
+      margin-bottom: 16px;
+      font-weight: 600;
+      line-height: 1.25;
+      color: #f0f6f0;
+      border-bottom: 1px solid #30363d;
+      padding-bottom: .3em;
+    }
+
+    .markdown-body h1 {
+      font-size: 2em;
+    }
+
+    .markdown-body h2 {
+      font-size: 1.5em;
+    }
+
+    .markdown-body h3 {
+      font-size: 1.25em;
+      border-bottom: none;
+    }
+
+    .markdown-body p,
+    .markdown-body ul,
+    .markdown-body ol {
+      margin-top: 0;
+      margin-bottom: 16px;
+    }
+
+    .markdown-body a {
+      color: #58a6ff;
+      text-decoration: none;
+    }
+
+    .markdown-body a:hover {
+      text-decoration: underline;
+    }
+
+    .markdown-body code {
+      padding: 0.2em 0.4em;
+      margin: 0;
+      font-size: 85%;
+      background-color: rgba(110, 118, 129, 0.4);
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+    }
+
+    .markdown-body pre {
+      padding: 16px;
+      overflow: auto;
+      font-size: 85%;
+      line-height: 1.45;
+      background-color: #0d1117;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      margin-bottom: 16px;
+    }
+
+    .markdown-body pre code {
+      background-color: transparent;
+      padding: 0;
+      margin: 0;
+      font-size: 100%;
+      word-break: break-all;
+      white-space: pre-wrap;
+      border: 0;
+    }
+
+    .markdown-body ul {
+      padding-left: 2em;
+      list-style-type: disc;
+    }
+
+    .markdown-body ol {
+      padding-left: 2em;
+      list-style-type: decimal;
+    }
+
+    .markdown-body blockquote {
+      padding: 0 1em;
+      color: #8b949e;
+      border-left: .25em solid #30363d;
+      margin: 0 0 16px 0;
+    }
+
+    .markdown-body table {
+      border-spacing: 0;
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 16px;
+      overflow: auto;
+    }
+
+    .markdown-body th,
+    .markdown-body td {
+      border: 1px solid #30363d;
+      padding: 6px 13px;
+    }
+
+    .markdown-body th {
+      background-color: #161b22;
+      font-weight: 600;
+    }
+
+    .markdown-body tr:nth-child(2n) {
+      background-color: #0d1117;
+    }
+
+    .markdown-body img {
+      max-width: 100%;
+      box-sizing: content-box;
+      background-color: #0d1117;
+    }
+
+    .markdown-body pre,
+    .markdown-body code {
+      white-space: pre-wrap !important;
+      word-break: break-all !important;
+      overflow-wrap: break-word !important;
+    }
+
+    /* --- */
+    /* --- HLJS Container (For code-only files) --- */
+    .hljs-container {
+      font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+      background-color: #1d2021;
+      /* Gruvbox Dark background */
+    }
+
+    .hljs-container pre.hljs {
+      background: transparent !important;
+      padding: 0 !important;
+      margin: 0 !important;
+      white-space: pre-wrap !important;
+      word-break: break-all !important;
+      overflow-wrap: break-word !important;
+      font-size: inherit;
+      color: #ebdbb2;
+      /* Base text color */
+    }
+
+    .hljs-container code.hljs {
+      padding: 0 !important;
+      background: transparent !important;
+    }
+
+    /* --- */
+  </style>
+
+  <link rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css"
+    crossorigin="anonymous" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
+    crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-javascript.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js"
+    crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-modelist.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-searchbox.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" crossorigin="anonymous"></script>
+  <script>
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({ startOnLoad: false, theme: 'default' });
+    }
+
+    window.initMermaid = function (el) {
+      if (typeof mermaid !== 'undefined' && el) {
+        mermaid.run({ nodes: el.querySelectorAll('.mermaid') });
+      }
+    };
+
+    if (typeof ace !== 'undefined') {
+      ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
+    }
+
+    if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+      marked.setOptions({
+        highlight: function (code, lang) {
+          const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+          return hljs.highlight(code, { language }).value;
+        },
+        langPrefix: 'hljs language-'
       });
-    </script>
+    }
 
-    <style>
-      html, body { height: 100%; margin: 0; background-color: #111827; overflow: hidden; }
-      #root { height: 100%; }
-      /* --- カーソルスタイル修正：Gruvboxテーマ対応版（極限強化） --- */
-      
-      /* ノーマル/ビジュアルモード時：ブロックカーソルを維持 */
-      .ace_editor.ace-gruvbox.leaf-normal-mode .ace_cursor {
-        background-color: #ebdbb2 !important; 
-        border-left: none !important;
-        width: 0.6em !important;
-        opacity: 0.6 !important;
-        display: block !important;
-      }
-
-      /* 【挿入モード時】確実に「縦棒（バー）」にする設定 */
-      .ace_editor.ace-gruvbox.leaf-insert-mode .ace_cursor {
-        background-color: transparent !important;
-        border-left: 2px solid #ebdbb2 !important;
-        width: 2px !important;
-        opacity: 1 !important;
-        display: block !important;
-      }
-
-      /* Vim専用の別ブロック要素が存在する場合、挿入モードでは隠す */
-      .ace_editor.leaf-insert-mode .ace_cursor-vimmode,
-      .ace_editor.leaf-insert-mode .ace_cursor.ace_cursor-vimmode {
-        display: none !important;
-        opacity: 0 !important;
-      }
-      /* --- 検索ダイアログのカスタマイズ --- */
-      .ace_search {
-        position: fixed !important;
-        top: 50% !important;
-        left: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        z-index: 100 !important;
-        background-color: #1f2937 !important; /* gray-800 */
-        border: 1px solid #374151 !important; /* gray-700 */
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
-        border-radius: 0.5rem !important; /* rounded-lg */
-        padding: 1.25rem !important;
-        width: auto !important;
-        height: auto !important;
-        color: #e5e7eb !important; /* gray-200 */
-        font-family: inherit !important;
-      }
-      .ace_search_form, .ace_replace_form {
-        margin-bottom: 0.75rem !important;
-        display: flex !important;
-        align-items: center !important;
-      }
-      .ace_search_field {
-        background-color: #030712 !important; /* gray-950 */
-        border: 1px solid #374151 !important; /* gray-700 */
-        color: #ffffff !important;
-        border-radius: 0.375rem !important; /* rounded-md */
-        padding: 0.4rem 0.75rem !important;
-        margin-right: 0.5rem !important;
-        outline: none !important;
-      }
-      .ace_search_field:focus {
-        border-color: #10b981 !important; /* emerald-500 */
-        box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.3) !important;
-      }
-      .ace_searchbtn {
-        background-color: #374151 !important; /* gray-700 */
-        border: 1px solid #4b5563 !important; /* gray-600 */
-        color: #d1d5db !important; /* gray-300 */
-        border-radius: 0.375rem !important;
-        padding: 0.25rem 0.75rem !important;
-        margin-left: 0.25rem !important;
-        cursor: pointer !important;
-        transition: all 0.2s !important;
-        font-size: 12px !important;
-        height: 28px !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-      }
-      .ace_searchbtn:hover {
-        background-color: #4b5563 !important; /* gray-600 */
-        color: #ffffff !important;
-      }
-      .ace_searchbtn.prev, .ace_searchbtn.next {
-        font-weight: bold !important;
-      }
-      .ace_search_options {
-        margin-top: 0.5rem !important;
-        padding-top: 0.5rem !important;
-        border-top: 1px solid #374151 !important;
-        display: flex !important;
-        flex-wrap: wrap !important;
-        gap: 0.5rem !important;
-      }
-      .ace_search_option {
-        background-color: #374151 !important;
-        border: 1px solid #4b5563 !important;
-        color: #9ca3af !important;
-        border-radius: 0.25rem !important;
-        padding: 0.1rem 0.5rem !important;
-        font-size: 10px !important;
-        cursor: pointer !important;
-      }
-      .ace_search_option.checked {
-        background-color: #059669 !important; /* emerald-600 */
-        border-color: #10b981 !important;
-        color: #ffffff !important;
-      }
-      .ace_searchbtn_close {
-        position: absolute !important;
-        top: 0.5rem !important;
-        right: 0.5rem !important;
-        color: #9ca3af !important;
-        cursor: pointer !important;
-        font-size: 18px !important;
-        opacity: 0.6 !important;
-      }
-      .ace_searchbtn_close:hover {
-        opacity: 1 !important;
-        color: #ffffff !important;
-      }
-      /* --- */
-      /* --- 未保存状態の行番号スタイル --- */
-      .leaf-unsaved-gutter .ace_gutter-cell {
-        color: #fb923c !important; /* orange-400 */
-        font-weight: bold !important;
-      }
-      .leaf-local-gutter .ace_gutter-cell {
-        color: #22c55e !important; /* green-500 */
-        font-weight: bold !important;
-      }
-      /* --- */
-      /* --- Markdown Preview Styling (GitHub Dark Inspired) --- */
-      .markdown-body {
-        color: #c9d1d9;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-        font-size: 16px;
-        line-height: 1.6;
-        word-wrap: break-word;
-      }
-      .markdown-body h1, .markdown-body h2, .markdown-body h3 { 
-        margin-top: 24px; 
-        margin-bottom: 16px; 
-        font-weight: 600; 
-        line-height: 1.25; 
-        color: #f0f6f0; 
-        border-bottom: 1px solid #30363d; 
-        padding-bottom: .3em;
-      }
-      .markdown-body h1 { font-size: 2em; }
-      .markdown-body h2 { font-size: 1.5em; }
-      .markdown-body h3 { font-size: 1.25em; border-bottom: none; }
-      .markdown-body p, .markdown-body ul, .markdown-body ol { margin-top: 0; margin-bottom: 16px; }
-      .markdown-body a { color: #58a6ff; text-decoration: none; }
-      .markdown-body a:hover { text-decoration: underline; }
-      .markdown-body code { 
-        padding: 0.2em 0.4em; 
-        margin: 0; 
-        font-size: 85%; 
-        background-color: rgba(110, 118, 129, 0.4); 
-        border-radius: 6px; 
-        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace; 
-      }
-      .markdown-body pre { 
-        padding: 16px; 
-        overflow: auto; 
-        font-size: 85%; 
-        line-height: 1.45; 
-        background-color: #0d1117; 
-        border-radius: 6px; 
-        border: 1px solid #30363d; 
-        margin-bottom: 16px;
-      }
-      .markdown-body pre code { 
-        background-color: transparent; 
-        padding: 0; 
-        margin: 0; 
-        font-size: 100%; 
-        word-break: break-all; 
-        white-space: pre-wrap; 
-        border: 0; 
-      }
-      .markdown-body ul { padding-left: 2em; list-style-type: disc; }
-      .markdown-body ol { padding-left: 2em; list-style-type: decimal; }
-      .markdown-body blockquote { 
-        padding: 0 1em; 
-        color: #8b949e; 
-        border-left: .25em solid #30363d; 
-        margin: 0 0 16px 0;
-      }
-      .markdown-body table { 
-        border-spacing: 0; 
-        border-collapse: collapse; 
-        width: 100%; 
-        margin-bottom: 16px; 
-        overflow: auto;
-      }
-      .markdown-body th, .markdown-body td { 
-        border: 1px solid #30363d; 
-        padding: 6px 13px; 
-      }
-      .markdown-body th { background-color: #161b22; font-weight: 600; }
-      .markdown-body tr:nth-child(2n) { background-color: #0d1117; }
-      .markdown-body img { max-width: 100%; box-sizing: content-box; background-color: #0d1117; }
-      .markdown-body pre, .markdown-body code {
-        white-space: pre-wrap !important;
-        word-break: break-all !important;
-        overflow-wrap: break-word !important;
-      }
-      /* --- */
-      /* --- HLJS Container (For code-only files) --- */
-      .hljs-container {
-        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
-        background-color: #1d2021; /* Gruvbox Dark background */
-      }
-      .hljs-container pre.hljs {
-        background: transparent !important;
-        padding: 0 !important;
-        margin: 0 !important;
-        white-space: pre-wrap !important;
-        word-break: break-all !important;
-        overflow-wrap: break-word !important;
-        font-size: inherit;
-        color: #ebdbb2; /* Base text color */
-      }
-      .hljs-container code.hljs {
-        padding: 0 !important;
-        background: transparent !important;
-      }
-      /* --- */
-    </style>
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css" crossorigin="anonymous" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-javascript.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-modelist.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-searchbox.js" crossorigin="anonymous"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" crossorigin="anonymous"></script>
-    <script>
-      if (typeof mermaid !== 'undefined') {
-        mermaid.initialize({ startOnLoad: false, theme: 'default' });
-      }
-      
-      window.initMermaid = function(el) {
-        if (typeof mermaid !== 'undefined' && el) {
-          mermaid.run({ nodes: el.querySelectorAll('.mermaid') });
-        }
-      };
-
-      if (typeof ace !== 'undefined') {
-        ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
-      }
-      
-      if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
-        marked.setOptions({
-          highlight: function(code, lang) {
-            const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-            return hljs.highlight(code, { language }).value;
-          },
-          langPrefix: 'hljs language-'
+    // Service Worker 登録
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        // サブディレクトリ運用に対応するため相対パスで登録
+        navigator.serviceWorker.register('sw.js').then(reg => {
+          console.log('[Leaf-PWA] Service Worker registered.', reg.scope);
+        }).catch(err => {
+          console.error('[Leaf-PWA] Service Worker registration failed:', err);
         });
-      }
+      });
+    }
+  </script>
+</head>
 
-      // Service Worker 登録
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          // サブディレクトリ運用に対応するため相対パスで登録
-          navigator.serviceWorker.register('sw.js').then(reg => {
-            console.log('[Leaf-PWA] Service Worker registered.', reg.scope);
-          }).catch(err => {
-            console.error('[Leaf-PWA] Service Worker registration failed:', err);
-          });
-        });
-      }
-    </script>
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
+<body>
+  <div id="root"></div>
+</body>
+
 </html>

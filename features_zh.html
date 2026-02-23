@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Leaf 功能指南 - 专注于写作的体验</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --emerald: #10b981;
+            --text: #f1f5f9;
+            --text-dim: #94a3b8;
+            --border: rgba(255, 255, 255, 0.1);
+            --code-bg: #000000;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.8;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            max-width: 900px;
+            width: 90%;
+            padding: 4rem 0;
+        }
+
+        header {
+            text-align: left;
+            margin-bottom: 4rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 2rem;
+        }
+
+        .logo {
+            font-size: 2.5rem;
+            font-weight: 900;
+            color: var(--emerald);
+            letter-spacing: -0.05em;
+        }
+
+        h1 {
+            font-size: 2rem;
+            margin: 0.5rem 0;
+        }
+
+        .subtitle {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+        }
+
+        section {
+            margin-bottom: 5rem;
+        }
+
+        h2 {
+            font-size: 1.75rem;
+            color: var(--emerald);
+            border-left: 4px solid var(--emerald);
+            padding-left: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            color: var(--text);
+            margin-top: 2rem;
+        }
+
+        p {
+            margin-bottom: 1.5rem;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+        }
+
+        .feature-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 2rem;
+            overflow: hidden;
+        }
+
+        .screenshot {
+            background: var(--code-bg);
+            border-radius: 0.5rem;
+            margin: 1rem 0;
+            border: 1px solid var(--border);
+            min-height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            font-style: italic;
+        }
+
+        .screenshot img {
+            max-width: 100%;
+            height: auto;
+            border-radius: 0.4rem;
+        }
+
+        .icon-desc {
+            display: flex;
+            align-items: flex-start;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .icon-box {
+            background: #334155;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            flex-shrink: 0;
+            color: var(--emerald);
+        }
+
+        .kbd {
+            background: #334155;
+            padding: 0.2rem 0.5rem;
+            border-radius: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: #fff;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.1rem 0.5rem;
+            border-radius: 0.25rem;
+            font-size: 0.7rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            background: var(--emerald);
+            color: #fff;
+            margin-right: 0.5rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 4rem 0;
+            border-top: 1px solid var(--border);
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">Leaf</div>
+            <h1>功能指南</h1>
+            <p class="subtitle">自动化"管理"，让您专注于"写作"</p>
+        </header>
+
+        <!-- Menu Bar Explanation -->
+        <section>
+            <h2>1. 主菜单 (左上角)</h2>
+            <p>左上角的菜单栏有三个关键图标，用于管理您的文档生命周期。</p>
+
+            <div class="feature-item">
+                <div class="screenshot">
+                    [Screenshot: Menu Bar Icons Placeholder]
+                </div>
+
+                <div class="icon-desc">
+                    <div class="icon-box">🆕</div>
+                    <div>
+                        <h3>新建工作表 <span class="kbd">Opt/Alt + n</span></h3>
+                        <p>通过在 Google 云端硬盘上创建新的文本文件，立即开始写作。无需担心文件名；Leaf 会自动将其作为"无标题"管理。</p>
+                    </div>
+                </div>
+
+                <div class="icon-desc">
+                    <div class="icon-box">🗂️</div>
+                    <div>
+                        <h3>工作表选择对话框 <span class="kbd">Opt/Alt + m</span></h3>
+                        <p>Leaf 的"管理屏幕"。使您能在预览内容的同时，直观地浏览按类别组织的文档。这是 Leaf 独特的文档管理方式——通过"内容"而不是仅仅通过文件名来判断。</p>
+                    </div>
+                </div>
+
+                <div class="icon-desc">
+                    <div class="icon-box">📂</div>
+                    <div>
+                        <h3>加载本地文件 <span class="kbd">Opt/Alt + o</span></h3>
+                        <p>打开和编辑您电脑上已有的文件。在此模式下，原始文件的编码 (例如 BOM) 将被保留。将其类别更改并移动到 Google 云端硬盘后，将自动为其启用云同步。</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Editor Features Explanation -->
+        <section>
+            <h2>2. 辅助写作功能 (状态栏)</h2>
+            <p>您可以使用底部的状态栏实时定制编辑器的行为。</p>
+
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <h3>切换 Vim 模式</h3>
+                    <div class="screenshot">
+                        [Screenshot: Vim Toggle Button Placeholder]
+                    </div>
+                    <p>最右侧的"Vim"按钮可启用专业的 Vim 快捷键绑定。使用 H/J/K/L 移动，并在浏览器中直接利用强大的命令操作。您的选择会保存在浏览器中，并在下次访问时持续生效。</p>
+                </div>
+
+                <div class="feature-item">
+                    <h3>更改扩展名和预览</h3>
+                    <div class="screenshot">
+                        [Screenshot: Extension Badge Placeholder]
+                    </div>
+                    <p>点击中央的扩展名徽章即可更改文件格式。这将控制：</p>
+                    <ul>
+                        <li><strong>语法高亮</strong>: 改变颜色以匹配例如 <span class="badge">rs</span> 或 <span
+                                class="badge">js</span> 等编程语言。</li>
+                        <li><strong>预览显示</strong>: 按下 <span class="kbd">Opt/Alt + l</span> 切换预览。<span
+                                class="badge">md</span> 格式将优雅地呈现，而源代码则显示带有高亮的结构。</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- Network and Sync Explanation -->
+        <section>
+            <h2>3. 网络和自动保存</h2>
+            <p>Leaf 的设计使您永远不必考虑"保存"。</p>
+
+            <div class="feature-item">
+                <h3>离线/在线自动切换</h3>
+                <div class="screenshot">
+                    [Screenshot: Network Status Indicator Placeholder]
+                </div>
+                <p>左下角的网络指示器显示您当前的状态。</p>
+                <ul>
+                    <li><strong>在线时</strong>: 您所做的每一个更改都会自动保存到 Google 云端硬盘。</li>
+                    <li><strong>离线时</strong>: 如果网络断开，保存功能会立即切换到您浏览器内的一个安全区域 (IndexedDB)。无需停止工作。</li>
+                    <li><strong>重新连接时</strong>: 一旦重新上线，Leaf 将在后台执行"静默同步"，自动将您离线时编辑的内容上传到 Google 云端硬盘。</li>
+                </ul>
+            </div>
+        </section>
+
+        <footer>
+            &copy; 2026 Leaf Notepad Application. Designed for Focus.
+        </footer>
+    </div>
+</body>
+
+</html>

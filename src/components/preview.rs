@@ -114,7 +114,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                 
                 let is_l_key = code == "KeyL" || key.to_lowercase() == "l" || key == "¬";
                 let is_h_key = code == "KeyH" || key.to_lowercase() == "h" || key == "˙";
-                let is_target_key = if is_help_mode { is_h_key } else { is_l_key };
+                let is_target_key = if is_help_mode { is_h_key } else if close_on_space { false } else { is_l_key };
                 if ke.alt_key() && is_target_key { e.prevent_default(); on_close.emit(()); return; }
                 if key == "Tab" { e.prevent_default(); return; }
                 if ke.alt_key() && !is_help_mode {
@@ -221,7 +221,7 @@ pub fn preview(props: &PreviewProps) -> Html {
                                 <a href="terms.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("terms_of_service", lang) }</a>
                                 <a href="privacy.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("privacy_policy", lang) }</a>
                                 <a href="licenses.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("oss_licenses", lang) }</a>
-                                <a href="tutorial.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("tutorial", lang) }</a>
+                                <a href={format!("features_{}.html", match lang { Language::Ja => "ja", Language::Zh => "zh", Language::Ko => "ko", Language::Es => "es", Language::De => "de", Language::Fr => "fr", Language::It => "it", Language::Nl => "nl", _ => "en" })} target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("tutorial", lang) }</a>
                             </div>
                         }
                     </div>

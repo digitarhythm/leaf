@@ -538,8 +538,8 @@ pub fn t(key: &str, lang: Language) -> String {
         }.to_string(),
 
         "tutorial" => match lang {
-            Language::Ja => "チュートリアル",
-            _ => "Tutorial",
+            Language::Ja => "Leafの特徴",
+            _ => "Features of Leaf",
         }.to_string(),
 
         "help_shortcuts" => match lang {
