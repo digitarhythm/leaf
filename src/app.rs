@@ -1591,13 +1591,14 @@ pub fn app() -> Html {
 
     {
         let aid = active_sheet_id.clone(); let is_ld = is_loading.clone();
-        let s_handle = sheets.clone(); let db_ready = db_ready_state.clone();
+        let db_ready = db_ready_state.clone(); let sheets_rf = sheets_ref.clone();
         let sp = is_suppressing_changes.clone();
-        use_effect_with((aid, is_ld, s_handle, db_ready), move |deps| {
-            let (aid_val, ld_val, s_val, ready_val) = deps;
+        use_effect_with((aid, is_ld, db_ready), move |deps| {
+            let (aid_val, ld_val, ready_val) = deps;
             if **ready_val && !**ld_val { 
                 if let Some(id) = &**aid_val { 
-                    if let Some(s) = s_val.iter().find(|x| x.id == *id) { 
+                    let current_sheets = (*sheets_rf.borrow()).clone();
+                    if let Some(s) = current_sheets.iter().find(|x| x.id == *id) { 
                         sp.set(true);
                         set_editor_content(&s.content); 
                         let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" }; 
