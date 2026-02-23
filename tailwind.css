@@ -312,6 +312,9 @@
   .z-\[400\] {
     z-index: 400;
   }
+  .z-\[500\] {
+    z-index: 500;
+  }
   .container {
     width: 100%;
     @media (width >= 40rem) {

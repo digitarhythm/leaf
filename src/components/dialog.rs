@@ -636,3 +636,36 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
         </div>
     }
 }
+
+#[derive(Properties, PartialEq)]
+pub struct LoadingOverlayProps {
+    pub is_visible: bool,
+    #[prop_or_default]
+    pub message: String,
+    #[prop_or_default]
+    pub is_fading_out: bool,
+    #[prop_or_else(|| "z-[90]".to_string())]
+    pub z_index: String,
+}
+
+#[function_component(LoadingOverlay)]
+pub fn loading_overlay(props: &LoadingOverlayProps) -> Html {
+    if !props.is_visible {
+        return html! {};
+    }
+
+    html! {
+        <div class={classes!(
+            "pointer-events-auto", "fixed", "inset-0", "bg-black/50", "backdrop-blur-md", 
+            props.z_index.clone(), "transition-opacity", "duration-300", "flex", "items-center", "justify-center",
+            if props.is_fading_out { "opacity-0" } else { "opacity-100" }
+        )}>
+            <div class="flex flex-col items-center">
+                <div class="w-12 h-12 border-4 border-lime-500 border-t-transparent rounded-full animate-spin"></div>
+                if !props.message.is_empty() {
+                    <p class="mt-4 text-white font-bold text-lg animate-pulse">{ &props.message }</p>
+                }
+            </div>
+        </div>
+    }
+}
