@@ -1012,19 +1012,32 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     if *is_wide_layout {
                         <p class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{ i18n::t("guide_keys", lang) }</p>
                     }
-                    <div class={classes!("flex", "space-x-2", if *is_wide_layout { "" } else { "w-full" })}>
-                        <button onclick={handle_close.reform(|_| ())} class={classes!("py-1.5", "rounded-md", "text-xs", "font-bold", "text-gray-400", "hover:bg-white/5", "transition-all", "uppercase", "tracking-widest", if *is_wide_layout { "px-4" } else { "flex-1 border border-white/10" })}>{ i18n::t("cancel", lang) }</button>
-                        <button 
-                            onclick={on_ok_click.reform(|_| ())} 
-                            disabled={selected_file_idx.is_none() || props.is_loading} 
-                            class={classes!(
-                                "py-1.5", "rounded-md", "text-xs", "font-bold", "text-white", "transition-all", "uppercase", "tracking-widest",
-                                if *is_wide_layout { "px-6" } else { "flex-1" },
-                                if selected_file_idx.is_none() || props.is_loading { vec!["bg-gray-800", "text-gray-600", "cursor-not-allowed"] } else { vec!["bg-emerald-600", "hover:bg-emerald-500", "shadow-lg", "shadow-emerald-900/20"] }
-                            )}
-                        >
-                            { i18n::t("ok", lang) }
-                        </button>
+                    <div class={classes!("flex", if *is_wide_layout { vec!["flex-row", "space-x-2"] } else { vec!["flex-col", "space-y-2", "w-full"] })}>
+                        if !*is_wide_layout {
+                            <button 
+                                onclick={on_ok_click.reform(|_| ())} 
+                                disabled={selected_file_idx.is_none() || props.is_loading} 
+                                class={classes!(
+                                    "py-2.5", "w-full", "rounded-md", "text-sm", "font-bold", "text-white", "transition-all", "uppercase", "tracking-widest",
+                                    if selected_file_idx.is_none() || props.is_loading { vec!["bg-gray-800", "text-gray-600", "cursor-not-allowed"] } else { vec!["bg-emerald-600", "hover:bg-emerald-500", "shadow-lg", "shadow-emerald-900/20"] }
+                                )}
+                            >
+                                { i18n::t("ok", lang) }
+                            </button>
+                            <button onclick={handle_close.reform(|_| ())} class="py-2.5 w-full rounded-md text-sm font-bold text-gray-400 hover:bg-white/5 transition-all uppercase tracking-widest border border-white/10">{ i18n::t("cancel", lang) }</button>
+                        } else {
+                            <button onclick={handle_close.reform(|_| ())} class="px-4 py-1.5 rounded-md text-xs font-bold text-gray-400 hover:bg-white/5 transition-all uppercase tracking-widest">{ i18n::t("cancel", lang) }</button>
+                            <button 
+                                onclick={on_ok_click.reform(|_| ())} 
+                                disabled={selected_file_idx.is_none() || props.is_loading} 
+                                class={classes!(
+                                    "px-6", "py-1.5", "rounded-md", "text-xs", "font-bold", "text-white", "transition-all", "uppercase", "tracking-widest",
+                                    if selected_file_idx.is_none() || props.is_loading { vec!["bg-gray-800", "text-gray-600", "cursor-not-allowed"] } else { vec!["bg-emerald-600", "hover:bg-emerald-500", "shadow-lg", "shadow-emerald-900/20"] }
+                                )}
+                            >
+                                { i18n::t("ok", lang) }
+                            </button>
+                        }
                     </div>
                 </div>
             </div>
