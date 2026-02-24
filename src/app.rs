@@ -312,10 +312,8 @@ pub fn app() -> Html {
                 let window_c = window.clone();
                 move || {
                     let win_w = window_c.inner_width().unwrap().as_f64().unwrap_or(0.0);
-                    let screen = window_c.screen().unwrap();
-                    let scr_w = screen.width().unwrap() as f64;
-                    let scr_h = screen.height().unwrap() as f64;
-                    let is_portrait = (scr_w < scr_h) || (win_w <= scr_w / 4.0);
+                    let win_h = window_c.inner_height().unwrap().as_f64().unwrap_or(0.0);
+                    let is_portrait = win_w <= win_h;
                     
                     if let Some(doc) = window_c.document() {
                         if let Some(body) = doc.body() {
