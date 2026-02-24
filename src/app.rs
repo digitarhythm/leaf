@@ -313,7 +313,15 @@ pub fn app() -> Html {
                 move || {
                     let win_w = window_c.inner_width().unwrap().as_f64().unwrap_or(0.0);
                     let win_h = window_c.inner_height().unwrap().as_f64().unwrap_or(0.0);
-                    let is_portrait = win_w <= win_h;
+                    let screen = window_c.screen().unwrap();
+                    let scr_w = screen.width().unwrap() as f64;
+                    let scr_h = screen.height().unwrap() as f64;
+
+                    let device_is_portrait = scr_w < scr_h;
+                    let window_is_portrait = win_w < win_h;
+                    let is_narrow_window = win_w <= (scr_w / 4.0);
+
+                    let is_portrait = device_is_portrait || (window_is_portrait && is_narrow_window);
                     
                     if let Some(doc) = window_c.document() {
                         if let Some(body) = doc.body() {
