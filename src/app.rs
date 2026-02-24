@@ -1825,7 +1825,7 @@ pub fn app() -> Html {
                                     on_import={on_import_cb} 
                                     on_change_font_size={on_change_font_size.clone()} 
                                     on_change_category={on_change_category_cb} 
-                                    on_help={on_help_cb} on_logout={on_logout} current_category={current_cat} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} />
+                                    on_help={on_help_cb} on_logout={on_logout} current_category={current_cat} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_toggle_vim={on_toggle_vim.clone()} />
                 <div class="flex-1 relative overflow-hidden bg-gray-900">
                     // エディタ本体
                     <div id="editor" key="ace-editor-fixed-node" class="absolute inset-0 z-10 bg-transparent" style="width: 100%; height: 100%;"></div>

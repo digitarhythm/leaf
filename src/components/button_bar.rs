@@ -15,6 +15,8 @@ pub struct ButtonBarProps {
     pub is_new_sheet: bool,
     pub is_dropdown_open: bool,
     pub on_toggle_dropdown: Callback<bool>,
+    pub vim_mode: bool,
+    pub on_toggle_vim: Callback<()>,
 }
 
 #[function_component(ButtonBar)]
@@ -226,6 +228,18 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
                             </svg>
                             <span>{ i18n::t("help", lang) }</span>
+                        </button>
+                        <button
+                            onclick={let is_open = is_hamburger_open.clone(); let on_toggle_vim = props.on_toggle_vim.clone(); move |_| { is_open.set(false); on_toggle_vim.emit(()); }}
+                            class={classes!(
+                                "w-full", "text-left", "px-4", "py-3", "text-sm", "transition-colors", "flex", "items-center", "space-x-3", "border-t", "border-gray-700/50",
+                                if props.vim_mode { vec!["text-green-400", "hover:bg-gray-700", "hover:text-green-300"] } else { vec!["text-gray-300", "hover:bg-gray-700", "hover:text-white"] }
+                            )}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 opacity-70">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+                            </svg>
+                            <span>{ if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }</span>
                         </button>
                         <button
                             onclick={let is_open = is_hamburger_open.clone(); let on_logout = props.on_logout.clone(); move |_| { is_open.set(false); on_logout.emit(()); }}
