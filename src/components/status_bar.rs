@@ -19,21 +19,10 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
     let extensions = crate::app::SUPPORTED_EXTENSIONS;
 
     html! {
-        <div class="flex portrait:flex-col items-center portrait:items-stretch justify-between px-4 py-1 portrait:py-4 bg-gray-800 border-t border-gray-700 text-xs text-gray-400 select-none portrait:space-y-4">
-            <div class="flex portrait:flex-col items-center portrait:items-stretch space-x-4 portrait:space-x-0 portrait:space-y-4">
+        <div class="flex portrait:flex-col items-center portrait:items-stretch justify-between px-4 py-1 portrait:px-2 portrait:py-2 bg-gray-800 border-t border-gray-700 text-xs text-gray-400 select-none portrait:space-y-1">
+            <div class="flex portrait:flex-col items-center portrait:items-stretch space-x-4 portrait:space-x-0">
                 
-                <div class="flex portrait:flex-col items-center portrait:items-stretch space-x-2 portrait:space-x-0 portrait:space-y-2">
-                    <button
-                        onclick={props.on_toggle_vim.reform(|_| ())}
-                        class={classes!(
-                            "px-2", "py-0.5", "portrait:py-3", "portrait:text-sm", "rounded", "text-[10px]", "font-bold", "transition-colors", "portrait:w-full",
-                            if props.vim_mode { vec!["bg-green-600", "text-white", "hover:bg-green-700"] } else { vec!["bg-gray-600", "text-gray-300", "hover:bg-gray-500"] }
-                        )}
-                        title={i18n::t("toggle_vim", lang)}
-                    >
-                        { if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }
-                    </button>
-
+                <div class="flex portrait:flex-col items-center portrait:items-stretch space-x-2 portrait:space-x-0">
                     if !props.category_name.is_empty() {
                         <select 
                             value={props.file_extension.clone()}
@@ -44,7 +33,7 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                                     on_change.emit(select.value());
                                 })
                             }
-                            class="bg-gray-700 text-gray-300 text-[10px] portrait:text-sm font-bold py-0.5 portrait:py-3 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-emerald-500 transition-colors cursor-pointer portrait:w-full portrait:text-center text-center"
+                            class="bg-gray-700 text-gray-300 text-[10px] portrait:text-[10px] font-bold py-0.5 portrait:py-1 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-emerald-500 transition-colors cursor-pointer portrait:w-full portrait:text-center text-center"
                         >
                             { for extensions.iter().map(|(ext, key)| {
                                 html! {
@@ -58,7 +47,7 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                 </div>
 
                 if !props.file_name.is_empty() {
-                    <span class="flex portrait:justify-center items-center space-x-2 border-l portrait:border-l-0 portrait:border-t portrait:pt-4 portrait:mt-2 border-gray-700 ml-4 portrait:ml-0 pl-4 portrait:pl-0 py-0.5 font-mono portrait:w-full portrait:text-sm">
+                    <span class="portrait:hidden flex items-center space-x-2 border-l border-gray-700 ml-4 pl-4 py-0.5 font-mono">
                         if props.category_name.is_empty() || props.category_name == "__LOCAL__" {
                             if props.category_name.is_empty() && props.file_name == "----" {
                                 // 未保存新規シートアイコン (Red X circle)
@@ -92,16 +81,17 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                 }
             </div>
             
-            <div class="flex portrait:flex-col items-center portrait:items-center space-x-6 portrait:space-x-0 portrait:space-y-3 portrait:border-t portrait:border-gray-700 portrait:pt-4 portrait:pb-2 portrait:w-full">
+            <div class="flex items-center space-x-6 portrait:space-x-0 portrait:justify-center portrait:border-t portrait:border-gray-700 portrait:pt-1 portrait:w-full portrait:text-[10px]">
                 if props.is_saving {
                     <div class="flex items-center space-x-2 text-red-500 font-bold">
-                        <div class="w-3 h-3 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
+                        <div class="w-3 h-3 portrait:w-2 portrait:h-2 portrait:border-[1.5px] border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
                         <span>{ i18n::t("saving", lang) }</span>
                     </div>
                 }
 
                 <span class={classes!(
                     "flex", "items-center", "space-x-2", "font-semibold",
+                    if props.is_saving { "portrait:hidden" } else { "" },
                     if props.network_status { "text-green-500" } else { "text-red-500" }
                 )}>
                     <span class={classes!(
