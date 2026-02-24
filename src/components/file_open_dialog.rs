@@ -146,7 +146,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                     let device_is_portrait = scr_w < scr_h;
                     let window_is_portrait = win_w < win_h;
-                    let is_narrow_window = win_w <= (scr_w / 4.0);
+                    let is_narrow_window = win_w <= (scr_w / 2.0);
 
                     let is_portrait = device_is_portrait || (window_is_portrait && is_narrow_window);
                     
