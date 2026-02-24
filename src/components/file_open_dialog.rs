@@ -139,8 +139,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let window_c = window.clone();
                 move || {
                     let win_w = window_c.inner_width().unwrap().as_f64().unwrap_or(0.0);
-                    let scr_w = window_c.screen().ok().and_then(|s| s.width().ok()).map(|w| w as f64).unwrap_or(1920.0);
-                    is_wide_c.set(win_w > scr_w / 2.0);
+                    let win_h = window_c.inner_height().unwrap().as_f64().unwrap_or(0.0);
+                    is_wide_c.set(win_w > win_h);
                 }
             };
             check_size();
@@ -972,7 +972,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                 // フッターエリア (横いっぱい)
                 <div class="p-4 bg-gray-950/50 border-t border-white/5 flex items-center justify-between">
-                    <p class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{ i18n::t("guide_keys", lang) }</p>
+                    if *is_wide_layout {
+                        <p class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{ i18n::t("guide_keys", lang) }</p>
+                    } else {
+                        <div></div>
+                    }
                     <div class="flex space-x-2">
                         <button onclick={handle_close.reform(|_| ())} class="px-4 py-1.5 rounded-md text-xs font-bold text-gray-400 hover:bg-white/5 transition-all uppercase tracking-widest">{ i18n::t("cancel", lang) }</button>
                         <button 

@@ -8,6 +8,7 @@
       "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
       "Courier New", monospace;
+    --color-red-300: oklch(80.8% 0.114 19.571);
     --color-red-400: oklch(70.4% 0.191 22.216);
     --color-red-500: oklch(63.7% 0.237 25.331);
     --color-red-600: oklch(57.7% 0.245 27.325);
@@ -270,8 +271,14 @@
   .right-4 {
     right: calc(var(--spacing) * 4);
   }
+  .bottom-4 {
+    bottom: calc(var(--spacing) * 4);
+  }
   .left-2 {
     left: calc(var(--spacing) * 2);
+  }
+  .left-6 {
+    left: calc(var(--spacing) * 6);
   }
   .z-0 {
     z-index: 0;
@@ -362,6 +369,9 @@
   }
   .mt-12 {
     margin-top: calc(var(--spacing) * 12);
+  }
+  .mr-1 {
+    margin-right: calc(var(--spacing) * 1);
   }
   .mr-2 {
     margin-right: calc(var(--spacing) * 2);
@@ -584,6 +594,9 @@
   }
   .border-collapse {
     border-collapse: collapse;
+  }
+  .origin-top-right {
+    transform-origin: 100% 0;
   }
   .translate-x-4 {
     --tw-translate-x: calc(var(--spacing) * 4);
@@ -826,6 +839,12 @@
   }
   .border-gray-700 {
     border-color: var(--color-gray-700);
+  }
+  .border-gray-700\/50 {
+    border-color: color-mix(in srgb, oklch(37.3% 0.034 259.733) 50%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-gray-700) 50%, transparent);
+    }
   }
   .border-gray-800 {
     border-color: var(--color-gray-800);
@@ -1228,6 +1247,9 @@
   .break-all {
     word-break: break-all;
   }
+  .whitespace-nowrap {
+    white-space: nowrap;
+  }
   .whitespace-pre-wrap {
     white-space: pre-wrap;
   }
@@ -1281,6 +1303,9 @@
   }
   .text-green-500 {
     color: var(--color-green-500);
+  }
+  .text-red-400 {
+    color: var(--color-red-400);
   }
   .text-red-500 {
     color: var(--color-red-500);
@@ -1584,6 +1609,13 @@
       }
     }
   }
+  .hover\:text-red-300 {
+    &:hover {
+      @media (hover: hover) {
+        color: var(--color-red-300);
+      }
+    }
+  }
   .hover\:text-red-400 {
     &:hover {
       @media (hover: hover) {
@@ -1619,6 +1651,22 @@
       padding: calc(var(--spacing) * 12);
     }
   }
+  .md\:top-1\/2 {
+    @media (width >= 48rem) {
+      top: calc(1/2 * 100%);
+    }
+  }
+  .md\:bottom-auto {
+    @media (width >= 48rem) {
+      bottom: auto;
+    }
+  }
+  .md\:-translate-y-1\/2 {
+    @media (width >= 48rem) {
+      --tw-translate-y: calc(calc(1/2 * 100%) * -1);
+      translate: var(--tw-translate-x) var(--tw-translate-y);
+    }
+  }
   .md\:p-8 {
     @media (width >= 48rem) {
       padding: calc(var(--spacing) * 8);
@@ -1627,6 +1675,140 @@
   .md\:p-12 {
     @media (width >= 48rem) {
       padding: calc(var(--spacing) * 12);
+    }
+  }
+  .portrait\:mt-2 {
+    @media (orientation: portrait) {
+      margin-top: calc(var(--spacing) * 2);
+    }
+  }
+  .portrait\:ml-0 {
+    @media (orientation: portrait) {
+      margin-left: calc(var(--spacing) * 0);
+    }
+  }
+  .portrait\:hidden {
+    @media (orientation: portrait) {
+      display: none;
+    }
+  }
+  .portrait\:w-full {
+    @media (orientation: portrait) {
+      width: 100%;
+    }
+  }
+  .portrait\:flex-col {
+    @media (orientation: portrait) {
+      flex-direction: column;
+    }
+  }
+  .portrait\:items-center {
+    @media (orientation: portrait) {
+      align-items: center;
+    }
+  }
+  .portrait\:items-stretch {
+    @media (orientation: portrait) {
+      align-items: stretch;
+    }
+  }
+  .portrait\:justify-center {
+    @media (orientation: portrait) {
+      justify-content: center;
+    }
+  }
+  .portrait\:space-y-2 {
+    @media (orientation: portrait) {
+      :where(& > :not(:last-child)) {
+        --tw-space-y-reverse: 0;
+        margin-block-start: calc(calc(var(--spacing) * 2) * var(--tw-space-y-reverse));
+        margin-block-end: calc(calc(var(--spacing) * 2) * calc(1 - var(--tw-space-y-reverse)));
+      }
+    }
+  }
+  .portrait\:space-y-3 {
+    @media (orientation: portrait) {
+      :where(& > :not(:last-child)) {
+        --tw-space-y-reverse: 0;
+        margin-block-start: calc(calc(var(--spacing) * 3) * var(--tw-space-y-reverse));
+        margin-block-end: calc(calc(var(--spacing) * 3) * calc(1 - var(--tw-space-y-reverse)));
+      }
+    }
+  }
+  .portrait\:space-y-4 {
+    @media (orientation: portrait) {
+      :where(& > :not(:last-child)) {
+        --tw-space-y-reverse: 0;
+        margin-block-start: calc(calc(var(--spacing) * 4) * var(--tw-space-y-reverse));
+        margin-block-end: calc(calc(var(--spacing) * 4) * calc(1 - var(--tw-space-y-reverse)));
+      }
+    }
+  }
+  .portrait\:space-x-0 {
+    @media (orientation: portrait) {
+      :where(& > :not(:last-child)) {
+        --tw-space-x-reverse: 0;
+        margin-inline-start: calc(calc(var(--spacing) * 0) * var(--tw-space-x-reverse));
+        margin-inline-end: calc(calc(var(--spacing) * 0) * calc(1 - var(--tw-space-x-reverse)));
+      }
+    }
+  }
+  .portrait\:border-t {
+    @media (orientation: portrait) {
+      border-top-style: var(--tw-border-style);
+      border-top-width: 1px;
+    }
+  }
+  .portrait\:border-l-0 {
+    @media (orientation: portrait) {
+      border-left-style: var(--tw-border-style);
+      border-left-width: 0px;
+    }
+  }
+  .portrait\:border-gray-700 {
+    @media (orientation: portrait) {
+      border-color: var(--color-gray-700);
+    }
+  }
+  .portrait\:py-3 {
+    @media (orientation: portrait) {
+      padding-block: calc(var(--spacing) * 3);
+    }
+  }
+  .portrait\:py-4 {
+    @media (orientation: portrait) {
+      padding-block: calc(var(--spacing) * 4);
+    }
+  }
+  .portrait\:pt-4 {
+    @media (orientation: portrait) {
+      padding-top: calc(var(--spacing) * 4);
+    }
+  }
+  .portrait\:pb-2 {
+    @media (orientation: portrait) {
+      padding-bottom: calc(var(--spacing) * 2);
+    }
+  }
+  .portrait\:pl-0 {
+    @media (orientation: portrait) {
+      padding-left: calc(var(--spacing) * 0);
+    }
+  }
+  .portrait\:text-center {
+    @media (orientation: portrait) {
+      text-align: center;
+    }
+  }
+  .portrait\:text-sm {
+    @media (orientation: portrait) {
+      font-size: var(--text-sm);
+      line-height: var(--tw-leading, var(--text-sm--line-height));
+    }
+  }
+  .landscape\:hidden {
+    @media (orientation: landscape) {
+      display: none;
     }
   }
 }

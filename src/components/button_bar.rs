@@ -20,7 +20,7 @@ pub struct ButtonBarProps {
 #[function_component(ButtonBar)]
 pub fn button_bar(props: &ButtonBarProps) -> Html {
     let lang = Language::detect();
-
+    let is_hamburger_open = use_state(|| false);
     let has_multiple_cats = props.categories.len() > 1;
 
     let on_category_click = {
@@ -157,7 +157,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     </>
                 }
             </div>
-            <div class="flex items-center space-x-1 ml-2 mr-4 border-l border-gray-700 pl-4">
+            <div class="portrait:hidden flex items-center space-x-1 ml-2 mr-4 border-l border-gray-700 pl-4">
                 <button
                     onclick={props.on_change_font_size.reform(|_| -1)}
                     class="p-1 w-8 h-8 rounded hover:bg-gray-700 text-gray-400 hover:text-white flex items-center justify-center font-bold"
@@ -176,7 +176,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
             <div class="flex-1"></div>
             <button
                 onclick={props.on_help.reform(|_| ())}
-                class="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                class="portrait:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
                 title={i18n::t("help", lang)}
             >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
@@ -185,7 +185,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
             </button>
             <button
                 onclick={props.on_logout.reform(|_| ())}
-                class="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                class="portrait:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
                 title={i18n::t("logout", lang)}
             >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
@@ -193,11 +193,52 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 </svg>
             </button>
             <span 
-                class="text-green-500 opacity-60 font-bold px-4 text-xl select-none"
+                class="portrait:hidden text-green-500 opacity-60 font-bold px-4 text-xl select-none"
                 style="font-family: 'Petit Formal Script', cursive;"
             >
                 {"Leaf"}
             </span>
+
+            // Hamburger menu (Portrait only)
+            <div class="relative inline-block text-left landscape:hidden mr-1">
+                <button
+                    onclick={let is_open = is_hamburger_open.clone(); move |_| is_open.set(!*is_open)}
+                    class={classes!(
+                        "p-1.5", "rounded", "hover:bg-gray-700", "text-gray-400", "hover:text-white", "transition-colors",
+                        if *is_hamburger_open { "bg-gray-700 text-white" } else { "" }
+                    )}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    </svg>
+                </button>
+                if *is_hamburger_open {
+                    <div 
+                        onclick={let is_open = is_hamburger_open.clone(); move |_| is_open.set(false)}
+                        class="fixed inset-0 z-[140]"
+                    ></div>
+                    <div class="absolute right-0 mt-2 w-48 rounded-md shadow-2xl bg-gray-800 border border-gray-700 z-[150] overflow-hidden animate-in fade-in zoom-in duration-100 origin-top-right">
+                        <button
+                            onclick={let is_open = is_hamburger_open.clone(); let on_help = props.on_help.clone(); move |_| { is_open.set(false); on_help.emit(()); }}
+                            class="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center space-x-3"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 opacity-70">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
+                            </svg>
+                            <span>{ i18n::t("help", lang) }</span>
+                        </button>
+                        <button
+                            onclick={let is_open = is_hamburger_open.clone(); let on_logout = props.on_logout.clone(); move |_| { is_open.set(false); on_logout.emit(()); }}
+                            class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center space-x-3 border-t border-gray-700/50"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 opacity-70">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                            </svg>
+                            <span>{ i18n::t("logout", lang) }</span>
+                        </button>
+                    </div>
+                }
+            </div>
         </div>
     }
 }
