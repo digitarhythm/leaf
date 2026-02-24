@@ -306,6 +306,35 @@ pub fn app() -> Html {
     let is_help_ref = use_mut_ref(|| false);
 
     {
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let check_size = {
+                let window_c = window.clone();
+                move || {
+                    let win_w = window_c.inner_width().unwrap().as_f64().unwrap_or(0.0);
+                    let screen = window_c.screen().unwrap();
+                    let scr_w = screen.width().unwrap() as f64;
+                    let scr_h = screen.height().unwrap() as f64;
+                    let is_portrait = (scr_w < scr_h) || (win_w <= scr_w / 4.0);
+                    
+                    if let Some(doc) = window_c.document() {
+                        if let Some(body) = doc.body() {
+                            if is_portrait {
+                                let _ = body.class_list().add_1("leaf-mobile-mode");
+                            } else {
+                                let _ = body.class_list().remove_1("leaf-mobile-mode");
+                            }
+                        }
+                    }
+                }
+            };
+            check_size();
+            let listener = EventListener::new(&window, "resize", move |_| { check_size(); });
+            move || { drop(listener); }
+        })
+    }
+
+    {
         let fs = font_size.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
