@@ -216,6 +216,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Bestandsselectie",
             _ => "File selection",
         }.to_string(),
+        "select_category" => match lang {
+            Language::Ja => "カテゴリー選択",
+            Language::Zh => "选择类别",
+            Language::Ko => "카테고리 선택",
+            Language::Es => "Seleccionar categoría",
+            Language::De => "Kategorie auswählen",
+            Language::Fr => "Sélectionner une catégorie",
+            Language::It => "Seleziona categoria",
+            Language::Nl => "Selecteer categorie",
+            _ => "Select Category",
+        }.to_string(),
         "new_category" => match lang {
             Language::Ja => "新規カテゴリー",
             Language::Zh => "新建类别",
