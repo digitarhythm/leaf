@@ -704,18 +704,36 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
         html! {
             <div class={classes!("flex", "flex-col", "h-full", if is_wide { "w-[20%]" } else { "w-full" }, "border-r", "border-white/5", "bg-gray-900/50")}>
-                <div class="p-4 border-b border-white/5 flex items-center justify-between">
-                    <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">{ i18n::t("new_category", lang) }</span>
-                    <button 
-                        onclick={let ic = props.on_create_category_toggle.clone(); move |_| ic.emit(true)}
-                        class="p-1 hover:bg-white/10 rounded-md text-gray-400 transition-colors"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                        </svg>
-                    </button>
+                <div class={classes!("p-4", "border-b", "border-white/5", "flex", "items-center", "justify-between", if !is_wide { "bg-gray-950/20" } else { "" })}>
+                    if is_wide {
+                        <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">{ i18n::t("new_category", lang) }</span>
+                        <button 
+                            onclick={let ic = props.on_create_category_toggle.clone(); move |_| ic.emit(true)}
+                            class="p-1 hover:bg-white/10 rounded-md text-gray-400 transition-colors"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                        </button>
+                    } else {
+                        <div class="flex items-center space-x-2">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                            <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">{ i18n::t("select_category", lang) }</h2>
+                        </div>
+                    }
                 </div>
                 <div ref={cat_list_ref} class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                    if !is_wide {
+                        <button
+                            onclick={let ic = props.on_create_category_toggle.clone(); move |_| ic.emit(true)}
+                            class="mb-2 w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-md text-sm font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all tracking-widest"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                            <span>{ i18n::t("new_category", lang) }</span>
+                        </button>
+                    }
                     { for categories.into_iter().enumerate().map(|(i, cat)| {
                         let is_sel = idx == i;
                         let is_editing = editing_id.as_ref() == Some(&cat.id);
