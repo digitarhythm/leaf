@@ -300,6 +300,7 @@ pub fn app() -> Html {
     let is_loading_ref = use_mut_ref(|| true);
     let saving_id_ref = use_mut_ref(|| None::<String>);
     let is_suppressing_ref = use_mut_ref(|| false);
+    let is_first_edit_done_ref = use_mut_ref(|| false);
     let is_preview_ref = use_mut_ref(|| false);
     let is_file_open_ref = use_mut_ref(|| false);
     let is_help_ref = use_mut_ref(|| false);
@@ -1515,6 +1516,7 @@ pub fn app() -> Html {
         let v_init = vim_mode.clone(); let ncid = no_category_folder_id.clone();
         let sp_init = is_suppressing_changes.clone(); let r_s = sheets_ref.clone(); let r_aid = active_id_ref.clone();
         let db_ready = db_ready_state.clone(); let aid_for_editor_init = active_sheet_id.clone();
+        let is_first_edit_done_cb = is_first_edit_done_ref.clone();
         use_effect_with((is_auth, ncid.clone(), db_ready), move |deps| {
             let (auth, _, ready) = deps;
             if **auth && **ready {
@@ -1525,6 +1527,7 @@ pub fn app() -> Html {
                 let timer = ast.clone(); let vim_val = *v_init; 
                 let sp_ref_cb = is_suppressing_ref.clone(); let r_s_i = r_s.clone(); let r_aid_i = r_aid.clone();
                 let aid_state_for_cb = aid_for_editor_init.clone();
+                let is_first_done_i = is_first_edit_done_cb.clone();
                 let callback = Closure::wrap(Box::new(move |cmd: String| {
                     if cmd == "save" { os_i.emit(true); }
                     else if cmd == "new_sheet" { on_i.emit(()); }
@@ -1567,10 +1570,12 @@ pub fn app() -> Html {
                             let mut cur_s = (*r_s_i.borrow()).clone();
                             let mut trigger_drive_sync = false; let mut needs_upd = false;
                             if let Some(sheet) = cur_s.iter_mut().find(|s| s.id == id) {
-                                // 空データ保護: 
-                                // エディタが空の場合、IndexedDB（状態）への同期を行わない。
-                                // ただし元のデータも空だった場合は編集可能とする。
-                                if cur_c.is_empty() && !sheet.content.is_empty() { return; }
+                                let mut is_first_done = is_first_done_i.borrow_mut();
+                                if !*is_first_done {
+                                    // 初期化時の空データ保護：最初の同期時に空データなら無視、そうでない場合はフラグを立てて以降の空保存を許可
+                                    if cur_c.is_empty() && !sheet.content.is_empty() { return; }
+                                    *is_first_done = true;
+                                }
 
                                 if sheet.content != cur_c { 
                                     let now = js_sys::Date::now() as u64;
@@ -1599,6 +1604,7 @@ pub fn app() -> Html {
         let aid = active_sheet_id.clone(); let is_ld = is_loading.clone();
         let db_ready = db_ready_state.clone(); let sheets_rf = sheets_ref.clone();
         let sp = is_suppressing_changes.clone();
+        let is_first_edit_done_cb = is_first_edit_done_ref.clone();
         use_effect_with((aid, is_ld, db_ready), move |deps| {
             let (aid_val, ld_val, ready_val) = deps;
             if **ready_val && !**ld_val { 
@@ -1606,6 +1612,18 @@ pub fn app() -> Html {
                     let current_sheets = (*sheets_rf.borrow()).clone();
                     if let Some(s) = current_sheets.iter().find(|x| x.id == *id) { 
                         sp.set(true);
+                        // 新しいシート（または別のシート）がロードされた時点で、初回編集フラグを落とす
+                        // これで、意図的に空にして保存する際は 1 回何文字か打たないといけないのではなく、
+                        // "ロード直後の自動セーブだけ" 防ぐ形になる
+                        *is_first_edit_done_cb.borrow_mut() = false;
+                        
+                        // エディタ起動時のバグが起きなかった場合、フラグが永遠に false のままになるのを防ぐため、
+                        // 1.5秒経過したら自動的に「保護」を解除する。
+                        let timeout_cb = is_first_edit_done_cb.clone();
+                        Timeout::new(1500, move || {
+                            *timeout_cb.borrow_mut() = true;
+                        }).forget();
+
                         set_editor_content(&s.content); 
                         let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" }; 
                         set_gutter_status(mode); crate::js_interop::set_editor_mode(&s.title); focus_editor(); 
@@ -1831,7 +1849,6 @@ pub fn app() -> Html {
                                     file_name={current_file_name}
                                     file_extension={current_file_ext.clone()}
                                     on_change_extension={on_change_extension_cb}
-                                    version={env!("CARGO_PKG_VERSION").to_string()} 
                                 />
             </main>
             <div id="overlays-layer" class="pointer-events-none fixed inset-0 z-[100]">
