@@ -118,6 +118,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
     let processing_move_id = use_state(|| None::<String>); 
+    let mobile_view_step = use_state(|| 0); // 0: Categories, 1: Files
 
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref(); 
@@ -699,9 +700,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let edit_ref = edit_input_ref.clone();
         let is_wide = *is_wide_layout;
         let focused_area_h = focused_area.clone();
+        let mobile_view_step_for_cat = mobile_view_step.clone();
 
         html! {
-            <div class={classes!("flex", "flex-col", if is_wide { "w-[20%]" } else { "w-[40%]" }, "border-r", "border-white/5", "bg-gray-900/50")}>
+            <div class={classes!("flex", "flex-col", "h-full", if is_wide { "w-[20%]" } else { "w-full" }, "border-r", "border-white/5", "bg-gray-900/50")}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between">
                     <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">{ i18n::t("new_category", lang) }</span>
                     <button 
@@ -733,7 +735,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     if is_sel { vec!["bg-emerald-600/20", "text-emerald-400"] } else { vec!["text-gray-400", "hover:bg-white/5", "hover:text-gray-200"] },
                                     if is_active { vec!["ring-2", "ring-emerald-500/50", "bg-emerald-600/30"] } else { vec![] }
                                 )}
-                                onclick={let f_area = focused_area_h.clone(); move |_| { s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); }}
+                                onclick={let f_area = focused_area_h.clone(); let m_step = mobile_view_step_for_cat.clone(); move |_| { s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); m_step.set(1); }}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4", "w-4", "mr-3", if is_sel { "text-emerald-500" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -783,13 +785,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let p_del_state = pending_delete_file.clone();
         let is_wide = *is_wide_layout;
         let focused_area_h = focused_area.clone();
+        let mobile_view_step_for_files = mobile_view_step.clone();
 
         html! {
-            <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[40%]" } else { "w-[60%]" })}>
+            <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", if is_wide { "w-[40%]" } else { "w-full" })}>
                 <div class="p-4 border-b border-white/5 flex items-center justify-between bg-gray-950/20">
                     <div class="flex items-center space-x-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        <h2 class="text-sm font-bold text-gray-200 tracking-tight">{ format!("{} ({})", if *current_category_name == "OTHERS" { i18n::t("OTHERS", lang) } else { (*current_category_name).clone() }, file_list.len()) }</h2>
+                        if !is_wide {
+                            <button 
+                                onclick={let m_step = mobile_view_step_for_files.clone(); move |_| m_step.set(0)} 
+                                class="mr-2 p-1 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex items-center justify-center text-gray-400 hover:text-white"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
+                            </button>
+                        }
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">{ format!("{} ({})", if *current_category_name == "OTHERS" { i18n::t("OTHERS", lang) } else { (*current_category_name).clone() }, file_list.len()) }</h2>
                     </div>
                 </div>
                 <div ref={file_list_ref} class="flex-1 overflow-y-auto custom-scrollbar flex flex-col p-2">
@@ -950,7 +961,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             onfocusin={on_focus_in}
             onfocusout={on_focus_out}
             class={classes!(
-                "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "p-4", "md:p-8", "outline-none", "pointer-events-auto",
+                "fixed", "inset-0", "z-[100]", "flex", "outline-none", "pointer-events-auto",
+                if *is_wide_layout { vec!["items-center", "justify-center", "p-4", "md:p-8"] } else { vec![] },
                 if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
             )}
             onclick={|e: MouseEvent| e.stop_propagation()}
@@ -958,8 +970,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick={handle_close.reform(|_| ())}></div>
 
             <div class={classes!(
-                "relative", "flex", "flex-col", "bg-gray-900", "border", "border-white/10", "rounded-xl", "shadow-2xl", "h-full", "max-h-[80vh]", "overflow-hidden",
-                if *is_wide_layout { vec!["w-[70vw]"] } else { vec!["w-full", "max-w-6xl"] },
+                "relative", "flex", "flex-col", "bg-gray-900", "overflow-hidden",
+                if *is_wide_layout { vec!["border", "border-white/10", "rounded-xl", "shadow-2xl", "h-full", "max-h-[80vh]", "w-[70vw]"] } else { vec!["h-full", "w-full"] },
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 // メインコンテンツエリア (Categories + Files + Preview)
@@ -969,31 +981,45 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         { files_html }
                         { preview_area_html }
                     } else {
-                        // 狭い画面: リスト(上70%) と プレビュー(下30%)
-                        <div class="h-[70%] flex overflow-hidden border-b border-white/5 flex-shrink-0">
-                            { categories_html }
-                            { files_html }
-                        </div>
-                        <div class="h-[30%] flex flex-col overflow-hidden">
-                            { preview_area_html }
+                        // 狭い画面 (モバイル): Categories / Files リスト切替 (上半分), プレビュー (下半分)
+                        <div class="flex-1 flex flex-col h-full relative overflow-hidden">
+                            <div class="h-1/2 relative overflow-hidden border-b border-white/5 flex-shrink-0 bg-gray-900">
+                                <div class={classes!(
+                                    "absolute", "inset-0", "transition-transform", "duration-100", "ease-in-out",
+                                    if *mobile_view_step == 0 { "translate-x-0" } else { "-translate-x-full" }
+                                )}>
+                                    { categories_html }
+                                </div>
+                                <div class={classes!(
+                                    "absolute", "inset-0", "transition-transform", "duration-100", "ease-in-out",
+                                    if *mobile_view_step == 1 { "translate-x-0" } else { "translate-x-full" }
+                                )}>
+                                    { files_html }
+                                </div>
+                            </div>
+                            <div class="h-1/2 flex flex-col overflow-hidden bg-gray-950">
+                                { preview_area_html }
+                            </div>
                         </div>
                     }
                 </div>
 
                 // フッターエリア (横いっぱい)
-                <div class="p-4 bg-gray-950/50 border-t border-white/5 flex items-center justify-between">
+                <div class={classes!(
+                    "bg-gray-950/50", "border-t", "border-white/5", "flex", "items-center", "justify-between",
+                    if *is_wide_layout { vec!["p-4"] } else { vec!["p-3"] }
+                )}>
                     if *is_wide_layout {
                         <p class="text-[10px] text-gray-500 font-bold uppercase tracking-tighter">{ i18n::t("guide_keys", lang) }</p>
-                    } else {
-                        <div></div>
                     }
-                    <div class="flex space-x-2">
-                        <button onclick={handle_close.reform(|_| ())} class="px-4 py-1.5 rounded-md text-xs font-bold text-gray-400 hover:bg-white/5 transition-all uppercase tracking-widest">{ i18n::t("cancel", lang) }</button>
+                    <div class={classes!("flex", "space-x-2", if *is_wide_layout { "" } else { "w-full" })}>
+                        <button onclick={handle_close.reform(|_| ())} class={classes!("py-1.5", "rounded-md", "text-xs", "font-bold", "text-gray-400", "hover:bg-white/5", "transition-all", "uppercase", "tracking-widest", if *is_wide_layout { "px-4" } else { "flex-1 border border-white/10" })}>{ i18n::t("cancel", lang) }</button>
                         <button 
                             onclick={on_ok_click.reform(|_| ())} 
                             disabled={selected_file_idx.is_none() || props.is_loading} 
                             class={classes!(
-                                "px-6", "py-1.5", "rounded-md", "text-xs", "font-bold", "text-white", "transition-all", "uppercase", "tracking-widest",
+                                "py-1.5", "rounded-md", "text-xs", "font-bold", "text-white", "transition-all", "uppercase", "tracking-widest",
+                                if *is_wide_layout { "px-6" } else { "flex-1" },
                                 if selected_file_idx.is_none() || props.is_loading { vec!["bg-gray-800", "text-gray-600", "cursor-not-allowed"] } else { vec!["bg-emerald-600", "hover:bg-emerald-500", "shadow-lg", "shadow-emerald-900/20"] }
                             )}
                         >
