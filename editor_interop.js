@@ -14,6 +14,10 @@ export function can_install_pwa() {
     return !!prompt;
 }
 
+export function is_tauri() {
+    return !!window.__TAURI__;
+}
+
 export async function trigger_pwa_install() {
     const prompt = window.leafDeferredPrompt;
     if (!prompt) {

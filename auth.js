@@ -1,6 +1,8 @@
 // auth.js
 // Google Identity Services integration - Code Model (Refresh Token support)
 
+import { is_tauri } from './editor_interop.js';
+
 let codeClient;
 let accessToken = null;
 let refreshPromise = null;
@@ -35,18 +37,41 @@ async function exchangeCodeForToken(code) {
 function saveSession(data) {
     accessToken = data.access_token;
     const expiresAt = Date.now() + (parseInt(data.expires_in) * 1000) - (5 * 60 * 1000);
-    
+
     localStorage.setItem(STORAGE_KEY, accessToken);
     localStorage.setItem(EXPIRY_KEY, expiresAt.toString());
     if (data.refresh_token) {
         localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
     }
-    
+
     console.log("Access Token received. Expires at:", new Date(expiresAt));
     window.dispatchEvent(new CustomEvent('leaf-token-refreshed', { detail: accessToken }));
 }
 
 export function init_google_auth(clientId, onSuccessCallback) {
+    if (is_tauri()) {
+        console.log("[Auth] Tauri environment detected. Using native auth flow.");
+        // TauriネイティブでのOAuth認証処理のスタブ
+        // 例: window.__TAURI__.core.invoke('authenticate_google') などを呼び出す
+
+        // 既存のトークンがあれば読み込む
+        const existingToken = localStorage.getItem(STORAGE_KEY);
+        const expiry = localStorage.getItem(EXPIRY_KEY);
+        if (existingToken && expiry && parseInt(expiry) > Date.now()) {
+            accessToken = existingToken;
+            console.log("[Auth-Tauri] Existing valid token found.");
+            if (onSuccessCallback) onSuccessCallback(accessToken);
+        } else if (localStorage.getItem(REFRESH_TOKEN_KEY)) {
+            console.log("[Auth-Tauri] Found refresh token. Attempting silent refresh...");
+            try_silent_refresh().then(token => {
+                if (token && onSuccessCallback) onSuccessCallback(token);
+            }).catch(() => {
+                console.log("[Auth-Tauri] Refresh token expired or invalid.");
+            });
+        }
+        return;
+    }
+
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
     script.async = true;
@@ -91,10 +116,10 @@ export function init_google_auth(clientId, onSuccessCallback) {
                 }
             }
         }, 60 * 1000);
-        
+
         const existingToken = localStorage.getItem(STORAGE_KEY);
         const expiry = localStorage.getItem(EXPIRY_KEY);
-        
+
         if (existingToken && expiry && parseInt(expiry) > Date.now()) {
             accessToken = existingToken;
             console.log("[Auth] Existing valid token found.");
@@ -117,13 +142,30 @@ export async function try_silent_refresh() {
         // リフレッシュトークンがない場合は以前のポップアップ方式へフォールバック
         return force_reauth();
     }
-    
+
     if (refreshPromise) return refreshPromise.promise;
 
     console.log("[Auth] Attempting refresh using refresh_token...");
     let res, rej;
     const promise = new Promise((resolve, reject) => { res = resolve; rej = reject; });
     refreshPromise = { promise, resolve: res, reject: rej };
+
+    if (is_tauri()) {
+        // Tauri用のリフレッシュ処理スタブ
+        console.log("[Auth-Tauri] Refreshing token via backend...");
+        /*
+        try {
+            const token = await window.__TAURI__.core.invoke('refresh_google_token', { refreshToken });
+            // ...saveSession(token) etc...
+        } catch (e) {
+            refreshPromise.reject(e);
+            refreshPromise = null;
+            return force_reauth();
+        }
+        */
+        // 実装されるまではエラーを返しフォールバックさせる
+        console.warn("[Auth-Tauri] Native refresh not fully implemented yet.");
+    }
 
     try {
         const response = await fetch('/api/auth/refresh', {
@@ -150,6 +192,12 @@ export async function try_silent_refresh() {
 }
 
 export function request_access_token() {
+    if (is_tauri()) {
+        console.log("[Auth-Tauri] Requesting native access token login flow");
+        force_reauth();
+        return;
+    }
+
     if (codeClient) {
         codeClient.requestCode();
     } else {
@@ -187,13 +235,28 @@ export async function sign_out() {
 }
 
 export async function force_reauth() {
-    if (!codeClient) return Promise.reject("CodeClient not initialized");
     if (reauthPromise) return reauthPromise.promise;
 
-    console.log("[Auth] Forcing re-authentication via popup...");
+    console.log("[Auth] Forcing re-authentication...");
     let res, rej;
     const promise = new Promise((resolve, reject) => { res = resolve; rej = reject; });
     reauthPromise = { promise, resolve: res, reject: rej };
+
+    if (is_tauri()) {
+        console.log("[Auth-Tauri] Triggering native OAuth login window");
+        // スタブ: await window.__TAURI__.core.invoke('authenticate_google_force')
+        console.warn("[Auth-Tauri] Native force_reauth not fully implemented yet.");
+        // reject しておくことで呼び出し元に通知
+        reauthPromise.reject("Tauri authenication backend not implemented");
+        reauthPromise = null;
+        return promise;
+    }
+
+    if (!codeClient) {
+        reauthPromise.reject("CodeClient not initialized");
+        reauthPromise = null;
+        return promise;
+    }
 
     try {
         codeClient.requestCode();
