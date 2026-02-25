@@ -12,9 +12,7 @@ let db;
 export function init_db(dbName) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Initializing native database (stub)");
-        // Tauriネイティブ側のSQLiteなどを初期化するコマンドを呼ぶ
-        // await window.__TAURI__.core.invoke('init_db');
-        return Promise.resolve();
+        return window.__TAURI__.core.invoke('init_db');
     }
 
     return new Promise((resolve, reject) => {
@@ -50,8 +48,7 @@ export function init_db(dbName) {
 export function save_sheet(sheet) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Saving sheet to native db: ", sheet.id);
-        // return window.__TAURI__.core.invoke('save_sheet_to_db', { sheet });
-        return Promise.resolve();
+        return window.__TAURI__.core.invoke('save_sheet_to_db', { sheet });
     }
 
     return new Promise((resolve, reject) => {
@@ -76,9 +73,7 @@ export function save_sheet(sheet) {
 export function load_sheets() {
     if (is_tauri()) {
         console.log("[DB-Tauri] Loading sheets from native db (stub)");
-        // const sheets = await window.__TAURI__.core.invoke('load_sheets_from_db');
-        // return sheets;
-        return Promise.resolve([]);
+        return window.__TAURI__.core.invoke('load_sheets_from_db');
     }
 
     return new Promise((resolve, reject) => {
@@ -98,8 +93,7 @@ export function load_sheets() {
 export function delete_sheet(id) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Deleting sheet: ", id);
-        // return window.__TAURI__.core.invoke('delete_sheet_from_db', { id });
-        return Promise.resolve();
+        return window.__TAURI__.core.invoke('delete_sheet_from_db', { id });
     }
 
     return new Promise((resolve, reject) => {
@@ -119,8 +113,7 @@ export function delete_sheet(id) {
 export function save_categories(categories) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Saving categories");
-        // return window.__TAURI__.core.invoke('save_categories_to_db', { categories });
-        return Promise.resolve();
+        return window.__TAURI__.core.invoke('save_categories_to_db', { categories });
     }
 
     return new Promise((resolve, reject) => {
@@ -143,8 +136,7 @@ export function save_categories(categories) {
 export function load_categories() {
     if (is_tauri()) {
         console.log("[DB-Tauri] Loading categories (stub)");
-        // return window.__TAURI__.core.invoke('load_categories_from_db');
-        return Promise.resolve([]);
+        return window.__TAURI__.core.invoke('load_categories_from_db');
     }
 
     return new Promise((resolve, reject) => {
