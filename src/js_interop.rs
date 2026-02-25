@@ -22,6 +22,7 @@ extern "C" {
     pub fn set_editor_mode(filename: &str);
     pub fn exec_editor_command(command: &str);
 
+    pub fn is_tauri() -> bool;
     pub fn get_safe_chunk(data: &JsValue) -> JsValue;
 
     pub fn can_install_pwa() -> bool;
