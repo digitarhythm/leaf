@@ -3,7 +3,33 @@
 // Google Identity Services integration - Code Model (Refresh Token support)
 import { is_tauri } from './editor_interop.js';
 
-import Database from '@tauri-apps/plugin-sql';
+// import Database from '@tauri-apps/plugin-sql'; 
+// -> Trunk does not bundle bare ES module imports. We interact via invoke directly.
+class TauriDatabase {
+    constructor(path) {
+        this.path = path;
+    }
+    static async load(path) {
+        if (!window.__TAURI__) throw new Error("Tauri API not found");
+        const _path = await window.__TAURI__.core.invoke('plugin:sql|load', { db: path });
+        return new TauriDatabase(_path);
+    }
+    async execute(query, bindValues) {
+        const [rowsAffected, lastInsertId] = await window.__TAURI__.core.invoke('plugin:sql|execute', {
+            db: this.path,
+            query,
+            values: bindValues || []
+        });
+        return { lastInsertId, rowsAffected };
+    }
+    async select(query, bindValues) {
+        return await window.__TAURI__.core.invoke('plugin:sql|select', {
+            db: this.path,
+            query,
+            values: bindValues || []
+        });
+    }
+}
 
 const STORE_SHEETS = 'sheets';
 const STORE_SETTINGS = 'settings';
@@ -16,7 +42,7 @@ export async function init_db(dbName) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Initializing native database (SQLite)");
         try {
-            tauriDb = await Database.load('sqlite:leaf.db');
+            tauriDb = await TauriDatabase.load('sqlite:leaf.db');
             console.log("SQLite native database loaded.");
             return Promise.resolve();
         } catch (e) {
