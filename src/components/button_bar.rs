@@ -159,7 +159,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     </>
                 }
             </div>
-            <div class="portrait:hidden flex items-center space-x-1 ml-2 mr-4 border-l border-gray-700 pl-4">
+            <div class="mobile:hidden flex items-center space-x-1 ml-2 mr-4 border-l border-gray-700 pl-4">
                 <button
                     onclick={props.on_change_font_size.reform(|_| -1)}
                     class="p-1 w-8 h-8 rounded hover:bg-gray-700 text-gray-400 hover:text-white flex items-center justify-center font-bold"
@@ -178,7 +178,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
             <div class="flex-1"></div>
             <button
                 onclick={props.on_help.reform(|_| ())}
-                class="portrait:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                class="mobile:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
                 title={i18n::t("help", lang)}
             >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
@@ -187,7 +187,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
             </button>
             <button
                 onclick={props.on_logout.reform(|_| ())}
-                class="portrait:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                class="mobile:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
                 title={i18n::t("logout", lang)}
             >
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
@@ -195,14 +195,14 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 </svg>
             </button>
             <span 
-                class="portrait:hidden text-green-500 opacity-60 font-bold px-4 text-xl select-none"
+                class="mobile:hidden text-green-500 opacity-60 font-bold px-4 text-xl select-none"
                 style="font-family: 'Petit Formal Script', cursive;"
             >
                 {"Leaf"}
             </span>
 
             // Hamburger menu (Portrait only)
-            <div class="relative inline-block text-left landscape:hidden mr-1">
+            <div class="relative inline-block text-left desktop:hidden mr-1">
                 <button
                     onclick={let is_open = is_hamburger_open.clone(); move |_| is_open.set(!*is_open)}
                     class={classes!(

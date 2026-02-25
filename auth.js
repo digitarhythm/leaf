@@ -153,18 +153,18 @@ export async function try_silent_refresh() {
     if (is_tauri()) {
         // Tauri用のリフレッシュ処理スタブ
         console.log("[Auth-Tauri] Refreshing token via backend...");
-        /*
         try {
             const token = await window.__TAURI__.core.invoke('refresh_google_token', { refreshToken });
-            // ...saveSession(token) etc...
+            saveSession({ access_token: token, expires_in: '3600' });
+            refreshPromise.resolve(token);
         } catch (e) {
             refreshPromise.reject(e);
             refreshPromise = null;
             return force_reauth();
         }
-        */
-        // 実装されるまではエラーを返しフォールバックさせる
-        console.warn("[Auth-Tauri] Native refresh not fully implemented yet.");
+        const p = refreshPromise.promise;
+        refreshPromise = null;
+        return p;
     }
 
     try {
@@ -244,12 +244,16 @@ export async function force_reauth() {
 
     if (is_tauri()) {
         console.log("[Auth-Tauri] Triggering native OAuth login window");
-        // スタブ: await window.__TAURI__.core.invoke('authenticate_google_force')
-        console.warn("[Auth-Tauri] Native force_reauth not fully implemented yet.");
-        // reject しておくことで呼び出し元に通知
-        reauthPromise.reject("Tauri authenication backend not implemented");
+        try {
+            const token = await window.__TAURI__.core.invoke('authenticate_google_force');
+            saveSession({ access_token: token, expires_in: '3600' });
+            reauthPromise.resolve(token);
+        } catch (e) {
+            reauthPromise.reject(e);
+        }
+        const p = reauthPromise.promise;
         reauthPromise = null;
-        return promise;
+        return p;
     }
 
     if (!codeClient) {

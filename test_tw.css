@@ -1,0 +1,1 @@
+@import "tailwindcss"; @custom-variant portrait { .leaf-mobile-mode & {} }; .test { @apply portrait:hidden; }
