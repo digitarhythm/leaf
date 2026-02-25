@@ -3,16 +3,26 @@
 // Google Identity Services integration - Code Model (Refresh Token support)
 import { is_tauri } from './editor_interop.js';
 
+import Database from '@tauri-apps/plugin-sql';
+
 const STORE_SHEETS = 'sheets';
 const STORE_SETTINGS = 'settings';
 const STORE_CATEGORIES = 'categories';
 
 let db;
+let tauriDb; // separate handle for SQLite
 
-export function init_db(dbName) {
+export async function init_db(dbName) {
     if (is_tauri()) {
-        console.log("[DB-Tauri] Initializing native database (stub)");
-        return window.__TAURI__.core.invoke('init_db');
+        console.log("[DB-Tauri] Initializing native database (SQLite)");
+        try {
+            tauriDb = await Database.load('sqlite:leaf.db');
+            console.log("SQLite native database loaded.");
+            return Promise.resolve();
+        } catch (e) {
+            console.error("Failed to load native SQLite db:", e);
+            return Promise.reject(e);
+        }
     }
 
     return new Promise((resolve, reject) => {
@@ -45,10 +55,27 @@ export function init_db(dbName) {
     });
 }
 
-export function save_sheet(sheet) {
+export async function save_sheet(sheet) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Saving sheet to native db: ", sheet.id);
-        return window.__TAURI__.core.invoke('save_sheet_to_db', { sheet });
+        if (!tauriDb) return Promise.reject("Native DB not initialized");
+        try {
+            await tauriDb.execute(
+                "INSERT OR REPLACE INTO sheets (id, title, content, updated_at, folder_id, is_trashed) VALUES ($1, $2, $3, $4, $5, $6)",
+                [
+                    sheet.id,
+                    sheet.title,
+                    sheet.content,
+                    sheet.updated_at,
+                    sheet.folder_id || null, // Ensure valid bind values
+                    sheet.is_trashed ? 1 : 0
+                ]
+            );
+            return Promise.resolve();
+        } catch (e) {
+            console.error("SQLite insert error:", e);
+            return Promise.reject(e);
+        }
     }
 
     return new Promise((resolve, reject) => {
@@ -70,10 +97,22 @@ export function save_sheet(sheet) {
     });
 }
 
-export function load_sheets() {
+export async function load_sheets() {
     if (is_tauri()) {
-        console.log("[DB-Tauri] Loading sheets from native db (stub)");
-        return window.__TAURI__.core.invoke('load_sheets_from_db');
+        console.log("[DB-Tauri] Loading sheets from native db (SQLite)");
+        if (!tauriDb) return Promise.reject("Native DB not initialized");
+        try {
+            const rows = await tauriDb.select("SELECT * FROM sheets");
+            // Normalize columns (SQLite returns numbers where IDB might expect boolean)
+            const sheets = rows.map(row => ({
+                ...row,
+                is_trashed: row.is_trashed === 1
+            }));
+            return Promise.resolve(sheets);
+        } catch (e) {
+            console.error("SQLite select error:", e);
+            return Promise.reject(e);
+        }
     }
 
     return new Promise((resolve, reject) => {
@@ -90,10 +129,17 @@ export function load_sheets() {
     });
 }
 
-export function delete_sheet(id) {
+export async function delete_sheet(id) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Deleting sheet: ", id);
-        return window.__TAURI__.core.invoke('delete_sheet_from_db', { id });
+        if (!tauriDb) return Promise.reject("Native DB not initialized");
+        try {
+            await tauriDb.execute("DELETE FROM sheets WHERE id = $1", [id]);
+            return Promise.resolve();
+        } catch (e) {
+            console.error("SQLite delete error:", e);
+            return Promise.reject(e);
+        }
     }
 
     return new Promise((resolve, reject) => {
@@ -110,10 +156,24 @@ export function delete_sheet(id) {
     });
 }
 
-export function save_categories(categories) {
+export async function save_categories(categories) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Saving categories");
-        return window.__TAURI__.core.invoke('save_categories_to_db', { categories });
+        if (!tauriDb) return Promise.reject("Native DB not initialized");
+        try {
+            // Transaction-like approach for sync logic: clear and insert
+            await tauriDb.execute("DELETE FROM categories");
+            for (const cat of categories) {
+                await tauriDb.execute(
+                    "INSERT INTO categories (id, name, color, sort_order) VALUES ($1, $2, $3, $4)",
+                    [cat.id, cat.name, cat.color, cat.sort_order]
+                );
+            }
+            return Promise.resolve();
+        } catch (e) {
+            console.error("SQLite list saving error:", e);
+            return Promise.reject(e);
+        }
     }
 
     return new Promise((resolve, reject) => {
@@ -133,10 +193,17 @@ export function save_categories(categories) {
     });
 }
 
-export function load_categories() {
+export async function load_categories() {
     if (is_tauri()) {
-        console.log("[DB-Tauri] Loading categories (stub)");
-        return window.__TAURI__.core.invoke('load_categories_from_db');
+        console.log("[DB-Tauri] Loading categories (SQLite)");
+        if (!tauriDb) return Promise.reject("Native DB not initialized");
+        try {
+            const categories = await tauriDb.select("SELECT * FROM categories ORDER BY sort_order ASC");
+            return Promise.resolve(categories);
+        } catch (e) {
+            console.error("SQLite select error:", e);
+            return Promise.reject(e);
+        }
     }
 
     return new Promise((resolve, reject) => {
