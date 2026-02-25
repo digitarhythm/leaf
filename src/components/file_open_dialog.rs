@@ -496,6 +496,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_creating_cat = props.is_creating_category;
         let is_loading_prev_val = *is_loading_preview;
         let has_pending_del = pending_delete_file.clone(); // ステートとしてキャプチャ
+        let is_wide_layout_c = is_wide_layout.clone();
+        let mobile_view_step_c = mobile_view_step.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -573,12 +575,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 }
                 "Tab" => { 
                     e.prevent_default(); 
-                    if current_focus == FocusedArea::Categories { 
-                        focused_area_c.set(FocusedArea::Files); 
-                        if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); }
-                    } else { 
-                        focused_area_c.set(FocusedArea::Categories); 
-                    } 
+                    if *is_wide_layout_c {
+                        if current_focus == FocusedArea::Categories { 
+                            focused_area_c.set(FocusedArea::Files); 
+                            if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); }
+                        } else { 
+                            focused_area_c.set(FocusedArea::Categories); 
+                        } 
+                    }
                 }
                 "ArrowUp" => { 
                     e.prevent_default(); 
@@ -600,7 +604,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         else if cur_idx + 1 < files_reducer.list.len() { selected_file_idx_c.set(Some(cur_idx + 1)); }
                     }
                 }
-                "Enter" => { e.prevent_default(); if current_focus == FocusedArea::Categories { focused_area_c.set(FocusedArea::Files); if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); } } else { on_ok_c.emit(()); } }
+                "Enter" => { 
+                    e.prevent_default(); 
+                    if current_focus == FocusedArea::Categories { 
+                        focused_area_c.set(FocusedArea::Files); 
+                        if !*is_wide_layout_c { mobile_view_step_c.set(1); }
+                        if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); } 
+                    } else { 
+                        on_ok_c.emit(()); 
+                    } 
+                }
                 _ => {}
             }
         })
