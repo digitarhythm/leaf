@@ -179,9 +179,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     {
         let p_modal = preview_modal_data.clone();
         let p_del = pending_delete_file.clone();
+        let m_step = mobile_view_step.clone();
+        let is_w = is_wide_layout.clone();
         let on_sub_change = props.on_sub_active_change.clone();
-        use_effect_with((p_modal, p_del), move |(m, d)| {
-            on_sub_change.emit(m.is_some() || d.is_some());
+        use_effect_with((p_modal, p_del, m_step, is_w), move |(m, d, s, w)| {
+            on_sub_change.emit(m.is_some() || d.is_some() || (**s == 1 && !**w));
             || ()
         });
     }
@@ -498,6 +500,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let has_pending_del = pending_delete_file.clone(); // ステートとしてキャプチャ
         let is_wide_layout_c = is_wide_layout.clone();
         let mobile_view_step_c = mobile_view_step.clone();
+        let handle_close_c = handle_close.clone();
 
         Callback::from(move |e: KeyboardEvent| {
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -613,6 +616,15 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     } else { 
                         on_ok_c.emit(()); 
                     } 
+                }
+                "Escape" => {
+                    e.prevent_default();
+                    if !*is_wide_layout_c && *mobile_view_step_c == 1 {
+                        mobile_view_step_c.set(0);
+                        focused_area_c.set(FocusedArea::Categories);
+                    } else {
+                        handle_close_c.emit(());
+                    }
                 }
                 _ => {}
             }
