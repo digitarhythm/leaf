@@ -9,9 +9,9 @@ dist = "dist"
 [serve]
 addresses = ["127.0.0.1"]
 port = 5003
-https = true
-tls_key_path = "localhost+2-key.pem"
-tls_cert_path = "localhost+2.pem"
+# https = true
+# tls_key_path = "localhost+2-key.pem"
+# tls_cert_path = "localhost+2.pem"
 
 [[proxy]]
 backend = "http://127.0.0.1:3000/api/"

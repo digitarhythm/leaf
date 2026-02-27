@@ -1938,10 +1938,12 @@ pub fn app() -> Html {
                 } else if *is_help_visible { 
                     let ih = is_help_visible.clone(); 
                     let c = i18n::t("help_shortcuts", lang); 
-                    let is_conf = is_install_confirm_visible.clone(); 
-                    let is_man = is_install_manual_visible.clone(); 
-                    let ih_for_install = ih.clone(); 
-                    let on_install = Callback::from(move |_: ()| { ih_for_install.set(false); if crate::js_interop::can_install_pwa() { is_conf.set(true); } else { is_man.set(true); } }); 
+                    let on_install = if !crate::js_interop::is_tauri() {
+                        let is_conf = is_install_confirm_visible.clone(); 
+                        let is_man = is_install_manual_visible.clone(); 
+                        let ih_for_install = ih.clone(); 
+                        Some(Callback::from(move |_: ()| { ih_for_install.set(false); if crate::js_interop::can_install_pwa() { is_conf.set(true); } else { is_man.set(true); } }))
+                    } else { None };
                     Some(html! { <Preview content={c} lang={"md".to_string()} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} is_help={true} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_font_size.clone()} /> }) 
                 } else { None } { <div class="pointer-events-auto">{ preview }</div> }
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }

@@ -43,18 +43,22 @@ if (!CLIENT_ID || !CLIENT_SECRET) {
 
 // 認可コードをトークンに交換
 app.post('/api/auth/token', async (req, res) => {
-    const { code } = req.body;
+    const { code, redirect_uri } = req.body;
     console.log(`[Backend] Token exchange request received`);
-    
+
     if (!code) return res.status(400).json({ error: 'Code is required' });
     if (!CLIENT_SECRET) return res.status(500).json({ error: 'Server not configured (Secret missing)' });
+
+    // Tauri などのネイティブクライアントからはカスタムリダイレクトURIが送られてくる
+    const finalRedirectUri = redirect_uri || REDIRECT_URI;
+    console.log(`[Backend] Using redirect_uri: ${finalRedirectUri}`);
 
     try {
         const response = await axios.post('https://oauth2.googleapis.com/token', {
             code,
             client_id: CLIENT_ID,
             client_secret: CLIENT_SECRET,
-            redirect_uri: REDIRECT_URI,
+            redirect_uri: finalRedirectUri,
             grant_type: 'authorization_code',
         });
         res.json(response.data);
