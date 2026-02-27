@@ -21,6 +21,19 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
     html! {
         <div class="flex mobile:flex-col items-center mobile:items-stretch justify-between px-4 py-1 mobile:px-2 mobile:py-2 bg-gray-800 border-t border-gray-700 text-xs text-gray-400 select-none mobile:space-y-1">
             <div class="flex mobile:flex-col items-center mobile:items-stretch space-x-4 mobile:space-x-0">
+                <button
+                    onclick={props.on_toggle_vim.reform(|_| ())}
+                    class={classes!(
+                        "mobile:hidden", "flex", "items-center", "space-x-1.5", "px-2", "py-0.5", "rounded", "transition-colors", "cursor-pointer", "font-semibold",
+                        if props.vim_mode { "text-green-400 hover:text-green-300 hover:bg-gray-700" } else { "text-gray-500 hover:text-gray-300 hover:bg-gray-700" }
+                    )}
+                    title={i18n::t("toggle_vim", lang)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                    <span>{ if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }</span>
+                </button>
                 
                 <div class="flex mobile:flex-col items-center mobile:items-stretch space-x-2 mobile:space-x-0">
                     if !props.category_name.is_empty() {
@@ -88,6 +101,7 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                         <span>{ i18n::t("saving", lang) }</span>
                     </div>
                 }
+
 
                 <span class={classes!(
                     "flex", "items-center", "space-x-2", "font-semibold",

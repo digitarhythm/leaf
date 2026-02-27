@@ -192,7 +192,7 @@ export async function save_categories(categories) {
             for (const cat of categories) {
                 await tauriDb.execute(
                     "INSERT INTO categories (id, name, color, sort_order) VALUES ($1, $2, $3, $4)",
-                    [cat.id, cat.name, cat.color, cat.sort_order]
+                    [cat.id, cat.name, cat.color || null, cat.sort_order || 0]
                 );
             }
             return Promise.resolve();

@@ -1,10 +1,11 @@
 let editor;
 let commandCallback;
 let pendingContent = null;
-let pendingGutterUnsaved = null; 
+let pendingGutterUnsaved = null;
 let pendingMode = null; // 追加: モード設定の待機用
 let previewActive = false;
 let localFileHandle = null;
+let localFilePath = null; // Tauri用: ネイティブファイルパス保持
 let internalChange = false;
 const FONT_SIZE_KEY = 'leaf_font_size';
 
@@ -37,18 +38,31 @@ export function is_webkit_or_safari() {
 }
 
 export async function open_local_file() {
+    if (is_tauri()) {
+        try {
+            const result = await window.__TAURI__.core.invoke('open_local_file_native');
+            localFileHandle = null; // Tauri ではハンドルは使わない
+            localFilePath = result.path; // パスを保持
+            return { name: result.name, content: result.content, bytes: new Uint8Array(result.bytes) };
+        } catch (e) {
+            if (e === 'cancelled') return null;
+            console.error("Tauri file open failed:", e);
+            return null;
+        }
+    }
     try {
         const [handle] = await window.showOpenFilePicker({
             types: [{
                 description: 'Text Files',
-                accept: {'text/plain': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml']}
+                accept: { 'text/plain': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml'] }
             }]
         });
         localFileHandle = handle;
+        localFilePath = null;
         const file = await handle.getFile();
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
-        
+
         // 1. UTF-8 でデコードを試みる (不正なバイトがあれば例外を投げる設定)
         const utf8Decoder = new TextDecoder('utf-8', { fatal: true });
         let text;
@@ -70,6 +84,21 @@ export async function open_local_file() {
 }
 
 export async function save_local_file(content, needs_bom) {
+    if (is_tauri()) {
+        try {
+            const result = await window.__TAURI__.core.invoke('save_local_file_native', {
+                content: content,
+                needsBom: needs_bom,
+                currentPath: localFilePath || null
+            });
+            localFilePath = result.path;
+            return result.name;
+        } catch (e) {
+            if (e === 'cancelled') return null;
+            console.error("Tauri file save failed:", e);
+            return null;
+        }
+    }
     try {
         // ハンドルがない場合は新規作成ダイアログを表示
         if (!localFileHandle) {
@@ -77,7 +106,7 @@ export async function save_local_file(content, needs_bom) {
                 suggestedName: 'Untitled.txt',
                 types: [{
                     description: 'Text Files',
-                    accept: {'text/plain': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml']}
+                    accept: { 'text/plain': ['.txt', '.md', '.js', '.ts', '.rs', '.toml', '.json', '.yaml', '.yml', '.sql', '.html', '.css', '.py', '.c', '.cpp', '.h', '.m', '.cs', '.php', '.coffee', '.pl', '.rb', '.java', '.sh', '.xml'] }
                 }]
             });
         }
@@ -106,14 +135,15 @@ export async function save_local_file(content, needs_bom) {
 
 export function clear_local_handle() {
     localFileHandle = null;
+    localFilePath = null;
 }
 
 export function get_safe_chunk(uint8array) {
     if (!uint8array || uint8array.length === 0) return { text: "", bytes_consumed: 0 };
-    
+
     let len = uint8array.length;
     let end = len;
-    
+
     // UTF-8 のマルチバイト文字が途切れていないかチェック (末尾3バイトを確認)
     for (let i = 1; i <= 3 && i <= len; i++) {
         let byte = uint8array[len - i];
@@ -122,7 +152,7 @@ export function get_safe_chunk(uint8array) {
             if ((byte & 0xE0) === 0xC0) expected = 2;      // 2バイト文字
             else if ((byte & 0xF0) === 0xE0) expected = 3; // 3バイト文字
             else if ((byte & 0xF8) === 0xF0) expected = 4; // 4バイト文字
-            
+
             if (i < expected) {
                 // 文字が途切れているので、この文字の直前までで切る
                 end = len - i;
@@ -131,7 +161,7 @@ export function get_safe_chunk(uint8array) {
         }
         if ((byte & 0x80) === 0x00) break; // ASCII (0xxxxxxx) なので安全
     }
-    
+
     // \r\n の途切断チェック (\r で終わっている場合は \n と泣き別れないように1バイト戻す)
     if (end > 0 && uint8array[end - 1] === 0x0D) {
         end--;
@@ -140,7 +170,7 @@ export function get_safe_chunk(uint8array) {
     const consumed = uint8array.slice(0, end);
     const decoder = new TextDecoder('utf-8');
     let text = decoder.decode(consumed);
-    
+
     return { text, bytes_consumed: end };
 }
 
@@ -157,7 +187,7 @@ export function init_editor(element_id, callback) {
     editor = ace.edit(element_id);
     editor.setTheme("ace/theme/gruvbox");
     editor.session.setMode("ace/mode/javascript");
-    
+
     // 基本設定
     editor.setOptions({
         fontSize: localStorage.getItem(FONT_SIZE_KEY) || "14pt",
@@ -232,9 +262,9 @@ export function init_editor(element_id, callback) {
     editor.commands.addCommand({
         name: "showHelp",
         bindKey: { win: "Alt-H", mac: "Alt-H" },
-        exec: () => { 
+        exec: () => {
             console.log("[Leaf-VIM] Triggering help shortcut (Alt+H)");
-            if (commandCallback) commandCallback("help"); 
+            if (commandCallback) commandCallback("help");
         }
     });
 
@@ -278,7 +308,7 @@ export function set_vim_mode(enabled) {
     const container = editor.container;
     const currentHandler = editor.getKeyboardHandler();
     const isVim = currentHandler && currentHandler.$id === "ace/keyboard/vim";
-    
+
     if (enabled && !isVim) {
         editor.setKeyboardHandler("ace/keyboard/vim");
         container.classList.add("leaf-vim-enabled");
@@ -292,7 +322,7 @@ export function set_vim_mode(enabled) {
 export function set_editor_content(content) {
     pendingContent = content;
     if (!editor) return;
-    
+
     const currentVal = editor.getValue();
     // 内容が完全に一致するか、改行コードの違いを除いて一致する場合は何もしない
     if (currentVal === content || currentVal.replace(/\r\n/g, "\n") === (content || "").replace(/\r\n/g, "\n")) {
@@ -316,7 +346,7 @@ export function append_editor_content(content) {
     const session = editor.session;
     const row = session.getLength();
     console.log("[Leaf-SYSTEM] Appending chunk (" + content.length + " bytes) at row " + row);
-    
+
     internalChange = true;
     try {
         // 末尾に挿入
@@ -329,9 +359,9 @@ export function append_editor_content(content) {
     }
 }
 
-export function get_editor_content() { 
+export function get_editor_content() {
     if (!editor) return pendingContent;
-    return editor.getValue(); 
+    return editor.getValue();
 }
 
 export function resize_editor() { if (editor) editor.resize(); }
@@ -345,7 +375,7 @@ export function set_gutter_status(mode) {
     const container = editor.container;
     // 一旦全てのステータスクラスを削除
     container.classList.remove("leaf-unsaved-gutter", "leaf-local-gutter");
-    
+
     if (mode === "unsaved") {
         container.classList.add("leaf-unsaved-gutter");
     } else if (mode === "local") {
@@ -371,15 +401,15 @@ export function change_font_size(delta) {
     const sizeStr = newSize + "pt";
     editor.setFontSize(sizeStr);
     localStorage.setItem(FONT_SIZE_KEY, sizeStr);
-    
+
     // Rust 側へ通知
     window.dispatchEvent(new CustomEvent('leaf-font-size-changed', { detail: newSize }));
-    
+
     return newSize;
 }
 
 export function generate_uuid() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
     });
@@ -403,7 +433,7 @@ export function set_preview_active(active) {
 
 export function highlight_code(code, lang) {
     if (typeof hljs === 'undefined') return code;
-    
+
     // 拡張子から hljs の言語名へのマッピング
     const langMap = {
         'rs': 'rust',
@@ -414,10 +444,10 @@ export function highlight_code(code, lang) {
         'sh': 'bash',
         'yml': 'yaml'
     };
-    
+
     const targetLang = langMap[lang] || lang;
     const language = hljs.getLanguage(targetLang) ? targetLang : null;
-    
+
     try {
         if (language) {
             return hljs.highlight(code, { language }).value;
@@ -475,10 +505,10 @@ export function scroll_into_view_graceful(container, index, duration_ms) {
     function animate(currentTime) {
         const elapsed = currentTime - startTime;
         const progress = Math.min(elapsed / duration_ms, 1);
-        
+
         // Easing: easeInOutQuad
         const ease = progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
-        
+
         container.scrollTop = start + change * ease;
         if (progress < 1) requestAnimationFrame(animate);
     }

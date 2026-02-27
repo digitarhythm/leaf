@@ -30,7 +30,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
         let is_open = props.is_dropdown_open;
         let current_cat = props.current_category.clone();
         Callback::from(move |_| {
-            if has_multiple_cats || current_cat.is_empty() {
+            if has_multiple_cats || current_cat.is_empty() || current_cat == "__LOCAL__" {
                 on_toggle.emit(!is_open);
             }
         })

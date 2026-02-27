@@ -49,10 +49,11 @@ function saveSession(data) {
 }
 
 export function init_google_auth(clientId, onSuccessCallback) {
+    if (onSuccessCallback) window.onAuthSuccessCallback = onSuccessCallback;
+    window.leafClientId = clientId; // Save for parameter passing in later calls
+
     if (is_tauri()) {
         console.log("[Auth] Tauri environment detected. Using native auth flow.");
-        // TauriネイティブでのOAuth認証処理のスタブ
-        // 例: window.__TAURI__.core.invoke('authenticate_google') などを呼び出す
 
         // 既存のトークンがあれば読み込む
         const existingToken = localStorage.getItem(STORAGE_KEY);
@@ -63,7 +64,7 @@ export function init_google_auth(clientId, onSuccessCallback) {
             if (onSuccessCallback) onSuccessCallback(accessToken);
         } else if (localStorage.getItem(REFRESH_TOKEN_KEY)) {
             console.log("[Auth-Tauri] Found refresh token. Attempting silent refresh...");
-            try_silent_refresh().then(token => {
+            try_silent_refresh(clientId).then(token => {
                 if (token && onSuccessCallback) onSuccessCallback(token);
             }).catch(() => {
                 console.log("[Auth-Tauri] Refresh token expired or invalid.");
@@ -109,7 +110,7 @@ export function init_google_auth(clientId, onSuccessCallback) {
                 if (timeLeft < 10 * 60 * 1000) {
                     console.log("[Auth] Token nearing expiry. Refreshing...");
                     try {
-                        await try_silent_refresh();
+                        await try_silent_refresh(clientId);
                     } catch (e) {
                         console.warn("[Auth] Proactive refresh failed.");
                     }
@@ -126,7 +127,7 @@ export function init_google_auth(clientId, onSuccessCallback) {
             if (onSuccessCallback) onSuccessCallback(accessToken);
         } else if (localStorage.getItem(REFRESH_TOKEN_KEY)) {
             console.log("[Auth] Found refresh token. Attempting silent refresh...");
-            try_silent_refresh().then(token => {
+            try_silent_refresh(clientId).then(token => {
                 if (token && onSuccessCallback) onSuccessCallback(token);
             }).catch(() => {
                 console.log("[Auth] Refresh token expired or invalid.");
@@ -136,11 +137,11 @@ export function init_google_auth(clientId, onSuccessCallback) {
     document.body.appendChild(script);
 }
 
-export async function try_silent_refresh() {
+export async function try_silent_refresh(clientId = window.leafClientId) {
     const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) {
         // リフレッシュトークンがない場合は以前のポップアップ方式へフォールバック
-        return force_reauth();
+        return force_reauth(clientId);
     }
 
     if (refreshPromise) return refreshPromise.promise;
@@ -160,7 +161,7 @@ export async function try_silent_refresh() {
         } catch (e) {
             refreshPromise.reject(e);
             refreshPromise = null;
-            return force_reauth();
+            return force_reauth(clientId);
         }
         const p = refreshPromise.promise;
         refreshPromise = null;
@@ -185,16 +186,16 @@ export async function try_silent_refresh() {
         refreshPromise = null;
         // ネットワークエラーでなければ再ログインを促す
         if (navigator.onLine) {
-            return force_reauth();
+            return force_reauth(clientId);
         }
         throw e;
     }
 }
 
-export function request_access_token() {
+export function request_access_token(clientId = window.leafClientId) {
     if (is_tauri()) {
         console.log("[Auth-Tauri] Requesting native access token login flow");
-        force_reauth();
+        force_reauth(clientId);
         return;
     }
 
@@ -205,10 +206,10 @@ export function request_access_token() {
     }
 }
 
-export async function get_access_token() {
+export async function get_access_token(clientId = window.leafClientId) {
     const expiry = localStorage.getItem(EXPIRY_KEY);
     if (expiry && parseInt(expiry) < Date.now()) {
-        return await try_silent_refresh();
+        return await try_silent_refresh(clientId);
     }
     return accessToken;
 }
@@ -234,7 +235,7 @@ export async function sign_out() {
     window.dispatchEvent(new CustomEvent('leaf-auth-expired'));
 }
 
-export async function force_reauth() {
+export async function force_reauth(clientId = window.leafClientId) {
     if (reauthPromise) return reauthPromise.promise;
 
     console.log("[Auth] Forcing re-authentication...");
@@ -245,10 +246,24 @@ export async function force_reauth() {
     if (is_tauri()) {
         console.log("[Auth-Tauri] Triggering native OAuth login window");
         try {
-            const token = await window.__TAURI__.core.invoke('authenticate_google_force');
-            saveSession({ access_token: token, expires_in: '3600' });
-            reauthPromise.resolve(token);
+            if (!clientId) {
+                console.error("[Auth-Tauri] CRITICAL: clientId is undefined or null in force_reauth!");
+                // Fallback attempt: The Rust backend also has this hardcoded, but we must pass it since it expects it.
+                // We'll throw an error if it's genuinely missing so we see it in the console.
+                throw new Error("clientId is missing in force_reauth");
+            }
+
+            console.log(`[Auth-Tauri] Invoking authenticate_google_force with clientId: ${clientId}`);
+
+            // clientId を Tauri バックエンドの Rust 側(authenticate_google_force) に渡す
+            const resultJson = await window.__TAURI__.core.invoke('authenticate_google_force', { clientId });
+            // Rust側はトークン交換の完全なJSONを文字列で返す
+            const tokenData = JSON.parse(resultJson);
+            saveSession(tokenData);
+            reauthPromise.resolve(tokenData.access_token);
+            if (window.onAuthSuccessCallback) window.onAuthSuccessCallback(tokenData.access_token);
         } catch (e) {
+            console.error("[Auth-Tauri] Native OAuth failed:", e);
             reauthPromise.reject(e);
         }
         const p = reauthPromise.promise;

@@ -9,6 +9,24 @@
   <link data-trunk rel="rust" data-target-name="leaf" data-integrity="none" />
   <link data-trunk rel="css" href="tailwind.css" data-integrity="none" />
 
+  <script>
+    window.onerror = function (msg, url, lineNo, columnNo, error) {
+      var fullMsg = 'ERROR: ' + msg + '\nURL: ' + url + '\nLine: ' + lineNo + ':' + columnNo + '\n' + (error && error.stack ? error.stack : '');
+      document.body.innerHTML += '<div style="background:red;color:white;position:absolute;top:0;left:0;z-index:9999;padding:20px;font-family:monospace;">' + fullMsg.replace(/\n/g, '<br>') + '</div>';
+      if (window.__TAURI__ && window.__TAURI__.core) {
+        window.__TAURI__.core.invoke('log_from_js', { msg: fullMsg }).catch(function (e) { console.error(e) });
+      }
+      return false;
+    };
+    window.onunhandledrejection = function (event) {
+      var fullMsg = 'UNHANDLED PROMISE REJECTION: ' + (event.reason && event.reason.stack ? event.reason.stack : event.reason);
+      document.body.innerHTML += '<div style="background:red;color:white;position:absolute;top:0;left:0;z-index:9999;padding:20px;font-family:monospace;">' + fullMsg.replace(/\n/g, '<br>') + '</div>';
+      if (window.__TAURI__ && window.__TAURI__.core) {
+        window.__TAURI__.core.invoke('log_from_js', { msg: fullMsg }).catch(function (e) { console.error(e) });
+      }
+    };
+  </script>
+
   <link data-trunk rel="copy-file" href="manifest.json" />
   <link rel="manifest" href="manifest.json" />
 
@@ -419,16 +437,26 @@
       });
     }
 
-    // Service Worker 登録
+    // Service Worker 登録 (Tauri環境では無効化)
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        // サブディレクトリ運用に対応するため相対パスで登録
-        navigator.serviceWorker.register('sw.js').then(reg => {
-          console.log('[Leaf-PWA] Service Worker registered.', reg.scope);
-        }).catch(err => {
-          console.error('[Leaf-PWA] Service Worker registration failed:', err);
+      if (window.__TAURI__) {
+        // Tauri環境: 既存のService Workerを解除
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(reg => {
+            reg.unregister();
+            console.log('[Leaf] Service Worker unregistered (Tauri mode).');
+          });
         });
-      });
+      } else {
+        window.addEventListener('load', () => {
+          // サブディレクトリ運用に対応するため相対パスで登録
+          navigator.serviceWorker.register('sw.js').then(reg => {
+            console.log('[Leaf-PWA] Service Worker registered.', reg.scope);
+          }).catch(err => {
+            console.error('[Leaf-PWA] Service Worker registration failed:', err);
+          });
+        });
+      }
     }
   </script>
 </head>
