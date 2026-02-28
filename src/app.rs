@@ -322,7 +322,7 @@ pub fn app() -> Html {
                     let is_narrow_window = win_w <= (scr_w / 2.0);
 
                     let is_portrait = device_is_portrait || (window_is_portrait && is_narrow_window);
-                    
+
                     if let Some(doc) = window_c.document() {
                         if let Some(body) = doc.body() {
                             if is_portrait {
