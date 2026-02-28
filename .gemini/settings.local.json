@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo clean --target wasm32-unknown-unknown 2>&1)"
+    ]
+  }
+}
