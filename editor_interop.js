@@ -514,3 +514,44 @@ export function scroll_into_view_graceful(container, index, duration_ms) {
     }
     requestAnimationFrame(animate);
 }
+
+// --- ピンチジェスチャーによるフォントサイズ変更 ---
+(function() {
+    let initialDistance = 0;
+    let lastFontChangeDistance = 0;
+    const PINCH_THRESHOLD = 30; // px移動でフォントサイズ1段階変更
+
+    function getDistance(touches) {
+        const dx = touches[0].clientX - touches[1].clientX;
+        const dy = touches[0].clientY - touches[1].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    document.addEventListener('touchstart', function(e) {
+        if (e.touches.length === 2) {
+            initialDistance = getDistance(e.touches);
+            lastFontChangeDistance = initialDistance;
+        }
+    }, { passive: true });
+
+    document.addEventListener('touchmove', function(e) {
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const currentDistance = getDistance(e.touches);
+            const delta = currentDistance - lastFontChangeDistance;
+
+            if (Math.abs(delta) >= PINCH_THRESHOLD) {
+                const steps = Math.trunc(delta / PINCH_THRESHOLD);
+                change_font_size(steps);
+                lastFontChangeDistance += steps * PINCH_THRESHOLD;
+            }
+        }
+    }, { passive: false });
+
+    document.addEventListener('touchend', function(e) {
+        if (e.touches.length < 2) {
+            initialDistance = 0;
+            lastFontChangeDistance = 0;
+        }
+    }, { passive: true });
+})();
