@@ -61,11 +61,11 @@ export function init_google_auth(clientId, onSuccessCallback) {
         if (existingToken && expiry && parseInt(expiry) > Date.now()) {
             accessToken = existingToken;
             console.log("[Auth-Tauri] Existing valid token found.");
-            if (onSuccessCallback) onSuccessCallback(accessToken);
+            if (onSuccessCallback) setTimeout(() => onSuccessCallback(accessToken), 0);
         } else if (localStorage.getItem(REFRESH_TOKEN_KEY)) {
             console.log("[Auth-Tauri] Found refresh token. Attempting silent refresh...");
             try_silent_refresh(clientId).then(token => {
-                if (token && onSuccessCallback) onSuccessCallback(token);
+                if (token && onSuccessCallback) setTimeout(() => onSuccessCallback(token), 0);
             }).catch(() => {
                 console.log("[Auth-Tauri] Refresh token expired or invalid.");
             });
