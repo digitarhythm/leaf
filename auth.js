@@ -219,11 +219,36 @@ export function is_signed_in() {
     return (accessToken !== null && expiry && parseInt(expiry) > Date.now()) || !!localStorage.getItem(REFRESH_TOKEN_KEY);
 }
 
+export async function fetch_user_email() {
+    try {
+        const token = await get_access_token();
+        if (!token) return null;
+        const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`userinfo failed: ${res.status}`);
+        const data = await res.json();
+        if (data.email) {
+            localStorage.setItem('leaf_google_email', data.email);
+            console.log("[Auth] User email fetched:", data.email);
+        }
+        return data.email || null;
+    } catch (e) {
+        console.warn("[Auth] fetch_user_email failed:", e);
+        return null;
+    }
+}
+
+export function get_user_email() {
+    return localStorage.getItem('leaf_google_email') || null;
+}
+
 export async function sign_out() {
     accessToken = null;
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(EXPIRY_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem('leaf_google_email');
     console.log("Signed out and session cleared");
 
     if ('serviceWorker' in navigator) {
