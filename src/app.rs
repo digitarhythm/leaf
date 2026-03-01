@@ -255,6 +255,7 @@ pub fn app() -> Html {
         web_sys::window().and_then(|w| Some(w.navigator().on_line())).unwrap_or(true)
     });
     let is_authenticated = use_state(|| false);
+    let is_auth_flag = use_mut_ref(|| false); // タイムアウトクロージャ用の共有フラグ
     let no_category_folder_id = use_state(|| None::<String>);
     let leaf_data_folder_id = use_state(|| None::<String>);
     let auto_save_timer = use_state(|| None::<Timeout>);
@@ -1442,12 +1443,13 @@ pub fn app() -> Html {
         let aid_ref_h = active_id_ref.clone();
         let on_save_for_auth = on_save_cb.clone();
         let is_online = *network_connected;
+        let is_auth_flag_h = is_auth_flag.clone();
 
         use_effect_with((is_online, ), move |_| {
             let cleanup = || ();
-            if !is_online { return cleanup; } 
-            
-            let is_auth_cb = is_auth.clone(); let ncid_cb = ncid.clone(); let ldid_cb = ldid.clone();
+            if !is_online { return cleanup; }
+
+            let ncid_cb = ncid.clone(); let ldid_cb = ldid.clone();
             let cats_cb = cats_init.clone(); let s_state_cb = s_state.clone(); let rs_cb = rs.clone();
             let ild_cb = ild_h.clone(); let ifo_cb = ifo_h.clone(); let is_init_cb = is_init_h.clone();
             let nc_cb = nc_h.clone();
@@ -1461,8 +1463,9 @@ pub fn app() -> Html {
             let ild_timeout = ild_cb.clone();
             let ifo_timeout = ifo_cb.clone();
             let isi_timeout = is_init_cb.clone();
-            Timeout::new(2000, move || {
-                if !*is_auth_cb {
+            let auth_flag_timeout = is_auth_flag_h.clone();
+            Timeout::new(5000, move || {
+                if !*auth_flag_timeout.borrow() {
                     gloo::console::warn!("[Leaf-SYSTEM] Auth initialization timed out or user not signed in. revealing login screen.");
                     ifo_timeout.set(true);
                     let ild = ild_timeout.clone(); let ifo = ifo_timeout.clone(); let isi = isi_timeout.clone();
@@ -1470,10 +1473,12 @@ pub fn app() -> Html {
                 }
             }).forget();
 
-            let is_auth_cb_final = is_auth.clone(); 
+            let is_auth_cb_final = is_auth.clone();
+            let auth_flag_cb = is_auth_flag_h.clone();
             let callback = Closure::wrap(Box::new(move |_token: String| {
                 let is_auth_inner = is_auth_cb_final.clone();
                 let os_cb_final = os_cb_inner.clone();
+                *auth_flag_cb.borrow_mut() = true; // RefCell: タイムアウトからも即座に参照可能
                 if !*is_auth_inner {
                     is_auth_inner.set(true);
                     let ncid_i = ncid_cb.clone(); let ldid_i = ldid_cb.clone(); let cats_i = cats_cb.clone();
@@ -1492,7 +1497,7 @@ pub fn app() -> Html {
                                 if let Ok(id_val) = js_sys::Reflect::get(&res, &JsValue::from_str("othersId")) {
                                     if let Some(id) = id_val.as_string() {
                                         ncid_i.set(Some(id.clone()));
-                                        let mut us = (*s_inner).clone(); let mut changed = false;
+                                        let mut us = rs_inner.borrow().clone(); let mut changed = false;
                                         for s in us.iter_mut() { if s.category.is_empty() || s.category == "OTHERS" { s.category = id.clone(); changed = true; } }
                                         if changed { 
                                             *rs_inner.borrow_mut() = us.clone(); s_inner.set(us.clone()); 
@@ -1527,8 +1532,8 @@ pub fn app() -> Html {
                                     }
                                 }
                             },
-                            Err(_) => { 
-                                is_auth_err.set(true); 
+                            Err(_) => {
+                                is_auth_err.set(true);
                                 nc_inner.set(false);
                                 ifo_inner.set(true); 
                                 let ifo_final = ifo_inner.clone(); 

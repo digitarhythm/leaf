@@ -4,6 +4,7 @@ use serde_json::Value;
 use tauri_plugin_dialog::DialogExt;
 
 // Desktop App 用の OAuth リダイレクトポート
+#[allow(dead_code)]
 const OAUTH_PORT: u16 = 3456;
 
 // フロントエンドのバックエンドプロキシ (server/index.js) 用のURL
