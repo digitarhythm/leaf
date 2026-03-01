@@ -521,11 +521,15 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_wide_layout_c = is_wide_layout.clone();
         let mobile_view_step_c = mobile_view_step.clone();
         let handle_close_c = handle_close.clone();
+        let editing_cat_for_key = editing_category_id.clone();
 
         Callback::from(move |e: KeyboardEvent| {
+            // カテゴリー名編集中はダイアログ側のキー処理をスキップ
+            if (*editing_cat_for_key).is_some() { return; }
+
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
             let key = ke.key();
-            
+
             // サブダイアログ表示中の Escape キー処理
             if key == "Escape" {
                 let p_modal = preview_modal_c.clone();
@@ -749,17 +753,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
         html! {
             <div class={classes!("flex", "flex-col", "h-full", if is_wide { "w-[20%]" } else { "w-full" }, "border-r", "border-white/5", "bg-gray-900/50")}>
-                <div class={classes!("p-4", "border-b", "border-white/5", "flex", "items-center", "justify-between", if !is_wide { "bg-gray-950/20" } else { "" })}>
+                <div
+                    class={classes!("p-4", "border-b", "border-white/5", "flex", "items-center", "justify-between", if !is_wide { "bg-gray-950/20" } else { "cursor-pointer hover:bg-white/5 transition-colors" })}
+                    onclick={let ic = props.on_create_category_toggle.clone(); let wide = is_wide; move |_| { if wide { ic.emit(true); } }}
+                >
                     if is_wide {
                         <span class="text-xs font-bold text-gray-500 uppercase tracking-widest">{ i18n::t("new_category", lang) }</span>
-                        <button 
-                            onclick={let ic = props.on_create_category_toggle.clone(); move |_| ic.emit(true)}
-                            class="p-1 hover:bg-white/10 rounded-md text-gray-400 transition-colors"
-                        >
+                        <div class="p-1 text-gray-400">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                             </svg>
-                        </button>
+                        </div>
                     } else {
                         <div class="flex items-center space-x-2">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
@@ -798,7 +802,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     if is_sel { vec!["bg-emerald-600/20", "text-emerald-400"] } else { vec!["text-gray-400", "hover:bg-white/5", "hover:text-gray-200"] },
                                     if is_active { vec!["ring-2", "ring-emerald-500/50", "bg-emerald-600/30"] } else { vec![] }
                                 )}
-                                onclick={let f_area = focused_area_h.clone(); let m_step = mobile_view_step_for_cat.clone(); move |_| { s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); m_step.set(1); }}
+                                onclick={let f_area = focused_area_h.clone(); let m_step = mobile_view_step_for_cat.clone(); let is_editing_this = is_editing; let eid_click = eid_inner.clone(); move |_| { if is_editing_this { return; } eid_click.set(None); s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); m_step.set(1); }}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4", "w-4", "mr-3", if is_sel { "text-emerald-500" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -808,7 +812,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         ref={edit_ref.clone()} type="text" value={(*ein_inner).clone()}
                                         oninput={let ein = ein_inner.clone(); move |e: InputEvent| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); ein.set(input.value()); }}
                                         onblur={let eid = eid_inner.clone(); move |_| eid.set(None)}
-                                        onkeydown={let eid = eid_inner.clone(); let ein = ein_inner.clone(); let cid_inner_val = cid_for_rename.clone(); let on_ren = on_ren.clone(); move |e: KeyboardEvent| { if e.key() == "Enter" { let new_name = (*ein).clone(); if !new_name.trim().is_empty() { on_ren.emit((cid_inner_val.clone(), new_name)); } eid.set(None); } else if e.key() == "Escape" { eid.set(None); } }}
+                                        onkeydown={let eid = eid_inner.clone(); let ein = ein_inner.clone(); let cid_inner_val = cid_for_rename.clone(); let on_ren = on_ren.clone(); let rr = root_ref.clone(); move |e: KeyboardEvent| { if e.is_composing() { return; } if e.key() == "Enter" { let new_name = (*ein).clone(); if !new_name.trim().is_empty() { on_ren.emit((cid_inner_val.clone(), new_name)); } eid.set(None); e.prevent_default(); e.stop_propagation(); } else if e.key() == "Escape" { e.prevent_default(); e.stop_immediate_propagation(); eid.set(None); let rr = rr.clone(); Timeout::new(10, move || { if let Some(el) = rr.cast::<web_sys::HtmlElement>() { let _ = el.focus(); } }).forget(); } }}
                                         class="bg-gray-800 text-white text-sm border-none outline-none w-full px-1 rounded"
                                     />
                                 } else {
