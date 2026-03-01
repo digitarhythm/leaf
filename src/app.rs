@@ -1499,8 +1499,8 @@ pub fn app() -> Html {
                                         ncid_i.set(Some(id.clone()));
                                         let mut us = rs_inner.borrow().clone(); let mut changed = false;
                                         for s in us.iter_mut() { if s.category.is_empty() || s.category == "OTHERS" { s.category = id.clone(); changed = true; } }
-                                        if changed { 
-                                            *rs_inner.borrow_mut() = us.clone(); s_inner.set(us.clone()); 
+                                        if changed {
+                                            *rs_inner.borrow_mut() = us.clone(); s_inner.set(us.clone()); set_gutter_status("none");
                                             for s in us.iter() { let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } }
                                         }
                                     }
