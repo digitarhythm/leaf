@@ -7,4 +7,6 @@ extern "C" {
     pub fn request_access_token();
     pub fn is_signed_in() -> bool;
     pub async fn sign_out();
+    pub async fn fetch_user_email() -> JsValue;
+    pub fn get_user_email() -> JsValue;
 }

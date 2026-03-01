@@ -1044,6 +1044,12 @@
       background-color: color-mix(in oklab, var(--color-gray-950) 20%, transparent);
     }
   }
+  .bg-gray-950\/30 {
+    background-color: color-mix(in srgb, oklch(13% 0.028 261.692) 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-gray-950) 30%, transparent);
+    }
+  }
   .bg-gray-950\/50 {
     background-color: color-mix(in srgb, oklch(13% 0.028 261.692) 50%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
