@@ -234,6 +234,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
         let input_r = input_ref.clone();
         Callback::from(move |e: KeyboardEvent| {
             e.stop_propagation();
+            if e.is_composing() { return; }
             match e.key().as_str() {
                 "Tab" => {
                     e.prevent_default();

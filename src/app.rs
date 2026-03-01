@@ -1835,12 +1835,16 @@ pub fn app() -> Html {
                             let skip_nav_block = (preview || help) && is_nav_key;
                             if (is_nav_key || is_edit_key) && !skip_nav_block { if is_target_in_editor || is_target_body { e.stop_immediate_propagation(); let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false); if !is_input { e.prevent_default(); } } }
                             if key == "Escape" {
-                                if fd_sub { 
+                                if fd_sub {
                                     // FileOpenDialog側のサブダイアログ（削除確認など）が表示中は、
                                     // グローバルリスナーでは何もしない。これによりバブリングフェーズの
                                     // FileOpenDialog.on_keydown が正しく実行される。
-                                    return; 
+                                    return;
                                 }
+                                // input要素にフォーカスがある場合（カテゴリー名編集中など）はスキップ
+                                let esc_target = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok());
+                                let is_input_focused = esc_target.as_ref().map(|t| { let tag = t.tag_name().to_lowercase(); tag == "input" || tag == "textarea" }).unwrap_or(false);
+                                if is_input_focused { return; }
                                 e.stop_immediate_propagation(); e.prevent_default();
                                 if is_creating_cat { is_creating_cat_c.set(false); }
                                 else if drop_open { is_drop_c.set(false); }
