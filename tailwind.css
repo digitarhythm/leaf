@@ -1768,25 +1768,9 @@
       border-width: 1.5px;
     }
   }
-  .mobile\:border-t {
-    .leaf-mobile-mode & {
-      border-top-style: var(--tw-border-style);
-      border-top-width: 1px;
-    }
-  }
-  .mobile\:border-gray-700 {
-    .leaf-mobile-mode & {
-      border-color: var(--color-gray-700);
-    }
-  }
   .mobile\:px-2 {
     .leaf-mobile-mode & {
       padding-inline: calc(var(--spacing) * 2);
-    }
-  }
-  .mobile\:py-1 {
-    .leaf-mobile-mode & {
-      padding-block: calc(var(--spacing) * 1);
     }
   }
   .mobile\:py-2 {
@@ -1797,11 +1781,6 @@
   .mobile\:pt-1 {
     .leaf-mobile-mode & {
       padding-top: calc(var(--spacing) * 1);
-    }
-  }
-  .mobile\:text-center {
-    .leaf-mobile-mode & {
-      text-align: center;
     }
   }
   .mobile\:text-\[10px\] {

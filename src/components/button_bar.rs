@@ -7,16 +7,18 @@ pub struct ButtonBarProps {
     pub on_open: Callback<()>,
     pub on_import: Callback<()>,
     pub on_change_font_size: Callback<i32>,
-    pub on_change_category: Callback<String>, 
+    pub on_change_category: Callback<String>,
     pub on_help: Callback<()>,
     pub on_logout: Callback<()>,
-    pub current_category: String,             
+    pub current_category: String,
     pub categories: Vec<crate::db_interop::JSCategory>,
     pub is_new_sheet: bool,
     pub is_dropdown_open: bool,
     pub on_toggle_dropdown: Callback<bool>,
     pub vim_mode: bool,
     pub on_toggle_vim: Callback<()>,
+    pub file_extension: String,
+    pub on_change_extension: Callback<String>,
 }
 
 #[function_component(ButtonBar)]
@@ -24,6 +26,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
     let lang = Language::detect();
     let is_hamburger_open = use_state(|| false);
     let has_multiple_cats = props.categories.len() > 1;
+    let extensions = crate::app::SUPPORTED_EXTENSIONS;
 
     let on_category_click = {
         let on_toggle = props.on_toggle_dropdown.clone();
@@ -158,6 +161,27 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                         </div>
                     </>
                 }
+            </div>
+            <div>
+                <select
+                    value={props.file_extension.clone()}
+                    onchange={
+                        let on_change = props.on_change_extension.clone();
+                        Callback::from(move |e: Event| {
+                            let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
+                            on_change.emit(select.value());
+                        })
+                    }
+                    class="bg-gray-700 text-gray-300 text-[10px] font-bold py-0.5 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-emerald-500 transition-colors cursor-pointer text-center"
+                >
+                    { for extensions.iter().map(|(ext, key)| {
+                        html! {
+                            <option value={*ext} selected={*ext == props.file_extension}>
+                                { format!("{}: .{}", i18n::t(key, lang), ext) }
+                            </option>
+                        }
+                    }) }
+                </select>
             </div>
             <div class="mobile:hidden flex items-center space-x-1 ml-2 mr-4 border-l border-gray-700 pl-4">
                 <button
