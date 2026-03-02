@@ -4,7 +4,7 @@ use crate::components::status_bar::StatusBar;
 use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameConflictDialog, LoadingOverlay};
 use crate::components::file_open_dialog::FileOpenDialog;
 use crate::components::preview::Preview;
-use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, set_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
+use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, set_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
 use crate::db_interop::{save_sheet, save_categories, JSCategory, JSSheet};
 use crate::drive_interop::{upload_file, ensure_directory_structure, list_folders, download_file, list_files, get_file_metadata, delete_file, move_file, find_file_by_name};
@@ -472,19 +472,19 @@ pub fn app() -> Html {
                     if us.is_empty() {
                         let nid = js_sys::Date::now().to_string();
                         let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true };
-                        us.push(ns.clone()); aid_inner.set(Some(nid.clone())); set_editor_content(""); focus_editor();
+                        us.push(ns.clone()); aid_inner.set(Some(nid.clone())); load_editor_content(""); focus_editor();
                         let js = ns.to_js();
                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     } else if deleted { let nid = us.last().unwrap().id.clone(); aid_inner.set(Some(nid)); }
-                    ss_inner.set(us.clone()); 
-                    if q.is_empty() { 
-                        ifod.set(true); 
-                        let ild = ild_final.clone(); let aid = aid_inner.clone(); let u_final = us.clone(); 
-                        Timeout::new(350, move || { 
-                            ild.set(false); 
-                            if let Some(id) = (*aid).clone() { 
-                                if let Some(s) = u_final.iter().find(|x| x.id == id) { 
-                                    set_editor_content(&s.content); 
+                    ss_inner.set(us.clone());
+                    if q.is_empty() {
+                        ifod.set(true);
+                        let ild = ild_final.clone(); let aid = aid_inner.clone(); let u_final = us.clone();
+                        Timeout::new(350, move || {
+                            ild.set(false);
+                            if let Some(id) = (*aid).clone() {
+                                if let Some(s) = u_final.iter().find(|x| x.id == id) {
+                                    load_editor_content(&s.content); 
                                     let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" }; 
                                     set_gutter_status(mode); 
                                 } 
@@ -858,8 +858,8 @@ pub fn app() -> Html {
                 let nid = js_sys::Date::now().to_string();
                 let cat_id = (*ncid_for_new).clone().unwrap_or_else(|| "".to_string());
                 let ns = Sheet { id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true };
-                set_editor_content(""); set_gutter_status("unsaved");
-                
+                load_editor_content(""); set_gutter_status("unsaved");
+
                 let mut current_sheets = (*rs.borrow()).clone();
                 current_sheets.push(ns.clone());
                 *rs.borrow_mut() = current_sheets.clone();
@@ -1016,7 +1016,7 @@ pub fn app() -> Html {
                                 let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
                                 let t = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&dv)).unwrap().as_string().unwrap_or_default();
                                 let t_len = t.len() as u64;
-                                s.content = t.clone(); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(conf.drive_time); s.is_modified = false; s.loaded_bytes = t_len; s.total_size = t_len; if Some(s.id.clone()) == aid_v { set_editor_content(&t); } 
+                                s.content = t.clone(); s.temp_content = None; s.temp_timestamp = None; s.last_sync_timestamp = Some(conf.drive_time); s.is_modified = false; s.loaded_bytes = t_len; s.total_size = t_len; if Some(s.id.clone()) == aid_v { load_editor_content(&t); }
                             }
                         },
                         1 => { // 編集中のデータを上書き
@@ -1051,7 +1051,7 @@ pub fn app() -> Html {
                 if us.is_empty() {
                     let nid = js_sys::Date::now().to_string();
                     let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true };
-                    us.push(ns.clone()); aid_inner.set(Some(nid.clone())); set_editor_content(""); focus_editor();
+                    us.push(ns.clone()); aid_inner.set(Some(nid.clone())); load_editor_content(""); focus_editor();
                     let js = ns.to_js();
                     let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                 } else if deleted { let nid = us.last().unwrap().id.clone(); aid_inner.set(Some(nid)); }
@@ -1066,13 +1066,13 @@ pub fn app() -> Html {
                     let timer = timer_inner.clone();
                     Timeout::new(350, move || { 
                         ild.set(false); ifo_inner.set(false);
-                        if let Some(id) = (*aid).clone() { 
-                            if let Some(s) = u_final.iter().find(|x| x.id == id) { 
-                                set_editor_content(&s.content); 
-                                let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" }; 
-                                set_gutter_status(mode); 
-                            } 
-                        } 
+                        if let Some(id) = (*aid).clone() {
+                            if let Some(s) = u_final.iter().find(|x| x.id == id) {
+                                load_editor_content(&s.content);
+                                let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" };
+                                set_gutter_status(mode);
+                            }
+                        }
                         focus_editor(); 
                         
                         // 自動保存の監視を再開（1秒後にチェック）
@@ -1122,7 +1122,7 @@ pub fn app() -> Html {
                     let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
                     let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
                     let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom };
-                    set_editor_content(&c); set_gutter_status("none");
+                    load_editor_content(&c); set_gutter_status("none");
                     if let Some(idx) = tidx { cs[idx] = ns.clone(); } else { cs = vec![ns.clone()]; }
                     *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
                     focus_editor(); 
@@ -1217,7 +1217,7 @@ pub fn app() -> Html {
                     let nid = js_sys::Date::now().to_string();
                     let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: name.clone(), content: content.clone(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: content.len() as u64, loaded_bytes: content.len() as u64, needs_bom: has_bom };
                     sp_state_c.set(true); *r_s_c.borrow_mut() = vec![ns.clone()]; s_state_c.set(vec![ns.clone()]); aid_state_c.set(Some(nid.clone()));
-                    set_editor_content(&content); set_gutter_status("local"); crate::js_interop::set_editor_mode(&name);
+                    load_editor_content(&content); set_gutter_status("local"); crate::js_interop::set_editor_mode(&name);
                     let js = ns.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     Timeout::new(100, move || {
                         lock_fade_cb.set(true); let l = lock_cb.clone(); let lf = lock_fade_cb.clone(); let il = il_cb.clone(); let sp = sp_state_c.clone();
@@ -1614,7 +1614,7 @@ pub fn app() -> Html {
                             clear_local_handle();
                             let nid = js_sys::Date::now().to_string();
                             let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true };
-                            set_editor_content(""); set_gutter_status("local");
+                            load_editor_content(""); set_gutter_status("local");
                             let mut current_sheets = (*rs.borrow()).clone(); current_sheets.push(ns.clone());
                             *rs.borrow_mut() = current_sheets.clone(); s.set(current_sheets); aid_ref.borrow_mut().replace(nid.clone()); aid_state.set(Some(nid.clone()));
                             focus_editor(); let spr = sp.clone(); Timeout::new(500, move || { spr.set(false); }).forget();
@@ -1689,9 +1689,9 @@ pub fn app() -> Html {
                             *timeout_cb.borrow_mut() = true;
                         }).forget();
 
-                        set_editor_content(&s.content); 
-                        let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" }; 
-                        set_gutter_status(mode); crate::js_interop::set_editor_mode(&s.title); focus_editor(); 
+                        load_editor_content(&s.content);
+                        let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" };
+                        set_gutter_status(mode); crate::js_interop::set_editor_mode(&s.title); focus_editor();
                         let sp_c = sp.clone();
                         Timeout::new(100, move || { sp_c.set(false); }).forget();
                     } 

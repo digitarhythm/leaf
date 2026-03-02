@@ -330,6 +330,43 @@ export function set_editor_content(content) {
         return;
     }
 
+    // カーソル位置とスクロール位置を保存
+    const cursorPos = editor.getCursorPosition();
+    const scrollTop = editor.session.getScrollTop();
+    const scrollLeft = editor.session.getScrollLeft();
+
+    internalChange = true;
+    try {
+        editor.setValue(content || "", -1);
+        editor.clearSelection();
+        // カーソル位置を復元（行数を超えている場合は末尾に移動）
+        const maxRow = editor.session.getLength() - 1;
+        const restoreRow = Math.min(cursorPos.row, maxRow);
+        const maxCol = editor.session.getLine(restoreRow).length;
+        const restoreCol = Math.min(cursorPos.column, maxCol);
+        editor.moveCursorToPosition({ row: restoreRow, column: restoreCol });
+        editor.clearSelection();
+        // スクロール位置を復元
+        editor.session.setScrollTop(scrollTop);
+        editor.session.setScrollLeft(scrollLeft);
+        // UNDO履歴は保持する（自動保存後もUNDOを継続可能にする）
+        pendingContent = null;
+    } finally {
+        internalChange = false;
+    }
+}
+
+// 新規シートロード・シート切替用（カーソルリセット＋UNDO履歴クリア）
+export function load_editor_content(content) {
+    pendingContent = content;
+    if (!editor) return;
+
+    const currentVal = editor.getValue();
+    if (currentVal === content || currentVal.replace(/\r\n/g, "\n") === (content || "").replace(/\r\n/g, "\n")) {
+        pendingContent = null;
+        return;
+    }
+
     internalChange = true;
     try {
         editor.setValue(content || "", -1);
