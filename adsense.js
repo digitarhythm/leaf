@@ -4,7 +4,7 @@
 import { is_tauri } from './editor_interop.js';
 
 const ADSENSE_PUB_ID = 'ca-pub-1064912999872599';
-const ADSENSE_SLOT_ID = '1855516140';
+const ADSENSE_SLOT_ID = '1720086097';
 
 let scriptLoaded = false;
 
@@ -42,11 +42,11 @@ export function render_ad(containerId) {
 
     const ins = document.createElement('ins');
     ins.className = 'adsbygoogle';
-    ins.style.cssText = 'display:block; text-align:center;';
-    ins.setAttribute('data-ad-layout', 'in-article');
-    ins.setAttribute('data-ad-format', 'fluid');
+    ins.style.cssText = 'display:block;';
     ins.setAttribute('data-ad-client', ADSENSE_PUB_ID);
     ins.setAttribute('data-ad-slot', ADSENSE_SLOT_ID);
+    ins.setAttribute('data-ad-format', 'auto');
+    ins.setAttribute('data-full-width-responsive', 'true');
     container.appendChild(ins);
 
     try {
