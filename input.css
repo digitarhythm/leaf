@@ -56,21 +56,21 @@
   to { opacity: 0; }
 }
 
-/* 横画面用: 左からスライドイン */
+/* 横画面用: 下から上へスライドイン */
 @keyframes slide-in {
-  from { transform: translateX(-100%); }
-  to { transform: translateX(0); }
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
 }
 
 @keyframes slide-out {
-  from { transform: translateX(0); }
-  to { transform: translateX(-100%); }
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
 }
 
 .animate-dialog-in { animation: dialog-in 0.2s ease-out forwards; }
 .animate-dialog-out { animation: dialog-out 0.2s ease-in forwards; }
-.animate-slide-in { animation: slide-in 0.1s ease-out forwards; }
-.animate-slide-out { animation: slide-out 0.1s ease-in forwards; }
+.animate-slide-in { animation: slide-in 0.2s ease-out forwards; }
+.animate-slide-out { animation: slide-out 0.2s ease-in forwards; }
 .animate-backdrop-in { animation: backdrop-in 0.2s ease-out forwards; }
 .animate-backdrop-out { animation: backdrop-out 0.2s ease-in forwards; }
 

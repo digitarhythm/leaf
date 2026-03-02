@@ -310,11 +310,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let handle_close = {
         let on_close = props.on_close.clone();
         let is_fading_out_h = is_fading_out.clone();
-        let is_wide_h = is_wide_layout.clone();
         Callback::from(move |_: ()| {
             is_fading_out_h.set(true);
             let on_close_inner = on_close.clone();
-            let delay = if *is_wide_h { 100 } else { 200 };
+            let delay = 200;
             Timeout::new(delay, move || { on_close_inner.emit(()); }).forget();
         })
     };
@@ -524,7 +523,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_fading_out_h = is_fading_out.clone();
         let on_start = props.on_start_processing.clone();
         let is_loading = props.is_loading;
-        let is_wide_h = is_wide_layout.clone();
         Callback::from(move |_: ()| {
             if let Some(idx) = *selected_file_idx {
                 if !is_loading && !files_reducer.list.is_empty() && !*is_fading_out_h {
@@ -532,7 +530,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     let drive_id = file.id.clone(); let title = file.name.clone(); let cat_id = (*current_cat_id).clone();
                     let on_select_inner = on_select.clone(); let on_start_inner = on_start.clone();
                     is_fading_out_h.set(true); on_start_inner.emit(());
-                    let delay = if *is_wide_h { 100 } else { 200 };
+                    let delay = 200;
                     Timeout::new(delay, move || { on_select_inner.emit((drive_id, title, cat_id)); }).forget();
                 }
             }
@@ -1052,7 +1050,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             onkeydown={on_keydown}
             onfocusin={on_focus_in}
             onfocusout={on_focus_out}
-            class="fixed inset-0 z-[100] flex outline-none pointer-events-auto"
+            class={classes!(
+                "fixed", "inset-0", "z-[100]", "flex", "outline-none", "pointer-events-auto",
+                if *is_wide_layout { vec!["items-end", "justify-center"] } else { vec![] }
+            )}
             onclick={|e: MouseEvent| e.stop_propagation()}
         >
             <div class={classes!(
@@ -1063,7 +1064,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             <div class={classes!(
                 "relative", "flex", "flex-col", "bg-gray-900", "overflow-hidden",
                 "h-full", "shadow-2xl",
-                if *is_wide_layout { vec!["w-1/4", "min-w-[320px]"] } else { vec!["w-full"] },
+                if *is_wide_layout { vec!["w-1/3", "min-w-[320px]"] } else { vec!["w-full"] },
                 if *is_wide_layout {
                     if *is_fading_out { "animate-slide-out" } else { "animate-slide-in" }
                 } else {
