@@ -275,6 +275,7 @@ pub fn app() -> Html {
     let fallback_queue = use_state(|| Vec::<String>::new());
     let is_logout_confirm_visible = use_state(|| false);
     let is_file_open_dialog_visible = use_state(|| false);
+    let file_close_trigger = use_state(|| 0u32);
     let is_creating_category = use_state(|| false);
     let is_file_dialog_sub_active = use_state(|| false);
     let file_refresh_trigger = use_state(|| 0usize);
@@ -708,7 +709,37 @@ pub fn app() -> Html {
                                  }
                              }
                          }
-                    
+
+                        // 空テキスト時: Driveファイルを削除して未保存状態に戻す
+                        if sheet.content.trim().is_empty() {
+                            if let Some(did) = &sheet.drive_id {
+                                let _ = delete_file(did).await;
+                            }
+                            let mut u_s = (*rs_async.borrow()).clone();
+                            if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) {
+                                si.drive_id = None;
+                                si.content = String::new();
+                                si.is_modified = true;
+                                si.temp_content = None;
+                                si.temp_timestamp = None;
+                                si.last_sync_timestamp = None;
+                                let js = si.to_js();
+                                let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                            }
+                            let is_active = (*r_aid.borrow()).as_ref() == Some(&sheet.id);
+                            *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
+                            if is_active { set_gutter_status("unsaved"); }
+                            *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
+                            if *lock_inner {
+                                lock_fade_inner.set(true);
+                                let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
+                                let _il = ild_inner.clone();
+                                Timeout::new(300, move || { lf.set(false); l.set(false); _il.set(false); }).forget();
+                            } else { ild_inner.set(false); }
+                            return;
+                        }
+
                          let final_content = &sheet.content;
                          let res = upload_file(&fname, &JsValue::from_str(final_content), &target_folder_id, sheet.drive_id.as_deref()).await;
                          let mut n_did = sheet.drive_id.clone(); let mut stime = sheet.last_sync_timestamp;
@@ -1735,6 +1766,7 @@ pub fn app() -> Html {
                 let is_ld_ev = is_loading.clone(); let is_fo_ev = is_fading_out.clone();
                 let os_cb_ev = on_save_cb.clone(); let sheets_ev = sheets.clone();
                 let aid_ev = active_sheet_id.clone();
+                let file_close_trigger_ev = file_close_trigger.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty())), move |deps| {
                     let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -1748,6 +1780,7 @@ pub fn app() -> Html {
                     let is_creating_cat_c = is_creating_cat_ev.clone();
                     let os_c = os_cb_ev.clone(); let sheets_c = sheets_ev.clone();
                     let aid_c = aid_ev.clone();
+                    let file_close_trigger_c = file_close_trigger_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -1778,11 +1811,14 @@ pub fn app() -> Html {
                         
                         // Alt + M (FileOpen) のトグル
                         if ke.alt_key() && is_m_key && (!is_overlay_active || *is_file_open_c) {
-                            e.prevent_default(); e.stop_immediate_propagation(); 
-                            let val = !*is_file_open_c; 
-                            is_file_open_c.set(val); sp_c.set(val); 
-                            if !val { focus_editor(); }
-                            return; 
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            if *is_file_open_c {
+                                // 閉じる時はダイアログのアニメーション付きclose処理をトリガー
+                                file_close_trigger_c.set(*file_close_trigger_c + 1);
+                            } else {
+                                is_file_open_c.set(true); sp_c.set(true);
+                            }
+                            return;
                         }
                         
                         // Alt + H (Help) のトグル
@@ -1835,10 +1871,9 @@ pub fn app() -> Html {
                             let skip_nav_block = (preview || help) && is_nav_key;
                             if (is_nav_key || is_edit_key) && !skip_nav_block { if is_target_in_editor || is_target_body { e.stop_immediate_propagation(); let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false); if !is_input { e.prevent_default(); } } }
                             if key == "Escape" {
-                                if fd_sub {
-                                    // FileOpenDialog側のサブダイアログ（削除確認など）が表示中は、
-                                    // グローバルリスナーでは何もしない。これによりバブリングフェーズの
-                                    // FileOpenDialog.on_keydown が正しく実行される。
+                                if fd_sub || file_open {
+                                    // FileOpenDialogが表示中は、ダイアログ自身のon_keydownに処理を委譲する。
+                                    // これによりスライドアウト/フェードアウトアニメーションが正しく再生される。
                                     return;
                                 }
                                 // input要素にフォーカスがある場合（カテゴリー名編集中など）はスキップ
@@ -1961,6 +1996,7 @@ pub fn app() -> Html {
                                 font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()}
                                 is_processing={*is_processing_dialog}
                                 show_ads={!*has_subscription && !crate::js_interop::is_tauri()}
+                                close_trigger={*file_close_trigger}
                             />
                         </div>
                     }
