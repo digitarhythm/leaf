@@ -48,16 +48,29 @@
 
 @keyframes backdrop-in {
   from { opacity: 0; }
-  to { opacity: 1; }
+  to { opacity: 0.8; }
 }
 
 @keyframes backdrop-out {
-  from { opacity: 1; }
+  from { opacity: 0.8; }
   to { opacity: 0; }
+}
+
+/* 横画面用: 左からスライドイン */
+@keyframes slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
 }
 
 .animate-dialog-in { animation: dialog-in 0.2s ease-out forwards; }
 .animate-dialog-out { animation: dialog-out 0.2s ease-in forwards; }
+.animate-slide-in { animation: slide-in 0.1s ease-out forwards; }
+.animate-slide-out { animation: slide-out 0.1s ease-in forwards; }
 .animate-backdrop-in { animation: backdrop-in 0.2s ease-out forwards; }
 .animate-backdrop-out { animation: backdrop-out 0.2s ease-in forwards; }
 

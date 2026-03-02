@@ -191,14 +191,12 @@ pub fn preview(props: &PreviewProps) -> Html {
     }
 
     html! {
-        <div 
-            class={classes!(
-                "fixed", "inset-0", "z-[300]", "bg-black/80", "flex", "items-center", "justify-center", "p-4", "sm:p-8",
+        <div class="fixed inset-0 z-[300] flex items-center justify-center p-4 sm:p-8">
+            <div class={classes!(
+                "absolute", "inset-0", "bg-black",
                 if is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
-            )}
-            onclick={let cb = handle_close.clone(); move |_| cb.emit(())}
-        >
-            <div 
+            )} onclick={let cb = handle_close.clone(); move |_| cb.emit(())}></div>
+            <div
                 class={classes!(
                     "w-full", "max-w-5xl", "max-h-full", "bg-[#0d1117]", "rounded-xl", "shadow-2xl", "border", "border-gray-800", "flex", "flex-col", "overflow-hidden", "relative",
                     if props.is_help { if is_fading_out { "animate-help-out" } else { "animate-help-in" } } 
