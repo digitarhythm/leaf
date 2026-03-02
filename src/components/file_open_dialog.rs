@@ -91,6 +91,10 @@ pub struct FileOpenDialogProps {
     pub show_ads: bool,
     #[prop_or(0)]
     pub close_trigger: u32,
+    #[prop_or_default]
+    pub active_category_id: String,
+    #[prop_or_default]
+    pub active_drive_id: Option<String>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -343,6 +347,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_nc_c = props.on_network_status_change.clone();
         let pending_move = pending_move_file_id.clone();
         let processing_move = processing_move_id.clone();
+        let active_drive_id_outer = props.active_drive_id.clone();
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             if let Some(ctrl) = (*abort_ctrl_state).as_ref() { ctrl.abort(); }
             let new_ctrl = AbortController::new().unwrap();
@@ -366,13 +371,15 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let f_area_inner = f_area_h.clone();
             let is_fading_inner = is_fading_out_h.clone();
             let on_nc_inner = on_nc_c.clone();
+            let active_drive_id_inner = active_drive_id_outer.clone();
+            let selected_file_idx_inner = selected_file_idx.clone();
 
             spawn_local(async move {
                 let res = list_files(&cid_inner, Some(sig_inner.clone())).await;
                 if sig_inner.aborted() { return; }
-                
+
                 if let Ok(res_val) = res {
-                    on_nc_inner.emit(true); 
+                    on_nc_inner.emit(true);
                     if let Ok(files_val) = js_sys::Reflect::get(&res_val, &JsValue::from_str("files")) {
                         let array = js_sys::Array::from(&files_val);
                         let mut all_metadata = Vec::new();
@@ -386,6 +393,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext, is_loaded: false });
                         }
                         all_metadata.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                        // active_drive_idに一致するファイルを自動選択
+                        if let Some(ref target_id) = active_drive_id_inner {
+                            if let Some(idx) = all_metadata.iter().position(|f| f.id == *target_id) {
+                                selected_file_idx_inner.set(Some(idx));
+                            }
+                        }
                         reducer_inner.dispatch(FileAction::Set(all_metadata));
                     }
                 } else {
@@ -480,13 +493,21 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let selected_cat_idx_c = selected_cat_idx.clone();
         let refresh_trigger = props.refresh_files_trigger;
         let cats_len = sorted_cats.len();
+        let active_cat_id = props.active_category_id.clone();
+        let mobile_step_c = mobile_view_step.clone();
+        let focused_area_c = focused_area.clone();
         use_effect_with((refresh_trigger, cats_len), move |_| {
             if !sorted_cats.is_empty() {
                 let cid = (*current_cid_c).clone();
                 let target_idx = sorted_cats.iter().position(|c| c.id == cid).unwrap_or_else(|| {
-                    let last_id = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|s| s.get_item(STORAGE_KEY_LAST_CAT).ok().flatten());
-                    if let Some(id) = last_id { sorted_cats.iter().position(|c| c.id == id).unwrap_or_else(|| sorted_cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0)) }
-                    else { sorted_cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0) }
+                    if !active_cat_id.is_empty() && active_cat_id != "__LOCAL__" {
+                        if let Some(idx) = sorted_cats.iter().position(|c| c.id == active_cat_id) {
+                            mobile_step_c.set(1);
+                            focused_area_c.set(FocusedArea::Files);
+                            return idx;
+                        }
+                    }
+                    sorted_cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0)
                 });
                 selected_cat_idx_c.set(target_idx);
                 load_files_c.emit((sorted_cats[target_idx].id.clone(), sorted_cats[target_idx].name.clone(), false));

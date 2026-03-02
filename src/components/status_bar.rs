@@ -9,15 +9,11 @@ pub struct StatusBarProps {
     pub on_toggle_vim: Callback<()>,
     pub category_name: String,
     pub file_name: String,
-    pub file_extension: String,
-    pub on_change_extension: Callback<String>,
 }
 
 #[function_component(StatusBar)]
 pub fn status_bar(props: &StatusBarProps) -> Html {
     let lang = Language::detect();
-    let extensions = crate::app::SUPPORTED_EXTENSIONS;
-
     html! {
         <div class="flex mobile:flex-col items-center mobile:items-stretch justify-between px-4 py-1 mobile:px-2 mobile:py-2 bg-gray-800 border-t border-gray-700 text-xs text-gray-400 select-none mobile:space-y-1">
             <div class="flex mobile:flex-col items-center mobile:items-stretch space-x-4 mobile:space-x-0">
@@ -35,29 +31,6 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                     <span>{ if props.vim_mode { "Vim: ON" } else { "Vim: OFF" } }</span>
                 </button>
                 
-                <div class="flex mobile:flex-col items-center mobile:items-stretch space-x-2 mobile:space-x-0">
-                    if !props.category_name.is_empty() {
-                        <select 
-                            value={props.file_extension.clone()}
-                            onchange={
-                                let on_change = props.on_change_extension.clone();
-                                Callback::from(move |e: Event| {
-                                    let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
-                                    on_change.emit(select.value());
-                                })
-                            }
-                            class="bg-gray-700 text-gray-300 text-[10px] mobile:text-[10px] font-bold py-0.5 mobile:py-1 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-emerald-500 transition-colors cursor-pointer mobile:w-full mobile:text-center text-center"
-                        >
-                            { for extensions.iter().map(|(ext, key)| {
-                                html! {
-                                    <option value={*ext} selected={*ext == props.file_extension}>
-                                        { format!("{}: .{}", i18n::t(key, lang), ext) }
-                                    </option>
-                                }
-                            }) }
-                        </select>
-                    }
-                </div>
 
                 if !props.file_name.is_empty() {
                     <span class="mobile:hidden flex items-center space-x-2 border-l border-gray-700 ml-4 pl-4 py-0.5 font-mono">
@@ -94,7 +67,7 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                 }
             </div>
             
-            <div class="flex items-center space-x-6 mobile:space-x-0 mobile:justify-center mobile:border-t mobile:border-gray-700 mobile:pt-1 mobile:w-full mobile:text-[10px]">
+            <div class="flex items-center space-x-6 mobile:space-x-0 mobile:justify-center mobile:pt-1 mobile:w-full mobile:text-[10px]">
                 if props.is_saving {
                     <div class="flex items-center space-x-2 text-red-500 font-bold">
                         <div class="w-3 h-3 mobile:w-2 mobile:h-2 mobile:border-[1.5px] border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>
