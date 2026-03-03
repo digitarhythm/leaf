@@ -175,9 +175,12 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     class="bg-gray-700 text-gray-300 text-[10px] font-bold py-0.5 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-emerald-500 transition-colors cursor-pointer text-center"
                 >
                     { for extensions.iter().map(|(ext, key)| {
+                        let is_mobile = gloo::utils::document().body()
+                            .map(|b| b.class_list().contains("leaf-mobile-mode"))
+                            .unwrap_or(false);
                         html! {
                             <option value={*ext} selected={*ext == props.file_extension}>
-                                { format!("{}: .{}", i18n::t(key, lang), ext) }
+                                { if is_mobile { format!(".{}", ext) } else { format!("{}: .{}", i18n::t(key, lang), ext) } }
                             </option>
                         }
                     }) }
