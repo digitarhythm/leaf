@@ -938,7 +938,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         if is_dropdown_open { vec!["z-50", "bg-gray-800/90", "border-emerald-500", "shadow-2xl"] }
                                         else if is_active { vec!["bg-emerald-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-emerald-500/30", "scale-[1.01]"] } 
                                         else if is_sel { vec!["bg-emerald-600/10", "text-emerald-400/80", "border-emerald-500/30", "z-0"] }
-                                        else { vec!["text-gray-400", "hover:bg-white/5", "border-white/10", "z-0"] },
+                                        else { vec!["text-gray-400", "hover:bg-white/5", "border-white/40", "z-0"] },
                                         if is_deleting || is_moving { vec!["opacity-0", "scale-95", "translate-x-4"] } else { vec!["opacity-100", "scale-100"] }
                                     )}
                                     onclick={let f_area = focused_area_h.clone(); move |_| { s_idx_inner.set(Some(i)); f_area.set(FocusedArea::Files); }}
