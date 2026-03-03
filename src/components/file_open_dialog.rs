@@ -1014,7 +1014,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let file_opt = current_preview_file;
 
         html! {
-            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", "flex-1", "border-white/5")}>
+            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", "flex-1", "border-white/5", "p-1")}>
+                <div class="flex-1 flex flex-col min-h-0 border-2 border-emerald-500 rounded-lg overflow-hidden">
                 if let Some(file) = file_opt {
                     <div class="flex-1 flex flex-col min-h-0">
                         <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
@@ -1022,10 +1023,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-tight flex-shrink-0">{ &file.lang }</span>
                             </div>
                         </div>
-                        
-                        <Preview 
+
+                        <Preview
                             key={file.id.clone()}
-                            content={file.content.clone()} 
+                            content={file.content.clone()}
                             lang={file.lang.clone()}
                             on_close={Callback::from(|_| ())} // 埋め込み時は閉じない
                             is_embedded={true}
@@ -1039,6 +1040,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         <p class="text-xs uppercase tracking-[0.2em] font-black opacity-10">{ "Select a file to preview" }</p>
                     </div>
                 }
+                </div>
             </div>
         }
     };
@@ -1064,7 +1066,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             <div class={classes!(
                 "relative", "flex", "flex-col", "bg-gray-900", "overflow-hidden",
                 "h-full", "shadow-2xl",
-                if *is_wide_layout { vec!["w-1/3", "min-w-[320px]"] } else { vec!["w-full"] },
+                "border-2", "border-emerald-500", "rounded-lg",
+                if *is_wide_layout { vec!["w-[100vh]"] } else { vec!["w-full"] },
                 if *is_wide_layout {
                     if *is_fading_out { "animate-slide-out" } else { "animate-slide-in" }
                 } else {
@@ -1074,7 +1077,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 // メインコンテンツエリア (Categories / Files 切替 + Preview)
                 <div class="flex-1 flex flex-col overflow-hidden">
                     <div class="flex-1 flex flex-col h-full relative overflow-hidden">
-                        <div class="h-1/2 relative overflow-hidden border-b border-white/5 flex-shrink-0 bg-gray-900">
+                        <div class="h-1/2 relative overflow-hidden border-b border-white/5 flex-shrink-0 bg-gray-900 p-1">
+                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden relative">
                             <div class={classes!(
                                 "absolute", "inset-0", "transition-transform", "duration-100", "ease-in-out",
                                 if *mobile_view_step == 0 { "translate-x-0" } else { "-translate-x-full" }
@@ -1087,6 +1091,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             )}>
                                 { files_html }
                             </div>
+                            </div>
                         </div>
                         <div class="h-1/2 flex flex-col overflow-hidden bg-gray-950">
                             { preview_area_html }
@@ -1096,7 +1101,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                 // 広告バナーエリア
                 if props.show_ads {
-                    <div id="leaf-ad-file-dialog" class="w-full bg-gray-950/30 border-t border-white/5 flex items-center justify-center" style="min-height:90px;">
+                    <div class="w-full bg-gray-950/30 border-t border-white/5 p-1" style="min-height:98px;">
+                        <div id="leaf-ad-file-dialog" class="w-full h-full border-2 border-emerald-500 rounded-lg flex items-center justify-center overflow-hidden">
+                        </div>
                     </div>
                 }
 
