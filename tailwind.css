@@ -500,6 +500,9 @@
   .min-h-\[6rem\] {
     min-height: 6rem;
   }
+  .min-h-\[28px\] {
+    min-height: 28px;
+  }
   .min-h-\[200px\] {
     min-height: 200px;
   }
