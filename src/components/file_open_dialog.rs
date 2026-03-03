@@ -533,13 +533,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_loading = props.is_loading;
         Callback::from(move |_: ()| {
             if let Some(idx) = *selected_file_idx {
-                if !is_loading && !files_reducer.list.is_empty() && !*is_fading_out_h {
-                    let file = &files_reducer.list[idx];
+                if !is_loading && !*is_fading_out_h {
+                    if let Some(file) = files_reducer.list.get(idx) {
                     let drive_id = file.id.clone(); let title = file.name.clone(); let cat_id = (*current_cat_id).clone();
                     let on_select_inner = on_select.clone(); let on_start_inner = on_start.clone();
                     is_fading_out_h.set(true); on_start_inner.emit(());
                     let delay = 200;
                     Timeout::new(delay, move || { on_select_inner.emit((drive_id, title, cat_id)); }).forget();
+                    }
                 }
             }
         })
@@ -619,8 +620,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 " " => {
                     e.prevent_default();
                     if let Some(idx) = *selected_file_idx_c {
-                        if current_focus == FocusedArea::Files && !files_reducer.list.is_empty() {
-                            let file = &files_reducer.list[idx];
+                        if current_focus == FocusedArea::Files {
+                            if let Some(file) = files_reducer.list.get(idx) {
+                            let file = file.clone();
                             let file_id = file.id.clone(); let file_name = file.name.clone(); let total_size = file.total_size;
                             let p_modal = preview_modal_c.clone(); let is_ld_prev = is_loading_preview_cc.clone();
                             let is_md = file.is_markdown; let lang_c = file.lang.clone();
@@ -644,6 +646,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     }
                                     is_ld_prev.set(false);
                                 });
+                            }
                             }
                         }
                     }
@@ -780,7 +783,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
-    let current_preview_file = if let Some(idx) = *selected_file_idx { if files.list.is_empty() { None } else { Some(files.list[idx].clone()) } } else { None };
+    let current_preview_file = if let Some(idx) = *selected_file_idx { files.list.get(idx).cloned() } else { None };
 
     // --- HTMLパーツ ---
     let categories_html = {
@@ -1018,6 +1021,53 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         }
     };
 
+    let category_files_preview_html = {
+        let file_list = files.list.clone();
+        let cat_name = (*current_category_name).clone();
+        let is_loading = props.is_loading;
+        html! {
+            <div class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", "flex-1", "border-white/5", "p-1")}>
+                <div class="flex-1 flex flex-col min-h-0 border-2 border-emerald-500 rounded-lg overflow-hidden">
+                    <div class="px-4 py-2 bg-gray-900/50 border-b border-white/5 flex items-center space-x-2 flex-shrink-0">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                        <span class="text-xs font-bold text-gray-300 tracking-tight truncate">
+                            { format!("{} ({})", if cat_name == "OTHERS" { i18n::t("OTHERS", lang) } else { cat_name }, file_list.len()) }
+                        </span>
+                    </div>
+                    <div class="flex-1 overflow-y-auto custom-scrollbar">
+                        if is_loading && file_list.is_empty() {
+                            <div class="flex-1 flex items-center justify-center py-4">
+                                <div class="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                            </div>
+                        } else if file_list.is_empty() {
+                            <div class="flex-1 flex items-center justify-center py-4">
+                                <p class="text-xs text-gray-600 uppercase tracking-widest font-bold">{ i18n::t("no_files_found", lang) }</p>
+                            </div>
+                        } else {
+                            <div class="p-1 space-y-1">
+                            { for file_list.iter().map(|file| {
+                                let first_line = file.content.lines().next().unwrap_or("").to_string();
+                                html! {
+                                    <div class="px-3 py-1.5 rounded border border-white/40 flex items-center justify-center min-h-[28px]">
+                                        if !file.is_loaded {
+                                            <div class="w-4 h-4 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                                        } else {
+                                            <div class="flex items-center space-x-2 w-full">
+                                                <span class={classes!("px-1", "py-0.5", "rounded", "text-[8px]", "font-black", "uppercase", "tracking-tighter", "flex-shrink-0", "bg-emerald-500/10", "text-emerald-400/80")}>{ &file.lang }</span>
+                                                <span class="text-xs text-gray-400 truncate">{ if first_line.is_empty() { &file.name } else { &first_line } }</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            }) }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    };
+
     let preview_area_html = {
         let file_opt = current_preview_file;
 
@@ -1102,7 +1152,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             </div>
                         </div>
                         <div class="h-1/2 flex flex-col overflow-hidden bg-gray-950">
-                            { preview_area_html }
+                            if *mobile_view_step == 0 {
+                                { category_files_preview_html }
+                            } else {
+                                { preview_area_html }
+                            }
                         </div>
                     </div>
                 </div>
