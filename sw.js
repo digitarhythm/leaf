@@ -1,5 +1,5 @@
 // sw.js - Precision Caching & Fallback
-const CACHE_NAME = 'leaf-cache-v9';
+const CACHE_NAME = 'leaf-cache-v10';
 
 const PRECACHE_ASSETS = [
   './',
@@ -59,18 +59,37 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (!ALLOWED_DOMAINS.some(d => url.hostname === d) && url.origin !== self.location.origin) return;
 
+  // ナビゲーションリクエスト: ネットワーク優先（常に最新HTMLを取得）
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+        }
+        return response;
+      }).catch(() => caches.match('index.html'))
+    );
+    return;
+  }
+
+  // その他のリクエスト: キャッシュ優先 + MIMEタイプ検証
   event.respondWith(
     caches.match(event.request, { ignoreSearch: true }).then((cached) => {
       if (cached) return cached;
       return fetch(event.request).then((network) => {
         if (network && (network.status === 200 || network.status === 0)) {
+          // JS/WASMリクエストにHTMLが返された場合は拒否（デプロイ直後のSPAフォールバック防止）
+          const dest = event.request.destination;
+          const ct = network.headers.get('content-type') || '';
+          if ((dest === 'script' || dest === 'worker') && ct.includes('text/html')) {
+            return new Response('Asset not found', { status: 404 });
+          }
           const clone = network.clone();
           caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
         }
         return network;
       }).catch(() => {
-        // 重要: 画像やCSS/JSに対して index.html を返さない（MIMEタイプエラーの原因）
-        if (event.request.mode === 'navigate') return caches.match('index.html');
         return new Response('Offline', { status: 503 });
       });
     })
