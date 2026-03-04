@@ -1140,7 +1140,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
                 // フッターエリア
                 <div class="bg-gray-950/50 border-t border-white/5 flex items-center justify-between p-3">
-                    <div class={classes!("flex", if *is_wide_layout { vec!["flex-row", "space-x-2", "w-full", "justify-end"] } else { vec!["flex-col", "space-y-2", "w-full"] })}>
+                    <div class={classes!("flex", if *is_wide_layout { vec!["flex-row", "space-x-2", "w-full", "items-center"] } else { vec!["flex-col", "space-y-2", "w-full"] })}>
+                        if *is_wide_layout {
+                            <div class="flex-1 flex items-center gap-3 text-[10px] text-gray-500 select-none">
+                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"↑↓"}</kbd>{ i18n::t("key_navigate", lang) }</span>
+                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Tab"}</kbd>{ i18n::t("key_toggle", lang) }</span>
+                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Enter"}</kbd>{ i18n::t("key_confirm", lang) }</span>
+                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Esc"}</kbd>{ i18n::t("key_back", lang) }</span>
+                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Space"}</kbd>{ i18n::t("key_preview", lang) }</span>
+                            </div>
+                        }
                         if !*is_wide_layout {
                             <button
                                 onclick={on_ok_click.reform(|_| ())}
