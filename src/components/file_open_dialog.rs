@@ -127,12 +127,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
     let processing_move_id = use_state(|| None::<String>); 
-    let mobile_view_step = use_state(|| 0); // 0: Categories, 1: Files
-
     let root_ref = use_node_ref();
-    let dropdown_ref = use_node_ref(); 
+    let dropdown_ref = use_node_ref();
     let edit_input_ref = use_node_ref();
-    let preview_area_ref = use_node_ref();
     let cat_list_ref = use_node_ref();
     let file_list_ref = use_node_ref();
     let preview_modal_scroll_ref = use_node_ref();
@@ -206,11 +203,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     {
         let p_modal = preview_modal_data.clone();
         let p_del = pending_delete_file.clone();
-        let m_step = mobile_view_step.clone();
-        let is_w = is_wide_layout.clone();
         let on_sub_change = props.on_sub_active_change.clone();
-        use_effect_with((p_modal, p_del, m_step, is_w), move |(m, d, s, w)| {
-            on_sub_change.emit(m.is_some() || d.is_some() || (**s == 1 && !**w));
+        use_effect_with((p_modal, p_del), move |(m, d)| {
+            on_sub_change.emit(m.is_some() || d.is_some());
             || ()
         });
     }
@@ -459,7 +454,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     };
 
     // ファイルリストが更新されたらバックグラウンド読み込みを開始 + キャッシュ更新
-    // step 0: カテゴリー選択時は1KBプリフェッチ、step 1: 確定後は10KBプリフェッチ
+    // Categories フォーカス時は1KBプリフェッチ、Files フォーカス時は10KBプリフェッチ
     {
         let list = files.list.clone();
         let prefetch = trigger_prefetch.clone();
@@ -467,9 +462,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let abort_ctrl = abort_controller.clone();
         let cache_ref = files_cache.clone();
         let current_cid = current_category_id.clone();
-        let view_step = *mobile_view_step;
-        use_effect_with((list, view_step), move |(list, step)| {
-            let pf = if *step == 0 { &prefetch_1kb } else { &prefetch };
+        let focus_val = *focused_area;
+        use_effect_with((list, focus_val), move |(list, focus)| {
+            let pf = if *focus == FocusedArea::Categories { &prefetch_1kb } else { &prefetch };
             if let Some(ctrl) = (*abort_ctrl).as_ref() {
                 let signal = ctrl.signal();
                 for file in list.iter() {
@@ -522,7 +517,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         });
     }
 
-    // 選択インデックス変更時の自動スクロール
+    // ファイル選択インデックス変更時の自動スクロール
     {
         let file_list_ref_c = file_list_ref.clone();
         let selected_idx = *selected_file_idx;
@@ -531,6 +526,18 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 if let Some(container) = file_list_ref_c.cast::<web_sys::Element>() {
                     crate::js_interop::scroll_into_view_graceful(&container, i as u32, 200.0);
                 }
+            }
+            || ()
+        });
+    }
+
+    // カテゴリー選択インデックス変更時の自動スクロール
+    {
+        let cat_list_ref_c = cat_list_ref.clone();
+        let selected_idx = *selected_cat_idx;
+        use_effect_with(selected_idx, move |idx| {
+            if let Some(container) = cat_list_ref_c.cast::<web_sys::Element>() {
+                crate::js_interop::scroll_into_view_graceful(&container, (*idx as u32) + 1, 200.0);
             }
             || ()
         });
@@ -556,7 +563,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let cats_len = sorted_cats.len();
         let active_cat_id = props.active_category_id.clone();
         let active_drive_id_for_cat = props.active_drive_id.clone();
-        let mobile_step_c = mobile_view_step.clone();
         let focused_area_c = focused_area.clone();
         let cache_ref = files_cache.clone();
         use_effect_with((refresh_trigger, cats_len), move |_| {
@@ -567,14 +573,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let target_idx = sorted_cats.iter().position(|c| c.id == cid).unwrap_or_else(|| {
                     if active_drive_id_for_cat.is_some() && !active_cat_id.is_empty() && active_cat_id != "__LOCAL__" {
                         if let Some(idx) = sorted_cats.iter().position(|c| c.id == active_cat_id) {
-                            mobile_step_c.set(1);
                             focused_area_c.set(FocusedArea::Files);
                             return idx;
                         }
                     }
                     let others_idx = sorted_cats.iter().position(|c| c.name == "OTHERS").unwrap_or(0);
                     if active_drive_id_for_cat.is_none() {
-                        mobile_step_c.set(1);
                         focused_area_c.set(FocusedArea::Files);
                     }
                     others_idx
@@ -630,8 +634,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_creating_cat = props.is_creating_category;
         let is_loading_prev_val = *is_loading_preview;
         let has_pending_del = pending_delete_file.clone(); // ステートとしてキャプチャ
-        let is_wide_layout_c = is_wide_layout.clone();
-        let mobile_view_step_c = mobile_view_step.clone();
         let handle_close_c = handle_close.clone();
         let editing_cat_for_key = editing_category_id.clone();
 
@@ -716,13 +718,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 }
                 "Tab" => { 
                     e.prevent_default(); 
-                    if *is_wide_layout_c {
-                        if current_focus == FocusedArea::Categories { 
-                            focused_area_c.set(FocusedArea::Files); 
-                            if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); }
-                        } else { 
-                            focused_area_c.set(FocusedArea::Categories); 
-                        } 
+                    if current_focus == FocusedArea::Categories {
+                        focused_area_c.set(FocusedArea::Files);
+                        if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); }
+                    } else {
+                        focused_area_c.set(FocusedArea::Categories);
                     }
                 }
                 "ArrowUp" => { 
@@ -745,11 +745,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         else if cur_idx + 1 < files_reducer.list.len() { selected_file_idx_c.set(Some(cur_idx + 1)); }
                     }
                 }
-                "Enter" => { 
-                    e.prevent_default(); 
-                    if current_focus == FocusedArea::Categories { 
-                        focused_area_c.set(FocusedArea::Files); 
-                        mobile_view_step_c.set(1);
+                "Enter" => {
+                    e.prevent_default();
+                    if current_focus == FocusedArea::Categories {
+                        focused_area_c.set(FocusedArea::Files);
                         if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); }
                     } else {
                         on_ok_c.emit(());
@@ -757,8 +756,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 }
                 "Escape" => {
                     e.prevent_default();
-                    if *mobile_view_step_c == 1 {
-                        mobile_view_step_c.set(0);
+                    if current_focus == FocusedArea::Files {
                         focused_area_c.set(FocusedArea::Categories);
                     } else {
                         handle_close_c.emit(());
@@ -855,7 +853,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
-    let current_preview_file = if let Some(idx) = *selected_file_idx { files.list.get(idx).cloned() } else { None };
+
 
     // --- HTMLパーツ ---
     let categories_html = {
@@ -871,7 +869,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_del_inner = props.on_delete_category.clone();
         let edit_ref = edit_input_ref.clone();
         let focused_area_h = focused_area.clone();
-        let mobile_view_step_for_cat = mobile_view_step.clone();
 
         html! {
             <div class={classes!("flex", "flex-col", "h-full", "w-full", "border-r", "border-white/5", "bg-gray-900/50")}>
@@ -912,7 +909,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     if is_sel { vec!["bg-emerald-600/20", "text-emerald-400"] } else { vec!["text-gray-400", "hover:bg-white/5", "hover:text-gray-200"] },
                                     if is_active { vec!["ring-2", "ring-emerald-500/50", "bg-emerald-600/30"] } else { vec![] }
                                 )}
-                                onclick={let f_area = focused_area_h.clone(); let m_step = mobile_view_step_for_cat.clone(); let is_editing_this = is_editing; let eid_click = eid_inner.clone(); move |_| { if is_editing_this { return; } eid_click.set(None); s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); m_step.set(1); }}
+                                onclick={let f_area = focused_area_h.clone(); let is_editing_this = is_editing; let eid_click = eid_inner.clone(); move |_| { if is_editing_this { return; } eid_click.set(None); s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); }}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4", "w-4", "mr-3", if is_sel { "text-emerald-500" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -961,18 +958,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_move = on_move_file.clone();
         let p_del_state = pending_delete_file.clone();
         let focused_area_h = focused_area.clone();
-        let mobile_view_step_for_files = mobile_view_step.clone();
 
         html! {
             <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", "w-full")}>
-                <div class="p-4 border-b border-white/5 flex items-center justify-between bg-gray-950/20">
+                <div class="p-3 border-b border-white/5 flex items-center justify-between bg-gray-950/20 flex-shrink-0">
                     <div class="flex items-center space-x-2">
-                        <button
-                            onclick={let m_step = mobile_view_step_for_files.clone(); move |_| m_step.set(0)}
-                            class="mr-2 p-1 bg-white/5 hover:bg-white/10 rounded-full transition-colors flex items-center justify-center text-gray-400 hover:text-white"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" /></svg>
-                        </button>
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                         <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">{ format!("{} ({})", if *current_category_name == "OTHERS" { i18n::t("OTHERS", lang) } else { (*current_category_name).clone() }, file_list.len()) }</h2>
                     </div>
@@ -1009,7 +999,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             html! {
                                 <div 
                                     class={classes!(
-                                        "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "transition-all", "duration-200", "border", "h-24", "min-h-[6rem]", "flex-shrink-0", "mx-1", "mb-1", "overflow-visible",
+                                        "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "transition-all", "duration-200", "border", "min-h-[8rem]", "flex-shrink-0", "mx-1", "mb-1", "overflow-visible",
                                         if is_dropdown_open { vec!["z-50", "bg-gray-800/90", "border-emerald-500", "shadow-2xl"] }
                                         else if is_active { vec!["bg-emerald-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-emerald-500/30", "scale-[1.01]"] } 
                                         else if is_sel { vec!["bg-emerald-600/10", "text-emerald-400/80", "border-emerald-500/30", "z-0"] }
@@ -1062,9 +1052,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 </button>
                                             </div>
                                         </div>
-                                        // コンテンツプレビュー（冒頭3行を表示）
+                                        // コンテンツプレビュー（冒頭5行を表示）
                                         <div class={classes!(
-                                            "px-3", "pb-3", "text-xs", "font-bold", "line-clamp-3", "leading-snug", "break-all", "overflow-hidden", "whitespace-pre-wrap",
+                                            "px-3", "pb-2", "text-xs", "font-bold", "line-clamp-5", "leading-snug", "break-all", "overflow-hidden", "whitespace-pre-wrap",
                                             if !file.is_loaded { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
                                         )}>
                                             if !file.is_loaded { 
@@ -1088,90 +1078,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             }
                         }) }
                     }
-                </div>
-            </div>
-        }
-    };
-
-    let category_files_preview_html = {
-        let file_list = files.list.clone();
-        let cat_name = (*current_category_name).clone();
-        let is_loading = props.is_loading;
-        html! {
-            <div class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", "flex-1", "border-white/5", "p-1")}>
-                <div class="flex-1 flex flex-col min-h-0 border-2 border-emerald-500 rounded-lg overflow-hidden">
-                    <div class="px-4 py-2 bg-gray-900/50 border-b border-white/5 flex items-center space-x-2 flex-shrink-0">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                        <span class="text-xs font-bold text-gray-300 tracking-tight truncate">
-                            { format!("{} ({})", if cat_name == "OTHERS" { i18n::t("OTHERS", lang) } else { cat_name }, file_list.len()) }
-                        </span>
-                    </div>
-                    <div class="flex-1 overflow-y-auto custom-scrollbar">
-                        if is_loading && file_list.is_empty() {
-                            <div class="flex-1 flex items-center justify-center py-4">
-                                <div class="w-6 h-6 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
-                            </div>
-                        } else if file_list.is_empty() {
-                            <div class="flex-1 flex items-center justify-center py-4">
-                                <p class="text-xs text-gray-600 uppercase tracking-widest font-bold">{ i18n::t("no_files_found", lang) }</p>
-                            </div>
-                        } else {
-                            <div class="p-1 space-y-1">
-                            { for file_list.iter().map(|file| {
-                                let first_line = file.content.lines().next().unwrap_or("").to_string();
-                                html! {
-                                    <div class="px-3 py-1.5 rounded border border-white/40 flex items-center justify-center min-h-[28px]">
-                                        if !file.is_loaded {
-                                            <div class="w-4 h-4 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
-                                        } else {
-                                            <div class="flex items-center space-x-2 w-full">
-                                                <span class={classes!("px-1", "py-0.5", "rounded", "text-[8px]", "font-black", "uppercase", "tracking-tighter", "flex-shrink-0", "bg-emerald-500/10", "text-emerald-400/80")}>{ &file.lang }</span>
-                                                if !first_line.is_empty() {
-                                                    <span class="text-xs text-gray-400 truncate">{ first_line }</span>
-                                                }
-                                            </div>
-                                        }
-                                    </div>
-                                }
-                            }) }
-                            </div>
-                        }
-                    </div>
-                </div>
-            </div>
-        }
-    };
-
-    let preview_area_html = {
-        let file_opt = current_preview_file;
-
-        html! {
-            <div ref={preview_area_ref} class={classes!("flex", "flex-col", "bg-gray-950", "overflow-hidden", "relative", "flex-1", "border-white/5", "p-1")}>
-                <div class="flex-1 flex flex-col min-h-0 border-2 border-emerald-500 rounded-lg overflow-hidden">
-                if let Some(file) = file_opt {
-                    <div class="flex-1 flex flex-col min-h-0">
-                        <div class="px-4 py-3 bg-gray-900/50 border-b border-white/5 flex items-center justify-between flex-shrink-0">
-                            <div class="flex items-center space-x-2 min-w-0">
-                                <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-tight flex-shrink-0">{ &file.lang }</span>
-                            </div>
-                        </div>
-
-                        <Preview
-                            key={file.id.clone()}
-                            content={file.content.clone()}
-                            lang={file.lang.clone()}
-                            on_close={Callback::from(|_| ())} // 埋め込み時は閉じない
-                            is_embedded={true}
-                            has_more={file.is_loaded && file.loaded_bytes < file.total_size}
-                            is_loading={!file.is_loaded}
-                        />
-                    </div>
-                } else {
-                    <div class="flex-1 flex flex-col items-center justify-center text-gray-800 space-y-4">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 opacity-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                        <p class="text-xs uppercase tracking-[0.2em] font-black opacity-10">{ "Select a file to preview" }</p>
-                    </div>
-                }
                 </div>
             </div>
         }
@@ -1206,31 +1112,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
                 }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
-                // メインコンテンツエリア (Categories / Files 切替 + Preview)
+                // メインコンテンツエリア (上: カテゴリー / 下: シート一覧)
                 <div class="flex-1 flex flex-col overflow-hidden">
                     <div class="flex-1 flex flex-col h-full relative overflow-hidden">
-                        <div class="h-1/2 relative overflow-hidden border-b border-white/5 flex-shrink-0 bg-gray-900 p-1">
-                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden relative">
-                            <div class={classes!(
-                                "absolute", "inset-0", "transition-transform", "duration-100", "ease-in-out",
-                                if *mobile_view_step == 0 { "translate-x-0" } else { "-translate-x-full" }
-                            )}>
+                        // 上半分: カテゴリー一覧（常時表示）
+                        <div class="h-1/2 overflow-hidden border-b border-white/5 flex-shrink-0 bg-gray-900 p-1">
+                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
                                 { categories_html }
                             </div>
-                            <div class={classes!(
-                                "absolute", "inset-0", "transition-transform", "duration-100", "ease-in-out",
-                                if *mobile_view_step == 1 { "translate-x-0" } else { "translate-x-full" }
-                            )}>
+                        </div>
+                        // 下半分: シート一覧（常時表示、先頭5行付き）
+                        <div class="h-1/2 flex flex-col overflow-hidden bg-gray-950 p-1">
+                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
                                 { files_html }
                             </div>
-                            </div>
-                        </div>
-                        <div class="h-1/2 flex flex-col overflow-hidden bg-gray-950">
-                            if *mobile_view_step == 0 {
-                                { category_files_preview_html }
-                            } else {
-                                { preview_area_html }
-                            }
                         </div>
                     </div>
                 </div>
