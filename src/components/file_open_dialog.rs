@@ -12,7 +12,7 @@ use crate::db_interop::JSCategory;
 use crate::components::preview::Preview;
 use crate::components::dialog::LoadingOverlay;
 use web_sys::AbortController;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 #[derive(Clone, PartialEq)]
@@ -123,6 +123,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let is_deleting_id = use_state(|| None::<String>);
     let abort_controller = use_state(|| None::<AbortController>);
     let fetching_ids = use_mut_ref(|| HashSet::<String>::new());
+    let files_cache = use_mut_ref(|| HashMap::<String, Vec<FilePreview>>::new());
     let pending_delete_file = use_state(|| None::<(String, String)>); 
     let pending_move_file_id = use_state(|| None::<String>); 
     let processing_move_id = use_state(|| None::<String>); 
@@ -290,12 +291,36 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         Callback::from(move |(file_info, signal): ((String, u64), web_sys::AbortSignal)| {
             let (file_id, total_size) = file_info;
             if fetching_ids.borrow().contains(&file_id) { return; }
-            
+
             fetching_ids.borrow_mut().insert(file_id.clone());
             let reducer = files_reducer.clone();
             let ids = fetching_ids.clone();
             spawn_local(async move {
                 let range = if total_size > 10240 { Some("0-10239") } else { None };
+                if let Ok(cv) = download_file(&file_id, range, Some(signal)).await {
+                    let safe = get_safe_chunk(&cv);
+                    let t = js_sys::Reflect::get(&safe, &JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
+                    let b = js_sys::Reflect::get(&safe, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
+                    reducer.dispatch(FileAction::UpdateContent(file_id.clone(), t, b));
+                }
+                ids.borrow_mut().remove(&file_id);
+            });
+        })
+    };
+
+    // カテゴリー選択時の1KB先読み処理（一行目表示用）
+    let trigger_prefetch_1kb = {
+        let files_reducer = files.clone();
+        let fetching_ids = fetching_ids.clone();
+        Callback::from(move |(file_info, signal): ((String, u64), web_sys::AbortSignal)| {
+            let (file_id, total_size) = file_info;
+            if fetching_ids.borrow().contains(&file_id) { return; }
+
+            fetching_ids.borrow_mut().insert(file_id.clone());
+            let reducer = files_reducer.clone();
+            let ids = fetching_ids.clone();
+            spawn_local(async move {
+                let range = if total_size > 1024 { Some("0-1023") } else { None };
                 if let Ok(cv) = download_file(&file_id, range, Some(signal)).await {
                     let safe = get_safe_chunk(&cv);
                     let t = js_sys::Reflect::get(&safe, &JsValue::from_str("text")).unwrap().as_string().unwrap_or_default();
@@ -347,13 +372,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let pending_move = pending_move_file_id.clone();
         let processing_move = processing_move_id.clone();
         let active_drive_id_outer = props.active_drive_id.clone();
+        let files_cache = files_cache.clone();
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
             if let Some(ctrl) = (*abort_ctrl_state).as_ref() { ctrl.abort(); }
             let new_ctrl = AbortController::new().unwrap();
             let signal = new_ctrl.signal();
             abort_ctrl_state.set(Some(new_ctrl.clone()));
             if let Some(window) = web_sys::window() { if let Ok(Some(storage)) = window.local_storage() { let _ = storage.set_item(STORAGE_KEY_LAST_CAT, &cat_id); } }
-            
+
             files_reducer.dispatch(FileAction::Clear);
             fetching_ids.borrow_mut().clear();
             selected_file_idx.set(None);
@@ -361,6 +387,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             processing_move.set(None);
             current_category_id.set(cat_id.clone());
             current_category_name.set(cat_name);
+
+            // キャッシュにある場合はAPIコールをスキップ
+            if let Some(cached) = files_cache.borrow().get(&cat_id) {
+                let cached_list = cached.clone();
+                if let Some(ref target_id) = active_drive_id_outer {
+                    if let Some(idx) = cached_list.iter().position(|f| f.id == *target_id) {
+                        selected_file_idx.set(Some(idx));
+                    }
+                } else if !cached_list.is_empty() {
+                    selected_file_idx.set(Some(0));
+                }
+                files_reducer.dispatch(FileAction::Set(cached_list));
+                if is_initial && !*is_fading_out_h { f_area_h.set(FocusedArea::Categories); }
+                return;
+            }
+
             on_loading_change.emit(true);
 
             let reducer_inner = files_reducer.clone();
@@ -372,6 +414,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let on_nc_inner = on_nc_c.clone();
             let active_drive_id_inner = active_drive_id_outer.clone();
             let selected_file_idx_inner = selected_file_idx.clone();
+            let cache_inner = files_cache.clone();
 
             spawn_local(async move {
                 let res = list_files(&cid_inner, Some(sig_inner.clone())).await;
@@ -392,6 +435,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext, is_loaded: false });
                         }
                         all_metadata.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                        // 空リストの場合はここでキャッシュに保存
+                        if all_metadata.is_empty() {
+                            cache_inner.borrow_mut().insert(cid_inner.clone(), Vec::new());
+                        }
                         // active_drive_idに一致するファイルを自動選択、未保存時は先頭ファイルを選択
                         if let Some(ref target_id) = active_drive_id_inner {
                             if let Some(idx) = all_metadata.iter().position(|f| f.id == *target_id) {
@@ -411,18 +458,31 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
-    // ファイルリストが更新されたらバックグラウンド読み込みを開始
+    // ファイルリストが更新されたらバックグラウンド読み込みを開始 + キャッシュ更新
+    // step 0: カテゴリー選択時は1KBプリフェッチ、step 1: 確定後は10KBプリフェッチ
     {
         let list = files.list.clone();
         let prefetch = trigger_prefetch.clone();
+        let prefetch_1kb = trigger_prefetch_1kb.clone();
         let abort_ctrl = abort_controller.clone();
-        use_effect_with(list, move |list| {
+        let cache_ref = files_cache.clone();
+        let current_cid = current_category_id.clone();
+        let view_step = *mobile_view_step;
+        use_effect_with((list, view_step), move |(list, step)| {
+            let pf = if *step == 0 { &prefetch_1kb } else { &prefetch };
             if let Some(ctrl) = (*abort_ctrl).as_ref() {
                 let signal = ctrl.signal();
                 for file in list.iter() {
                     if !file.is_loaded {
-                        prefetch.emit(((file.id.clone(), file.total_size), signal.clone()));
+                        pf.emit(((file.id.clone(), file.total_size), signal.clone()));
                     }
+                }
+            }
+            // 全ファイルの読み込みが完了したらキャッシュに保存
+            if !list.is_empty() && list.iter().all(|f| f.is_loaded) {
+                let cid = (*current_cid).clone();
+                if !cid.is_empty() {
+                    cache_ref.borrow_mut().insert(cid, list.to_vec());
                 }
             }
             || ()
@@ -498,7 +558,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let active_drive_id_for_cat = props.active_drive_id.clone();
         let mobile_step_c = mobile_view_step.clone();
         let focused_area_c = focused_area.clone();
+        let cache_ref = files_cache.clone();
         use_effect_with((refresh_trigger, cats_len), move |_| {
+            // 外部リフレッシュ時はキャッシュをクリア
+            cache_ref.borrow_mut().clear();
             if !sorted_cats.is_empty() {
                 let cid = (*current_cid_c).clone();
                 let target_idx = sorted_cats.iter().position(|c| c.id == cid).unwrap_or_else(|| {
@@ -708,28 +771,33 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
     let on_move_file = {
         let cur_cid_c = current_category_id.clone();
-        let files_reducer = files.clone(); 
+        let files_reducer = files.clone();
         let pending_move = pending_move_file_id.clone();
         let ads_state = active_dropdown_file_id.clone();
         let proc_move = processing_move_id.clone();
         let on_p_move_parent = props.on_move_file.clone(); // 外側でクローン
+        let cache_ref = files_cache.clone();
         Callback::from(move |(file_id, new_cat_id): (String, String)| {
-            ads_state.set(None); 
+            ads_state.set(None);
             let old_cid = (*cur_cid_c).clone();
             let reducer = files_reducer.clone(); let f_id = file_id.clone();
             let p_move = pending_move.clone();
             let proc_m = proc_move.clone();
             let on_p_move = on_p_move_parent.clone(); // クロージャ内で使用
             let n_cat_id = new_cat_id.clone();
-            
+            let cache = cache_ref.clone();
+
             proc_m.set(Some(f_id.clone()));
             spawn_local(async move {
                 if let Ok(_) = move_file(&f_id, &old_cid, &n_cat_id).await {
-                    proc_m.set(None); 
-                    p_move.set(Some(f_id.clone())); 
+                    // 移動元・移動先のキャッシュを無効化
+                    cache.borrow_mut().remove(&old_cid);
+                    cache.borrow_mut().remove(&n_cat_id);
+                    proc_m.set(None);
+                    p_move.set(Some(f_id.clone()));
                     on_p_move.emit((f_id.clone(), n_cat_id));
                     Timeout::new(200, move || { reducer.dispatch(FileAction::Remove(f_id.clone())); }).forget();
-                } else { 
+                } else {
                     proc_m.set(None);
                 }
             });
@@ -742,6 +810,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let files_reducer = files.clone();
         let on_parent_delete_c = props.on_delete_file.clone();
         let root_ref_for_del = root_ref.clone();
+        let cache_ref = files_cache.clone();
+        let current_cid_for_del = current_category_id.clone();
         Callback::from(move |_: ()| {
             if let Some((id, name)) = (*pending_delete_c).clone() {
                 let id_for_anim = id.clone(); let id_for_parent = id.clone(); let name_for_parent = name.clone();
@@ -749,8 +819,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 let is_del = is_del_id_c.clone();
                 let root_ref_inner = root_ref_for_del.clone();
                 
-                pending_delete_c.set(None); is_del.set(Some(id_for_anim)); 
-                
+                pending_delete_c.set(None); is_del.set(Some(id_for_anim));
+                // 削除対象カテゴリーのキャッシュを無効化
+                cache_ref.borrow_mut().remove(&*current_cid_for_del);
+
                 // フォーカス復帰処理
                 Timeout::new(50, move || {
                     if let Some(root) = root_ref_inner.cast::<web_sys::HtmlElement>() {
@@ -1054,7 +1126,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         } else {
                                             <div class="flex items-center space-x-2 w-full">
                                                 <span class={classes!("px-1", "py-0.5", "rounded", "text-[8px]", "font-black", "uppercase", "tracking-tighter", "flex-shrink-0", "bg-emerald-500/10", "text-emerald-400/80")}>{ &file.lang }</span>
-                                                <span class="text-xs text-gray-400 truncate">{ if first_line.is_empty() { &file.name } else { &first_line } }</span>
+                                                if !first_line.is_empty() {
+                                                    <span class="text-xs text-gray-400 truncate">{ first_line }</span>
+                                                }
                                             </div>
                                         }
                                     </div>
