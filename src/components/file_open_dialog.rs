@@ -1133,7 +1133,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 // 広告バナーエリア
                 if props.show_ads {
                     <div class="w-full bg-gray-950/30 border-t border-white/5 p-1" style="min-height:98px;">
-                        <div id="leaf-ad-file-dialog" class="w-full h-full border-2 border-emerald-500 rounded-lg flex items-center justify-center overflow-hidden">
+                        <div id="leaf-ad-file-dialog" class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
                         </div>
                     </div>
                 }
