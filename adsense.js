@@ -53,7 +53,7 @@ export function render_ad(containerId, retryCount = 0) {
 
     const ins = document.createElement('ins');
     ins.className = 'adsbygoogle';
-    ins.style.cssText = 'display:block;';
+    ins.style.cssText = 'display:block;width:100%;';
     ins.setAttribute('data-ad-client', ADSENSE_PUB_ID);
     ins.setAttribute('data-ad-slot', ADSENSE_SLOT_ID);
     ins.setAttribute('data-ad-format', 'auto');
