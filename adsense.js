@@ -28,12 +28,23 @@ export function load_adsense_script() {
     console.log("[AdSense] Script injected.");
 }
 
-export function render_ad(containerId) {
+export function render_ad(containerId, retryCount = 0) {
     if (is_tauri()) return;
 
+    const MAX_RETRIES = 5;
     const container = document.getElementById(containerId);
     if (!container) {
         console.warn("[AdSense] Container not found:", containerId);
+        return;
+    }
+
+    // コンテナ幅が0の場合はリトライ（アニメーション中・未レンダリング対策）
+    if (container.offsetWidth === 0) {
+        if (retryCount < MAX_RETRIES) {
+            setTimeout(() => render_ad(containerId, retryCount + 1), 200);
+        } else {
+            console.warn("[AdSense] Container width is still 0 after retries:", containerId);
+        }
         return;
     }
 
