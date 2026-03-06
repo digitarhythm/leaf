@@ -96,6 +96,11 @@
   transform-origin: calc(100% - 120px) 2rem;
 }
 
+/* --- Dialog Panel Ratios (with ads: 45/45/10) --- */
+@utility panel-cat { flex: 9 1 0%; min-height: 0; }
+@utility panel-files { flex: 9 1 0%; min-height: 0; }
+@utility panel-ad { flex: 2 1 0%; min-height: 0; }
+
 /* --- Filename Fade Out --- */
 .file-name-fade {
   mask-image: linear-gradient(to right, black 80%, transparent 100%);

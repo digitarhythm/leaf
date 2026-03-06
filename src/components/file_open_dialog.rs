@@ -1092,7 +1092,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             onfocusout={on_focus_out}
             class={classes!(
                 "fixed", "inset-0", "z-[100]", "flex", "outline-none", "pointer-events-auto",
-                if *is_wide_layout { vec!["items-end", "justify-center"] } else { vec![] }
+                if *is_wide_layout { vec!["items-stretch", "justify-center"] } else { vec![] }
             )}
             onclick={|e: MouseEvent| e.stop_propagation()}
         >
@@ -1112,29 +1112,21 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
                 }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
-                // メインコンテンツエリア (上: カテゴリー / 下: シート一覧)
-                <div class="flex-1 flex flex-col overflow-hidden">
-                    <div class="flex-1 flex flex-col h-full relative overflow-hidden">
-                        // 上半分: カテゴリー一覧（常時表示）
-                        <div class="h-1/2 overflow-hidden border-b border-white/5 flex-shrink-0 bg-gray-900 p-1">
-                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
-                                { categories_html }
-                            </div>
-                        </div>
-                        // 下半分: シート一覧（常時表示、先頭5行付き）
-                        <div class="h-1/2 flex flex-col overflow-hidden bg-gray-950 p-1">
-                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
-                                { files_html }
-                            </div>
-                        </div>
+                // カテゴリー一覧
+                <div class={classes!("overflow-hidden", "min-h-0", "border-b", "border-white/5", "bg-gray-900", "p-1", if props.show_ads { "panel-cat" } else { "flex-1" })}>
+                    <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
+                        { categories_html }
                     </div>
                 </div>
-
+                // シート一覧
+                <div class={classes!("flex", "flex-col", "overflow-hidden", "min-h-0", "bg-gray-950", "p-1", if props.show_ads { "panel-files" } else { "flex-1" })}>
+                    <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
+                        { files_html }
+                    </div>
+                </div>
                 // 広告バナーエリア
                 if props.show_ads {
-                    <div class="w-full bg-gray-950/30 border-t border-white/5 p-1" style="min-height:98px;">
-                        <div id="leaf-ad-file-dialog" class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
-                        </div>
+                    <div id="leaf-ad-file-dialog" class="panel-ad min-h-0 overflow-hidden border-2 border-emerald-500 rounded-lg mx-1 mb-1">
                     </div>
                 }
 
