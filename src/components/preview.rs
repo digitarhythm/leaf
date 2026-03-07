@@ -198,7 +198,7 @@ pub fn preview(props: &PreviewProps) -> Html {
             )} onclick={let cb = handle_close.clone(); move |_| cb.emit(())}></div>
             <div
                 class={classes!(
-                    "w-full", "max-w-5xl", "max-h-full", "bg-[#0d1117]", "rounded-xl", "shadow-2xl", "border", "border-gray-800", "flex", "flex-col", "overflow-hidden", "relative",
+                    "w-full", "max-w-5xl", "max-h-full", "bg-[#0d1117]", "rounded-xl", "shadow-2xl", "border-2", "border-emerald-500", "flex", "flex-col", "overflow-hidden", "relative",
                     if props.is_help { if is_fading_out { "animate-help-out" } else { "animate-help-in" } } 
                     else { if is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" } }
                 )}
