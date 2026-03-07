@@ -114,18 +114,19 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
     };
 
     html! {
-        <div 
+        <div
             ref={root_ref}
-            class={classes!(
-                "fixed", "inset-0", "z-[100]", "flex", "items-center", "justify-center", "bg-black/50", "backdrop-blur-md", "p-4", "outline-none", "pointer-events-auto",
-                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
-            )}
+            class="fixed inset-0 z-[100] flex items-center justify-center p-4 outline-none pointer-events-auto"
             tabindex="0"
             onkeydown={on_keydown}
             onclick={|e: MouseEvent| e.stop_propagation()}
         >
             <div class={classes!(
-                "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-md", "overflow-hidden",
+                "absolute", "inset-0", "bg-black/50", "backdrop-blur-md",
+                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
+            )}></div>
+            <div class={classes!(
+                "relative", "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-md", "overflow-hidden",
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
@@ -263,15 +264,16 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
     };
 
     html! {
-        <div 
-            ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()} 
-            class={classes!(
-                "fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-black/50", "backdrop-blur-md", "p-4", "outline-none", "pointer-events-auto",
-                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
-            )}
+        <div
+            ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()}
+            class="fixed inset-0 z-[200] flex items-center justify-center p-4 outline-none pointer-events-auto"
         >
             <div class={classes!(
-                "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-sm", "overflow-hidden",
+                "absolute", "inset-0", "bg-black/50", "backdrop-blur-md",
+                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
+            )}></div>
+            <div class={classes!(
+                "relative", "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-sm", "overflow-hidden",
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
@@ -279,7 +281,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                 </div>
                 <div class="px-6 py-6 space-y-4">
                     <p class="text-sm text-gray-300">{ &props.message }</p>
-                    <input 
+                    <input
                         ref={input_ref} type="text" value={(*text).clone()}
                         oninput={let t = text.clone(); let f = focused.clone(); move |ev: InputEvent| { let input: web_sys::HtmlInputElement = ev.target_unchecked_into(); t.set(input.value()); f.set(InputDialogFocus::Input); }}
                         onclick={|e: MouseEvent| e.stop_propagation()}
@@ -395,15 +397,16 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
     };
 
     html! {
-        <div 
+        <div
             ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()}
-            class={classes!(
-                "fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-black/50", "backdrop-blur-md", "p-4", "outline-none", "pointer-events-auto",
-                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
-            )}
+            class="fixed inset-0 z-[200] flex items-center justify-center p-4 outline-none pointer-events-auto"
         >
             <div class={classes!(
-                "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-sm", "overflow-hidden",
+                "absolute", "inset-0", "bg-black/50", "backdrop-blur-md",
+                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
+            )}></div>
+            <div class={classes!(
+                "relative", "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-sm", "overflow-hidden",
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
@@ -551,15 +554,16 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
     };
 
     html! {
-        <div 
+        <div
             ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()}
-            class={classes!(
-                "fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-black/50", "backdrop-blur-md", "p-4", "outline-none", "pointer-events-auto",
-                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
-            )}
+            class="fixed inset-0 z-[200] flex items-center justify-center p-4 outline-none pointer-events-auto"
         >
             <div class={classes!(
-                "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-md", "overflow-hidden",
+                "absolute", "inset-0", "bg-black/50", "backdrop-blur-md",
+                if *is_fading_out { "animate-backdrop-out" } else { "animate-backdrop-in" }
+            )}></div>
+            <div class={classes!(
+                "relative", "bg-gray-800", "border", "border-gray-700", "rounded-lg", "shadow-2xl", "w-full", "max-w-md", "overflow-hidden",
                 if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 <div class="px-6 py-4 border-b border-gray-700 bg-gray-800/50">
