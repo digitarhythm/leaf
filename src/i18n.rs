@@ -615,19 +615,6 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "# Keyboard Shortcuts\n\n| Key | Action |\n| --- | --- |\n| `Opt/Alt + s` | Forced Save (New sheets are saved to Drive) |\n| `Opt/Alt + n` | New Sheet |\n| `Opt/Alt + Shift + n` | New Local Sheet |\n| `Opt/Alt + f` | Show Search Dialog |\n| `Opt/Alt + o` | Open Local File |\n| `Opt/Alt + m` | Sheet Selection Dialog |\n| `Opt/Alt + l` | Toggle Markdown Preview |\n| `Opt/Alt + h` | Show This Help |\n| `Opt/Alt + =` | Increase Font Size |\n| `Opt/Alt + -` | Decrease Font Size |\n| `Esc` | Close Dialog / Preview / Dropdown |",
         }.to_string(),
 
-        // --- Subscription ---
-        "subscription_active" => match lang {
-            Language::Ja => "サブスクリプション有効",
-            Language::Zh => "订阅有效",
-            Language::Ko => "구독 활성",
-            Language::Es => "Suscripción activa",
-            Language::De => "Abonnement aktiv",
-            Language::Fr => "Abonnement actif",
-            Language::It => "Abbonamento attivo",
-            Language::Nl => "Abonnement actief",
-            _ => "Subscription Active",
-        }.to_string(),
-
         // --- Extensions ---
         "ext_txt" => match lang { Language::Ja => "プレーンテキスト", _ => "Plain Text" }.to_string(),
         "ext_md" => match lang { Language::Ja => "Markdown", _ => "Markdown" }.to_string(),
