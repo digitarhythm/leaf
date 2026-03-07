@@ -4,7 +4,6 @@ mod js_interop;
 mod auth_interop;
 mod db_interop;
 mod drive_interop;
-mod subscription_interop;
 mod adsense_interop;
 mod i18n;
 

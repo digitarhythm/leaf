@@ -295,7 +295,8 @@ pub fn app() -> Html {
     let is_processing_dialog = use_state(|| false);
     let is_install_confirm_visible = use_state(|| false);
     let is_install_manual_visible = use_state(|| false);
-    let has_subscription = use_state(|| false);
+
+    let is_ad_free = use_state(|| false);
 
     let sheets_ref = use_mut_ref(|| Vec::<Sheet>::new());
     let active_id_ref = use_mut_ref(|| None::<String>);
@@ -1486,7 +1487,7 @@ pub fn app() -> Html {
         let on_save_for_auth = on_save_cb.clone();
         let is_online = *network_connected;
         let is_auth_flag_h = is_auth_flag.clone();
-        let has_sub_cb = has_subscription.clone();
+        let is_ad_free_c = is_ad_free.clone();
 
         use_effect_with((is_online, ), move |_| {
             let cleanup = || ();
@@ -1500,7 +1501,7 @@ pub fn app() -> Html {
             let lmk_cb = lmk_h.clone();
             let aid_ref_cb = aid_ref_h.clone();
             let os_cb_inner = on_save_for_auth.clone();
-            let has_sub_inner = has_sub_cb.clone();
+            let is_ad_free_cb = is_ad_free_c.clone();
 
             // タイムアウトによる救済ロジック
             // Auth初期化から数秒経っても応答がない場合はローディングを外す
@@ -1533,16 +1534,20 @@ pub fn app() -> Html {
                     let cq_inner = cq_cb.clone();
                     let lmk_inner = lmk_cb.clone();
                     let aid_ref_inner = aid_ref_cb.clone();
-                    let has_sub_auth = has_sub_inner.clone();
+                    let is_ad_free_inner = is_ad_free_cb.clone();
 
-                    // サブスクリプション状態チェック（バックグラウンド）
+                    // 広告非表示対象のメールアドレスチェック
                     {
-                        let has_sub = has_sub_auth.clone();
+                        let ad_free = is_ad_free_inner.clone();
                         spawn_local(async move {
                             let _ = crate::auth_interop::fetch_user_email().await;
-                            let result = crate::subscription_interop::check_subscription_status().await;
-                            let status = result.as_bool().unwrap_or(false);
-                            has_sub.set(status);
+                            let email_val = crate::auth_interop::get_user_email();
+                            if let Some(email) = email_val.as_string() {
+                                const AD_FREE_EMAILS: &[&str] = &["trek.kbd@gmail.com"];
+                                if AD_FREE_EMAILS.iter().any(|e| *e == email) {
+                                    ad_free.set(true);
+                                }
+                            }
                         });
                     }
 
@@ -1993,7 +1998,7 @@ pub fn app() -> Html {
                                 on_network_status_change={let nc = network_connected.clone(); Callback::from(move |v| nc.set(v))}
                                 font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()}
                                 is_processing={*is_processing_dialog}
-                                show_ads={!*has_subscription && !crate::js_interop::is_tauri()}
+                                show_ads={!*is_ad_free && !crate::js_interop::is_tauri()}
                                 close_trigger={*file_close_trigger}
                                 active_category_id={current_cat.clone()}
                                 active_drive_id={active_sheet_id.as_ref().and_then(|id| sheets.iter().find(|s| s.id == *id).and_then(|s| s.drive_id.clone()))}
@@ -2025,7 +2030,7 @@ pub fn app() -> Html {
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() { let conflict = name_conflict_queue.first().unwrap(); let title = i18n::t("filename_conflict", lang); let message = i18n::t("filename_conflict_message", lang).replace("{}", &conflict.filename); let on_cfm = on_name_conflict_cfm.clone(); let ncq = name_conflict_queue.clone(); let labels = vec![i18n::t("opt_nc_overwrite", lang), i18n::t("opt_nc_new_guid", lang), i18n::t("opt_nc_rename", lang)]; Some(html! { <NameConflictDialog title={title} message={message} current_name={conflict.filename.clone()} labels={labels} on_confirm={on_cfm} on_cancel={move |_| { ncq.set(Vec::new()); }} /> }) } else { None } { <div class="pointer-events-auto">{ nc_diag }</div> }
                 <LoadingOverlay is_visible={*is_import_lock} message={i18n::t("synchronizing", lang)} is_fading_out={*is_import_fading_out} z_index="z-[90]" />
                 if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
-                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); crate::subscription_interop::clear_subscription_cache(); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
+                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
             </div>
         </div>
     }
