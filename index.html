@@ -423,6 +423,17 @@
 
     window.initMermaid = function (el) {
       if (typeof mermaid !== 'undefined' && el) {
+        // marked が生成する <pre><code class="language-mermaid">...</code></pre> を
+        // Mermaid が処理できる <div class="mermaid">...</div> に変換
+        el.querySelectorAll('code.language-mermaid').forEach(function(code) {
+          var pre = code.parentElement;
+          if (pre && pre.tagName === 'PRE') {
+            var div = document.createElement('div');
+            div.className = 'mermaid';
+            div.textContent = code.textContent;
+            pre.replaceWith(div);
+          }
+        });
         mermaid.run({ nodes: el.querySelectorAll('.mermaid') });
       }
     };
