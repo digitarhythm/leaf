@@ -53,7 +53,7 @@ pub fn preview(props: &PreviewProps) -> Html {
         Callback::from(move |_: ()| {
             is_closing.set(true);
             let on_close = on_close.clone();
-            Timeout::new(200, move || {
+            Timeout::new(100, move || {
                 on_close.emit(());
             }).forget();
         })
