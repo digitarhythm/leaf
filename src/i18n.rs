@@ -598,6 +598,18 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Offline",
         }.to_string(),
 
+        "preview" => match lang {
+            Language::Ja => "プレビュー",
+            Language::Zh => "预览",
+            Language::Ko => "미리보기",
+            Language::Es => "Vista previa",
+            Language::De => "Vorschau",
+            Language::Fr => "Aperçu",
+            Language::It => "Anteprima",
+            Language::Nl => "Voorbeeld",
+            _ => "Preview",
+        }.to_string(),
+
         "help" => match lang {
             Language::Ja => "ヘルプ",
             Language::Zh => "帮助",
