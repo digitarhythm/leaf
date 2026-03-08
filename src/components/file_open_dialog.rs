@@ -134,6 +134,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let swipe_start_y = use_mut_ref(|| 0.0_f64); // タッチ開始Y座標
     let swipe_is_horizontal = use_mut_ref(|| None::<bool>); // スワイプ方向が水平か判定済みか
     let swipe_is_dragging = use_state(|| false); // ドラッグ中フラグ（transition制御用）
+    // カテゴリースワイプ用ステート
+    let cat_swipe_id = use_state(|| None::<String>);
+    let cat_swipe_offset = use_state(|| 0.0_f64);
+    let cat_swipe_start_x = use_mut_ref(|| 0.0_f64);
+    let cat_swipe_start_y = use_mut_ref(|| 0.0_f64);
+    let cat_swipe_is_horizontal = use_mut_ref(|| None::<bool>);
+    let cat_swipe_is_dragging = use_state(|| false);
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref();
     let edit_input_ref = use_node_ref();
@@ -876,6 +883,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_del_inner = props.on_delete_category.clone();
         let edit_ref = edit_input_ref.clone();
         let focused_area_h = focused_area.clone();
+        let cs_id = cat_swipe_id.clone();
+        let cs_off = cat_swipe_offset.clone();
+        let cs_sx = cat_swipe_start_x.clone();
+        let cs_sy = cat_swipe_start_y.clone();
+        let cs_horiz = cat_swipe_is_horizontal.clone();
+        let cs_dragging = cat_swipe_is_dragging.clone();
 
         html! {
             <div class={classes!("flex", "flex-col", "h-full", "w-full", "border-r", "border-white/5", "bg-gray-900/50")}>
@@ -887,7 +900,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">{ i18n::t("select_category", lang) }</h2>
                     </div>
                 </div>
-                <div ref={cat_list_ref} class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
+                <div ref={cat_list_ref.clone()} class="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-1">
                     <button
                         onclick={let ic = props.on_create_category_toggle.clone(); move |_| ic.emit(true)}
                         class="mb-2 w-full flex items-center justify-center space-x-2 px-3 py-2.5 rounded-md text-sm font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all tracking-widest"
@@ -908,21 +921,162 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         let on_ren = on_ren_inner.clone(); let on_del = on_del_inner.clone();
                         let cid_for_rename = cid_val.clone();
                         let cid_for_delete = cid_val.clone();
+                        let is_others = cat.name == "OTHERS";
+
+                        // カテゴリースワイプ用
+                        let this_cat_offset = if cs_id.as_ref() == Some(&cat.id) { *cs_off } else { 0.0 };
+                        let this_cat_dragging = cs_id.as_ref() == Some(&cat.id) && *cs_dragging;
+                        let cs_id_ts = cs_id.clone();
+                        let cs_off_ts = cs_off.clone();
+                        let cs_sx_ts = cs_sx.clone();
+                        let cs_sy_ts = cs_sy.clone();
+                        let cs_horiz_ts = cs_horiz.clone();
+                        let cs_dragging_ts = cs_dragging.clone();
+                        let cat_fid = cat.id.clone();
+
+                        let cat_on_touch_start = {
+                            let fid = cat_fid.clone();
+                            let cs_id = cs_id_ts.clone();
+                            let cs_off = cs_off_ts.clone();
+                            let sx = cs_sx_ts.clone();
+                            let sy = cs_sy_ts.clone();
+                            let sh = cs_horiz_ts.clone();
+                            let is_others = is_others;
+                            Callback::from(move |e: TouchEvent| {
+                                if is_others { return; }
+                                let te: web_sys::TouchEvent = JsCast::unchecked_into(web_sys::Event::from(e.clone()));
+                                if let Some(touch) = te.touches().get(0) {
+                                    *sx.borrow_mut() = touch.client_x() as f64;
+                                    *sy.borrow_mut() = touch.client_y() as f64;
+                                    *sh.borrow_mut() = None;
+                                    if cs_id.as_ref() != Some(&fid) {
+                                        cs_id.set(Some(fid.clone()));
+                                        cs_off.set(0.0);
+                                    }
+                                }
+                            })
+                        };
+                        let cat_on_touch_move = {
+                            let cs_id = cs_id_ts.clone();
+                            let cs_off = cs_off_ts.clone();
+                            let sx = cs_sx_ts.clone();
+                            let sy = cs_sy_ts.clone();
+                            let sh = cs_horiz_ts.clone();
+                            let sd = cs_dragging_ts.clone();
+                            let fid = cat_fid.clone();
+                            let is_others = is_others;
+                            Callback::from(move |e: TouchEvent| {
+                                if is_others { return; }
+                                if cs_id.as_ref() != Some(&fid) { return; }
+                                let te: web_sys::TouchEvent = JsCast::unchecked_into(web_sys::Event::from(e.clone()));
+                                if let Some(touch) = te.touches().get(0) {
+                                    let dx = touch.client_x() as f64 - *sx.borrow();
+                                    let dy = touch.client_y() as f64 - *sy.borrow();
+                                    let is_h = *sh.borrow();
+                                    if is_h.is_none() {
+                                        if dx.abs() > 8.0 || dy.abs() > 8.0 {
+                                            let horizontal = dx.abs() > dy.abs();
+                                            *sh.borrow_mut() = Some(horizontal);
+                                            if !horizontal { return; }
+                                        } else {
+                                            return;
+                                        }
+                                    } else if !is_h.unwrap_or(false) {
+                                        return;
+                                    }
+                                    e.prevent_default();
+                                    sd.set(true);
+                                    // 左右両方向OK
+                                    cs_off.set(dx);
+                                }
+                            })
+                        };
+                        let cat_on_touch_end = {
+                            let cs_id = cs_id_ts.clone();
+                            let cs_off = cs_off_ts.clone();
+                            let sd = cs_dragging_ts.clone();
+                            let fid = cat_fid.clone();
+                            let on_del = on_del_inner.clone();
+                            let cid_del = cid_for_delete.clone();
+                            let eid_ren = eid_inner.clone();
+                            let ein_ren = ein_inner.clone();
+                            let cid_ren = cid_for_rename.clone();
+                            let cn_ren = cat.name.clone();
+                            let cl_ref = cat_list_ref.clone();
+                            Callback::from(move |_: TouchEvent| {
+                                sd.set(false);
+                                if cs_id.as_ref() != Some(&fid) { return; }
+                                let offset = *cs_off;
+                                let item_width = cl_ref.cast::<web_sys::Element>()
+                                    .map(|el| el.client_width() as f64)
+                                    .unwrap_or(300.0);
+                                let threshold = item_width / 3.0;
+                                if offset < -threshold {
+                                    // 左スワイプ → 削除
+                                    on_del.emit(cid_del.clone());
+                                    cs_id.set(None);
+                                    cs_off.set(0.0);
+                                } else if offset > threshold {
+                                    // 右スワイプ → 名前変更
+                                    eid_ren.set(Some(cid_ren.clone()));
+                                    ein_ren.set(cn_ren.clone());
+                                    cs_id.set(None);
+                                    cs_off.set(0.0);
+                                } else {
+                                    // 不足 → アニメーションで戻す
+                                    cs_off.set(0.0);
+                                    cs_id.set(None);
+                                }
+                            })
+                        };
 
                         html! {
-                            <div 
+                            <div class={classes!("relative", "overflow-hidden", "rounded-md")}>
+                                // 左スワイプ: 右端に赤い削除ボタン
+                                if this_cat_offset < 0.0 {
+                                    <div
+                                        class="absolute right-0 top-0 bottom-0 bg-red-600 flex items-center justify-center z-0"
+                                        style={format!("width: {}px;{}", this_cat_offset.abs(), if this_cat_dragging { "" } else { " transition: width 0.2s ease-out;" })}
+                                    >
+                                        <span class="text-white font-black text-xs">{ i18n::t("delete", lang) }</span>
+                                    </div>
+                                }
+                                // 右スワイプ: 左端に青い名前変更ボタン
+                                if this_cat_offset > 0.0 {
+                                    <div
+                                        class="absolute left-0 top-0 bottom-0 bg-blue-600 flex items-center justify-center z-0"
+                                        style={format!("width: {}px;{}", this_cat_offset.abs(), if this_cat_dragging { "" } else { " transition: width 0.2s ease-out;" })}
+                                    >
+                                        <span class="text-white font-black text-xs">{ i18n::t("rename", lang) }</span>
+                                    </div>
+                                }
+                            <div
                                 class={classes!(
-                                    "group", "relative", "flex", "items-center", "px-3", "py-2", "rounded-md", "cursor-pointer", "transition-all", "duration-200",
+                                    "group", "relative", "flex", "items-center", "px-3", "py-2", "rounded-md", "cursor-pointer",
                                     if is_sel { vec!["bg-emerald-600/20", "text-emerald-400"] } else { vec!["text-gray-400", "hover:bg-white/5", "hover:text-gray-200"] },
                                     if is_active { vec!["ring-2", "ring-emerald-500/50", "bg-emerald-600/30"] } else { vec![] }
                                 )}
+                                style={if this_cat_offset != 0.0 {
+                                    if this_cat_dragging {
+                                        format!("transform: translateX({}px);", this_cat_offset)
+                                    } else {
+                                        format!("transform: translateX({}px); transition: transform 0.2s ease-out;", this_cat_offset)
+                                    }
+                                } else if !this_cat_dragging {
+                                    "transition: transform 0.2s ease-out;".to_string()
+                                } else {
+                                    String::new()
+                                }}
                                 onclick={let f_area = focused_area_h.clone(); let is_editing_this = is_editing; let eid_click = eid_inner.clone(); move |_| { if is_editing_this { return; } eid_click.set(None); s_idx_inner.set(i); f_area.set(FocusedArea::Categories); load_inner.emit((cid_val.clone(), cname_val.clone(), false)); }}
+                                ontouchstart={cat_on_touch_start}
+                                ontouchmove={cat_on_touch_move}
+                                ontouchend={cat_on_touch_end}
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4", "w-4", "mr-3", if is_sel { "text-emerald-500" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                                 </svg>
                                 if is_editing {
-                                    <input 
+                                    <input
                                         ref={edit_ref.clone()} type="text" value={(*ein_inner).clone()}
                                         oninput={let ein = ein_inner.clone(); move |e: InputEvent| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); ein.set(input.value()); }}
                                         onblur={let eid = eid_inner.clone(); move |_| eid.set(None)}
@@ -939,6 +1093,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     }
                                 }
                             </div>
+                            </div> // スワイプwrapper閉じ
                         }
                     }) }
                 </div>

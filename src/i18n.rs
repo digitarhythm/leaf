@@ -339,6 +339,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Verwijderen",
             _ => "Delete",
         }.to_string(),
+        "rename" => match lang {
+            Language::Ja => "名前変更",
+            Language::Zh => "重命名",
+            Language::Ko => "이름 변경",
+            Language::Es => "Renombrar",
+            Language::De => "Umbenennen",
+            Language::Fr => "Renommer",
+            Language::It => "Rinomina",
+            Language::Nl => "Hernoemen",
+            _ => "Rename",
+        }.to_string(),
         "enter_category_name_message" => match lang {
             Language::Ja => "新規カテゴリー名を入力してください。",
             Language::Zh => "请输入新类别名称。",
