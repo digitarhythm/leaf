@@ -1,6 +1,6 @@
 [package]
 name = "leaf"
-version = "0.18.17"
+version = "0.18.18"
 edition = "2021"
 
 [dependencies]
@@ -31,7 +31,10 @@ web-sys = { version = "0.3", features = [
     "ScrollIntoViewOptions",
     "ScrollLogicalPosition",
     "Screen",
-    "DomTokenList"
+    "DomTokenList",
+    "TouchEvent",
+    "TouchList",
+    "Touch"
 ] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

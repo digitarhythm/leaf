@@ -712,35 +712,6 @@ pub fn app() -> Html {
                              }
                          }
 
-                        // 空テキスト時: Driveファイルを削除して未保存状態に戻す
-                        if sheet.content.trim().is_empty() {
-                            if let Some(did) = &sheet.drive_id {
-                                let _ = delete_file(did).await;
-                            }
-                            let mut u_s = (*rs_async.borrow()).clone();
-                            if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) {
-                                si.drive_id = None;
-                                si.content = String::new();
-                                si.is_modified = true;
-                                si.temp_content = None;
-                                si.temp_timestamp = None;
-                                si.last_sync_timestamp = None;
-                                let js = si.to_js();
-                                let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                            }
-                            let is_active = (*r_aid.borrow()).as_ref() == Some(&sheet.id);
-                            *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
-                            if is_active { set_gutter_status("unsaved"); }
-                            *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
-                            if *lock_inner {
-                                lock_fade_inner.set(true);
-                                let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
-                                let _il = ild_inner.clone();
-                                Timeout::new(300, move || { lf.set(false); l.set(false); _il.set(false); }).forget();
-                            } else { ild_inner.set(false); }
-                            return;
-                        }
 
                          let final_content = &sheet.content;
                          let res = upload_file(&fname, &JsValue::from_str(final_content), &target_folder_id, sheet.drive_id.as_deref()).await;
