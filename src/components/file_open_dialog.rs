@@ -124,9 +124,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let abort_controller = use_state(|| None::<AbortController>);
     let fetching_ids = use_mut_ref(|| HashSet::<String>::new());
     let files_cache = use_mut_ref(|| HashMap::<String, Vec<FilePreview>>::new());
-    let pending_delete_file = use_state(|| None::<(String, String)>); 
-    let pending_move_file_id = use_state(|| None::<String>); 
-    let processing_move_id = use_state(|| None::<String>); 
+    let pending_delete_file = use_state(|| None::<(String, String)>);
+    let pending_move_file_id = use_state(|| None::<String>);
+    let processing_move_id = use_state(|| None::<String>);
+    // スワイプ削除用ステート
+    let swipe_file_id = use_state(|| None::<String>); // スワイプ中のファイルID
+    let swipe_offset = use_state(|| 0.0_f64); // 現在のスワイプオフセット(px)
+    let swipe_start_x = use_mut_ref(|| 0.0_f64); // タッチ開始X座標
+    let swipe_start_y = use_mut_ref(|| 0.0_f64); // タッチ開始Y座標
+    let swipe_is_horizontal = use_mut_ref(|| None::<bool>); // スワイプ方向が水平か判定済みか
+    let swipe_is_dragging = use_state(|| false); // ドラッグ中フラグ（transition制御用）
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref();
     let edit_input_ref = use_node_ref();
@@ -958,6 +965,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_move = on_move_file.clone();
         let p_del_state = pending_delete_file.clone();
         let focused_area_h = focused_area.clone();
+        let swipe_fid = swipe_file_id.clone();
+        let swipe_off = swipe_offset.clone();
+        let swipe_sx = swipe_start_x.clone();
+        let swipe_sy = swipe_start_y.clone();
+        let swipe_horiz = swipe_is_horizontal.clone();
+        let swipe_dragging = swipe_is_dragging.clone();
 
         html! {
             <div class={classes!("flex", "flex-col", "bg-gray-900", "min-w-0", "h-full", "w-full")}>
@@ -967,7 +980,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">{ format!("{} ({})", if *current_category_name == "OTHERS" { i18n::t("OTHERS", lang) } else { (*current_category_name).clone() }, file_list.len()) }</h2>
                     </div>
                 </div>
-                <div ref={file_list_ref} class="flex-1 overflow-y-auto custom-scrollbar flex flex-col p-2">
+                <div ref={file_list_ref.clone()} class="flex-1 overflow-y-auto custom-scrollbar flex flex-col p-2">
                     if props.is_loading && file_list.is_empty() {
                         <div class="flex-1 flex flex-col items-center justify-center space-y-4">
                             <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
@@ -996,18 +1009,141 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let current_cid_for_item = current_cid.clone();
                             let on_move_for_item = on_move.clone();
 
+                            // スワイプ削除用
+                            let this_swipe_offset = if swipe_fid.as_ref() == Some(&file.id) { *swipe_off } else { 0.0 };
+                            let this_is_dragging = swipe_fid.as_ref() == Some(&file.id) && *swipe_dragging;
+                            let swipe_fid_ts = swipe_fid.clone();
+                            let swipe_off_ts = swipe_off.clone();
+                            let swipe_sx_ts = swipe_sx.clone();
+                            let swipe_sy_ts = swipe_sy.clone();
+                            let swipe_horiz_ts = swipe_horiz.clone();
+                            let swipe_dragging_ts = swipe_dragging.clone();
+                            let fid_for_ts = file.id.clone();
+                            let on_touch_start = {
+                                let fid = fid_for_ts.clone();
+                                let swipe_fid = swipe_fid_ts.clone();
+                                let swipe_off = swipe_off_ts.clone();
+                                let sx = swipe_sx_ts.clone();
+                                let sy = swipe_sy_ts.clone();
+                                let sh = swipe_horiz_ts.clone();
+                                Callback::from(move |e: TouchEvent| {
+                                    let te: web_sys::TouchEvent = JsCast::unchecked_into(web_sys::Event::from(e.clone()));
+                                    if let Some(touch) = te.touches().get(0) {
+                                        *sx.borrow_mut() = touch.client_x() as f64;
+                                        *sy.borrow_mut() = touch.client_y() as f64;
+                                        *sh.borrow_mut() = None;
+                                        // 前回と違うファイルの場合、リセット
+                                        if swipe_fid.as_ref() != Some(&fid) {
+                                            swipe_fid.set(Some(fid.clone()));
+                                            swipe_off.set(0.0);
+                                        }
+                                    }
+                                })
+                            };
+                            let on_touch_move = {
+                                let swipe_fid = swipe_fid_ts.clone();
+                                let swipe_off = swipe_off_ts.clone();
+                                let sx = swipe_sx_ts.clone();
+                                let sy = swipe_sy_ts.clone();
+                                let sh = swipe_horiz_ts.clone();
+                                let sd = swipe_dragging_ts.clone();
+                                let fid = fid_for_ts.clone();
+                                Callback::from(move |e: TouchEvent| {
+                                    if swipe_fid.as_ref() != Some(&fid) { return; }
+                                    let te: web_sys::TouchEvent = JsCast::unchecked_into(web_sys::Event::from(e.clone()));
+                                    if let Some(touch) = te.touches().get(0) {
+                                        let dx = touch.client_x() as f64 - *sx.borrow();
+                                        let dy = touch.client_y() as f64 - *sy.borrow();
+                                        let is_h = *sh.borrow();
+                                        if is_h.is_none() {
+                                            if dx.abs() > 8.0 || dy.abs() > 8.0 {
+                                                let horizontal = dx.abs() > dy.abs();
+                                                *sh.borrow_mut() = Some(horizontal);
+                                                if !horizontal { return; }
+                                            } else {
+                                                return;
+                                            }
+                                        } else if !is_h.unwrap_or(false) {
+                                            return;
+                                        }
+                                        e.prevent_default();
+                                        sd.set(true);
+                                        // 左方向のみ（負の値）
+                                        let offset = dx.min(0.0);
+                                        swipe_off.set(offset);
+                                    }
+                                })
+                            };
+                            let on_touch_end = {
+                                let swipe_fid = swipe_fid_ts.clone();
+                                let swipe_off = swipe_off_ts.clone();
+                                let sd = swipe_dragging_ts.clone();
+                                let fid = fid_for_ts.clone();
+                                let fname = file.name.clone();
+                                let p_del = p_del_inner.clone();
+                                let fl_ref = file_list_ref.clone();
+                                Callback::from(move |_: TouchEvent| {
+                                    sd.set(false);
+                                    if swipe_fid.as_ref() != Some(&fid) { return; }
+                                    let offset = *swipe_off;
+                                    // アイテム幅をスクロールコンテナから取得
+                                    let item_width = fl_ref.cast::<web_sys::Element>()
+                                        .map(|el| el.client_width() as f64)
+                                        .unwrap_or(300.0);
+                                    let threshold = item_width / 3.0;
+                                    if offset.abs() >= threshold {
+                                        // 3分の1以上スワイプ → 削除確認ダイアログ
+                                        p_del.set(Some((fid.clone(), fname.clone())));
+                                        swipe_fid.set(None);
+                                        swipe_off.set(0.0);
+                                    } else {
+                                        // 半分以下 → アニメーションで元に戻す
+                                        swipe_off.set(0.0);
+                                        swipe_fid.set(None);
+                                    }
+                                })
+                            };
+
                             html! {
-                                <div 
+                                <div class={classes!(
+                                    "relative", "flex-shrink-0", "mx-1", "mb-1", "overflow-hidden", "rounded",
+                                    if is_deleting || is_moving { "opacity-0 scale-95 translate-x-4 transition-all duration-200" } else { "" }
+                                )}>
+                                    // 赤い削除ボタン背景（右端に配置）
+                                    if this_swipe_offset < 0.0 {
+                                        <div
+                                            class="absolute right-0 top-0 bottom-0 bg-red-600 flex items-center justify-center z-0"
+                                            style={format!("width: {}px;{}", this_swipe_offset.abs(), if this_is_dragging { "" } else { " transition: width 0.2s ease-out;" })}
+                                        >
+                                            <span class="text-white font-black text-sm">{ i18n::t("delete", lang) }</span>
+                                        </div>
+                                    }
+                                <div
                                     class={classes!(
-                                        "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "transition-all", "duration-200", "border", "min-h-[8rem]", "flex-shrink-0", "mx-1", "mb-1", "overflow-visible",
+                                        "group", "relative", "flex", "flex-col", "p-0", "rounded", "cursor-pointer", "border", "min-h-[8rem]", "overflow-visible",
+                                        if this_swipe_offset == 0.0 { "transition-all duration-200" } else { "" },
                                         if is_dropdown_open { vec!["z-50", "bg-gray-800/90", "border-emerald-500", "shadow-2xl"] }
-                                        else if is_active { vec!["bg-emerald-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-emerald-500/30", "scale-[1.01]"] } 
+                                        else if is_active { vec!["bg-emerald-600", "text-white", "shadow-lg", "z-10", "border-white", "ring-4", "ring-emerald-500/30", "scale-[1.01]"] }
                                         else if is_sel { vec!["bg-emerald-600/10", "text-emerald-400/80", "border-emerald-500/30", "z-0"] }
                                         else { vec!["text-gray-400", "hover:bg-white/5", "border-white/40", "z-0"] },
                                         if is_deleting || is_moving { vec!["opacity-0", "scale-95", "translate-x-4"] } else { vec!["opacity-100", "scale-100"] }
                                     )}
+                                    style={if this_swipe_offset != 0.0 {
+                                        if this_is_dragging {
+                                            format!("transform: translateX({}px);", this_swipe_offset)
+                                        } else {
+                                            format!("transform: translateX({}px); transition: transform 0.2s ease-out;", this_swipe_offset)
+                                        }
+                                    } else if !this_is_dragging {
+                                        "transition: transform 0.2s ease-out;".to_string()
+                                    } else {
+                                        String::new()
+                                    }}
                                     onclick={let f_area = focused_area_h.clone(); move |_| { s_idx_inner.set(Some(i)); f_area.set(FocusedArea::Files); }}
                                     ondblclick={move |_| on_ok_inner.emit(())}
+                                    ontouchstart={on_touch_start}
+                                    ontouchmove={on_touch_move}
+                                    ontouchend={on_touch_end}
                                 >
                                     <div class="flex flex-col w-full h-full">
                                         // ファイル名表示エリア（高さを半分に、はみ出しを許可、右端フェード）
@@ -1075,6 +1211,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         </div>
                                     }
                                 </div>
+                                </div> // スワイプwrapper閉じ
                             }
                         }) }
                     }
