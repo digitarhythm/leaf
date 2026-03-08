@@ -51,6 +51,19 @@ export async function init_db(dbName) {
         }
     }
 
+    // アカウント別DB（LeafDB_xxx）を開く場合、古い「LeafDB」が残っていれば削除
+    if (dbName.startsWith('LeafDB_')) {
+        try {
+            const databases = await indexedDB.databases();
+            if (databases.some(d => d.name === 'LeafDB')) {
+                indexedDB.deleteDatabase('LeafDB');
+                console.log("[DB] Deleted legacy 'LeafDB' database");
+            }
+        } catch (_) {
+            // indexedDB.databases() 非対応ブラウザではスキップ
+        }
+    }
+
     return new Promise((resolve, reject) => {
         // バージョンを2に上げる
         const request = indexedDB.open(dbName, 2);
