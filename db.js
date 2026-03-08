@@ -81,6 +81,13 @@ export async function init_db(dbName) {
     });
 }
 
+export function close_db() {
+    if (db) {
+        db.close();
+        db = null;
+    }
+}
+
 export async function save_sheet(sheet) {
     if (is_tauri()) {
         console.log("[DB-Tauri] Saving sheet to native db: ", sheet.id);

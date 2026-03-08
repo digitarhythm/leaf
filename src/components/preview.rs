@@ -212,6 +212,9 @@ pub fn preview(props: &PreviewProps) -> Html {
                             <div class="absolute left-6 bottom-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 text-xs text-gray-600 font-mono tracking-widest whitespace-nowrap">
                                 { format!("ver {}", env!("CARGO_PKG_VERSION")) }
                             </div>
+                            <div class="absolute right-6 bottom-4 md:bottom-auto md:top-1/2 md:-translate-y-1/2 text-xs text-gray-600 font-mono tracking-widest whitespace-nowrap">
+                                { crate::auth_interop::get_user_email().as_string().unwrap_or_default() }
+                            </div>
                         }
                         if let Some(on_install) = &props.on_install {
                             <button onclick={on_install.reform(|_| ())} class="px-8 py-3 bg-lime-600 hover:bg-lime-700 text-white font-bold rounded-lg shadow-lg transition-all flex items-center space-x-2">
