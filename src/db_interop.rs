@@ -49,4 +49,6 @@ extern "C" {
 
     #[wasm_bindgen(catch)]
     pub async fn load_categories() -> Result<JsValue, JsValue>;
+
+    pub fn close_db();
 }

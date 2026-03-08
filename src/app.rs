@@ -115,6 +115,44 @@ struct NameConflictData {
 }
 
 const VIM_MODE_KEY: &str = "leaf_vim_mode";
+const PREVIEW_FONT_SIZE_KEY: &str = "leaf_preview_font_size";
+const FIRST_LAUNCH_KEY: &str = "leaf_first_launch_v1";
+
+/// アカウント別のlocalStorageキーを返す
+fn account_key(base_key: &str) -> String {
+    let email = crate::auth_interop::get_user_email();
+    if let Some(email) = email.as_string() {
+        if !email.is_empty() {
+            return format!("{}_{}", base_key, email);
+        }
+    }
+    base_key.to_string()
+}
+
+/// アカウント別のlocalStorageから値を取得
+fn get_account_storage(base_key: &str) -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item(&account_key(base_key)).ok().flatten())
+}
+
+/// アカウント別のlocalStorageに値を保存
+fn set_account_storage(base_key: &str, value: &str) {
+    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = storage.set_item(&account_key(base_key), value);
+    }
+}
+
+/// アカウント別のIndexedDB名を返す
+fn account_db_name() -> String {
+    let email = crate::auth_interop::get_user_email();
+    if let Some(email) = email.as_string() {
+        if !email.is_empty() {
+            return format!("LeafDB_{}", email);
+        }
+    }
+    "LeafDB".to_string()
+}
 
 fn generate_random_color() -> String {
     let h = (js_sys::Math::random() * 360.0) as u32;
@@ -371,18 +409,15 @@ pub fn app() -> Html {
         });
     }
 
-    const STORAGE_KEY_FIRST_LAUNCH: &str = "leaf_first_launch_v1";
-
     {
         let is_auth = is_authenticated.clone();
         let is_help = is_help_visible.clone();
         use_effect_with(is_auth, move |auth| {
             if **auth {
-                let storage = web_sys::window().and_then(|w| w.local_storage().ok().flatten());
-                let first_launch = storage.as_ref().and_then(|s| s.get_item(STORAGE_KEY_FIRST_LAUNCH).ok().flatten()).is_none();
+                let first_launch = get_account_storage(FIRST_LAUNCH_KEY).is_none();
                 if first_launch {
                     is_help.set(true);
-                    if let Some(s) = storage { let _ = s.set_item(STORAGE_KEY_FIRST_LAUNCH, "done"); }
+                    set_account_storage(FIRST_LAUNCH_KEY, "done");
                 }
             }
             || ()
@@ -415,9 +450,7 @@ pub fn app() -> Html {
         Callback::from(move |_| {
             let next = !*vim;
             vim.set(next);
-            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-                let _ = storage.set_item(VIM_MODE_KEY, if next { "true" } else { "false" });
-            }
+            set_account_storage(VIM_MODE_KEY, if next { "true" } else { "false" });
             set_vim_mode(next);
         })
     };
@@ -427,9 +460,7 @@ pub fn app() -> Html {
             let current = *pfs;
             let new_size = std::cmp::max(8, std::cmp::min(72, current + delta));
             pfs.set(new_size);
-            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
-                let _ = storage.set_item("leaf_preview_font_size", &new_size.to_string());
-            }
+            set_account_storage(PREVIEW_FONT_SIZE_KEY, &new_size.to_string());
         })
     };
 
@@ -1438,23 +1469,28 @@ pub fn app() -> Html {
 
         use_effect_with((), move |_| {
             spawn_local(async move {
-                if let Err(_) = crate::db_interop::init_db("LeafDB").await { gloo::console::error!("DB init failed"); }
-                if let Ok(c_val) = crate::db_interop::load_categories().await { if let Ok(loaded_cats) = serde_wasm_bindgen::from_value::<Vec<JSCategory>>(c_val) { cats_handle.set(loaded_cats); } }
-                let mut initial = true;
-                if let Ok(val) = crate::db_interop::load_sheets().await {
-                    if let Ok(loaded) = serde_wasm_bindgen::from_value::<Vec<JSSheet>>(val) {
-                        if !loaded.is_empty() {
-                            let mapped: Vec<Sheet> = loaded.into_iter().map(|s| Sheet { id: s.id, guid: s.guid, category: s.category, title: s.title, content: s.temp_content.clone().unwrap_or(s.content), is_modified: s.temp_timestamp.is_some(), drive_id: s.drive_id, temp_content: s.temp_content, temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color }, total_size: s.total_size, loaded_bytes: s.loaded_bytes, needs_bom: s.needs_bom }).collect();
-                            let last_id = mapped.last().map(|s| s.id.clone()); *rs.borrow_mut() = mapped.clone(); s_handle.set(mapped); aid_handle.set(last_id); initial = false;
+                let db_name = account_db_name();
+                let has_account = db_name != "LeafDB"; // メールが取得できた場合のみDBを開く
+
+                if has_account {
+                    if let Err(_) = crate::db_interop::init_db(&db_name).await { gloo::console::error!("DB init failed"); }
+                    if let Ok(c_val) = crate::db_interop::load_categories().await { if let Ok(loaded_cats) = serde_wasm_bindgen::from_value::<Vec<JSCategory>>(c_val) { cats_handle.set(loaded_cats); } }
+                    let mut initial = true;
+                    if let Ok(val) = crate::db_interop::load_sheets().await {
+                        if let Ok(loaded) = serde_wasm_bindgen::from_value::<Vec<JSSheet>>(val) {
+                            if !loaded.is_empty() {
+                                let mapped: Vec<Sheet> = loaded.into_iter().map(|s| Sheet { id: s.id, guid: s.guid, category: s.category, title: s.title, content: s.temp_content.clone().unwrap_or(s.content), is_modified: s.temp_timestamp.is_some(), drive_id: s.drive_id, temp_content: s.temp_content, temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color }, total_size: s.total_size, loaded_bytes: s.loaded_bytes, needs_bom: s.needs_bom }).collect();
+                                let last_id = mapped.last().map(|s| s.id.clone()); *rs.borrow_mut() = mapped.clone(); s_handle.set(mapped); aid_handle.set(last_id); initial = false;
+                            }
                         }
                     }
+                    if initial {
+                        let nid = js_sys::Date::now().to_string();
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true };
+                        *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
+                    }
                 }
-                if initial {
-                    let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true };
-                    *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
-                }
-                
+
                 // オフラインの場合は、認証を待たずに起動
                 if !is_online_init {
                     gloo::console::log!("[Leaf-SYSTEM] Offline startup. revealing editor UI.");
@@ -1483,10 +1519,13 @@ pub fn app() -> Html {
         let cq_h = conflict_queue.clone();
         let lmk_h = loading_message_key.clone();
         let aid_ref_h = active_id_ref.clone();
+        let aid_state_h = active_sheet_id.clone();
         let on_save_for_auth = on_save_cb.clone();
         let is_online = *network_connected;
         let is_auth_flag_h = is_auth_flag.clone();
         let is_ad_free_c = is_ad_free.clone();
+        let vim_mode_auth = vim_mode.clone();
+        let pfs_auth = preview_font_size.clone();
 
         use_effect_with((is_online, ), move |_| {
             let cleanup = || ();
@@ -1499,6 +1538,7 @@ pub fn app() -> Html {
             let cq_cb = cq_h.clone();
             let lmk_cb = lmk_h.clone();
             let aid_ref_cb = aid_ref_h.clone();
+            let aid_state_cb = aid_state_h.clone();
             let os_cb_inner = on_save_for_auth.clone();
             let is_ad_free_cb = is_ad_free_c.clone();
 
@@ -1533,12 +1573,23 @@ pub fn app() -> Html {
                     let cq_inner = cq_cb.clone();
                     let lmk_inner = lmk_cb.clone();
                     let aid_ref_inner = aid_ref_cb.clone();
+                    let aid_state_inner = aid_state_cb.clone();
                     let is_ad_free_inner = is_ad_free_cb.clone();
 
-                    // 広告非表示対象のメールアドレスチェック
-                    {
+                    // メールアドレス取得 → アカウント別DB初期化 → 設定再読み込み → Drive初期化
+                    let vim_auth = vim_mode_auth.clone();
+                    let pfs_a = pfs_auth.clone();
+                    let s_reload = s_inner.clone();
+                    let rs_reload = rs_inner.clone();
+                    let cats_reload = cats_i.clone();
+                    spawn_local({
                         let ad_free = is_ad_free_inner.clone();
-                        spawn_local(async move {
+                        let s_handle = s_reload.clone();
+                        let rs_ref = rs_reload.clone();
+                        let cats_h = cats_reload.clone();
+                        let aid_h = aid_state_inner.clone();
+                        async move {
+                            // 1. メールアドレスを取得
                             let _ = crate::auth_interop::fetch_user_email().await;
                             let email_val = crate::auth_interop::get_user_email();
                             if let Some(email) = email_val.as_string() {
@@ -1547,8 +1598,60 @@ pub fn app() -> Html {
                                     ad_free.set(true);
                                 }
                             }
-                        });
-                    }
+
+                            // 2. アカウント別DBに切り替え
+                            crate::db_interop::close_db();
+                            let db_name = account_db_name();
+                            if let Err(_) = crate::db_interop::init_db(&db_name).await {
+                                gloo::console::error!("Account DB init failed");
+                            }
+
+                            // 3. アカウント別DBからデータ再読み込み
+                            if let Ok(c_val) = crate::db_interop::load_categories().await {
+                                if let Ok(loaded_cats) = serde_wasm_bindgen::from_value::<Vec<JSCategory>>(c_val) {
+                                    cats_h.set(loaded_cats);
+                                }
+                            }
+                            let mut has_sheets = false;
+                            if let Ok(val) = crate::db_interop::load_sheets().await {
+                                if let Ok(loaded) = serde_wasm_bindgen::from_value::<Vec<JSSheet>>(val) {
+                                    if !loaded.is_empty() {
+                                        let mapped: Vec<Sheet> = loaded.into_iter().map(|s| Sheet {
+                                            id: s.id, guid: s.guid, category: s.category, title: s.title,
+                                            content: s.temp_content.clone().unwrap_or(s.content),
+                                            is_modified: s.temp_timestamp.is_some(), drive_id: s.drive_id,
+                                            temp_content: s.temp_content, temp_timestamp: s.temp_timestamp,
+                                            last_sync_timestamp: s.last_sync_timestamp,
+                                            tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color },
+                                            total_size: s.total_size, loaded_bytes: s.loaded_bytes, needs_bom: s.needs_bom
+                                        }).collect();
+                                        let last_id = mapped.last().map(|s| s.id.clone());
+                                        *rs_ref.borrow_mut() = mapped.clone();
+                                        s_handle.set(mapped);
+                                        aid_h.set(last_id);
+                                        has_sheets = true;
+                                    }
+                                }
+                            }
+                            if !has_sheets {
+                                let nid = js_sys::Date::now().to_string();
+                                let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true };
+                                *rs_ref.borrow_mut() = vec![ns.clone()];
+                                s_handle.set(vec![ns]);
+                                aid_h.set(Some(nid));
+                            }
+
+                            // 4. アカウント別localStorage設定の再読み込み
+                            let vim_val = get_account_storage(VIM_MODE_KEY).map(|v| v == "true").unwrap_or(true);
+                            vim_auth.set(vim_val);
+                            crate::js_interop::set_vim_mode(vim_val);
+                            if let Some(fs_str) = get_account_storage(PREVIEW_FONT_SIZE_KEY) {
+                                if let Ok(fs) = fs_str.parse::<i32>() {
+                                    pfs_a.set(fs);
+                                }
+                            }
+                        }
+                    });
 
                     spawn_local(async move {
                         match ensure_directory_structure().await {

@@ -7,7 +7,11 @@ let previewActive = false;
 let localFileHandle = null;
 let localFilePath = null; // Tauri用: ネイティブファイルパス保持
 let internalChange = false;
-const FONT_SIZE_KEY = 'leaf_font_size';
+const FONT_SIZE_KEY_BASE = 'leaf_font_size';
+function getFontSizeKey() {
+    const email = localStorage.getItem('leaf_google_email');
+    return email ? `${FONT_SIZE_KEY_BASE}_${email}` : FONT_SIZE_KEY_BASE;
+}
 
 export function can_install_pwa() {
     const prompt = window.leafDeferredPrompt;
@@ -190,7 +194,7 @@ export function init_editor(element_id, callback) {
 
     // 基本設定
     editor.setOptions({
-        fontSize: localStorage.getItem(FONT_SIZE_KEY) || "14pt",
+        fontSize: localStorage.getItem(getFontSizeKey()) || "14pt",
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
         enableBasicAutocompletion: true,
         enableLiveAutocompletion: true,
@@ -423,7 +427,7 @@ export function set_gutter_status(mode) {
 
 export function get_font_size() {
     if (!editor) {
-        const stored = localStorage.getItem(FONT_SIZE_KEY);
+        const stored = localStorage.getItem(getFontSizeKey());
         return stored ? parseFloat(stored) : 14;
     }
     return parseFloat(editor.getFontSize()) || 14;
@@ -437,7 +441,7 @@ export function change_font_size(delta) {
     const newSize = Math.max(8, Math.min(72, currentSize + delta));
     const sizeStr = newSize + "pt";
     editor.setFontSize(sizeStr);
-    localStorage.setItem(FONT_SIZE_KEY, sizeStr);
+    localStorage.setItem(getFontSizeKey(), sizeStr);
 
     // Rust 側へ通知
     window.dispatchEvent(new CustomEvent('leaf-font-size-changed', { detail: newSize }));
