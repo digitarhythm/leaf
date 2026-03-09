@@ -116,7 +116,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let is_fading_out = use_state(|| false);
     let current_category_id = use_state(|| "".to_string());
     let current_category_name = use_state(|| "".to_string());
-    let active_dropdown_file_id = use_state(|| None::<String>); 
+    let active_dropdown_file_id = use_state(|| None::<String>);
+    let dropdown_pos = use_state(|| (0.0_f64, 0.0_f64)); // ドロップダウンの固定位置 (right from viewport right, top)
     let preview_modal_data = use_state(|| None::<FilePreview>);
     let is_preview_fading_out = use_state(|| false); 
     let is_loading_preview = use_state(|| false); 
@@ -1112,12 +1113,10 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_ok = on_ok_click.clone();
         let active_dropdown = (*active_dropdown_file_id).clone();
         let active_dropdown_state = active_dropdown_file_id.clone();
+        let dropdown_pos_state = dropdown_pos.clone();
         let is_ld_id = (*is_deleting_id).clone();
         let p_move_id = (*pending_move_file_id).clone();
         let proc_move_id = (*processing_move_id).clone();
-        let categories = (*sorted_categories).clone();
-        let current_cid = (*current_category_id).clone();
-        let on_move = on_move_file.clone();
         let p_del_state = pending_delete_file.clone();
         let focused_area_h = focused_area.clone();
         let swipe_fid = swipe_file_id.clone();
@@ -1160,9 +1159,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let file_id_inner = file.id.clone();
                             let file_name_inner = file.name.clone();
                             let p_del_inner = p_del_state.clone();
-                            let categories_for_item = categories.clone();
-                            let current_cid_for_item = current_cid.clone();
-                            let on_move_for_item = on_move.clone();
 
                             // スワイプ削除用
                             let this_swipe_offset = if swipe_fid.as_ref() == Some(&file.id) { *swipe_off } else { 0.0 };
@@ -1314,25 +1310,29 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 if is_dropdown_open { "opacity-100" } else { "opacity-0 group-hover:opacity-100" }
                                             )}>
                                                 <div class="relative">
-                                                    <button 
-                                                        onclick={let ads = ads_inner.clone(); let fid = file_id_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); if is_dropdown_open { ads.set(None); } else { ads.set(Some(fid.clone())); } }}
+                                                    <button
+                                                        onclick={let ads = ads_inner.clone(); let fid = file_id_inner.clone(); let dp = dropdown_pos_state.clone(); move |e: MouseEvent| {
+                                                            e.stop_propagation();
+                                                            if is_dropdown_open {
+                                                                ads.set(None);
+                                                            } else {
+                                                                // ボタンの位置を取得してドロップダウン位置を計算
+                                                                let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+                                                                    .and_then(|el| el.closest("button").ok().flatten());
+                                                                if let Some(el) = btn {
+                                                                    let rect = el.get_bounding_client_rect();
+                                                                    let top = rect.bottom() + 4.0;
+                                                                    let right = rect.right();
+                                                                    dp.set((right, top));
+                                                                }
+                                                                ads.set(Some(fid.clone()));
+                                                            }
+                                                        }}
                                                         class={classes!("p-1", "rounded-md", "hover:bg-black/20", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
                                                         title="Change Category"
                                                     >
                                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                                                     </button>
-                                                    if is_dropdown_open {
-                                                        <div ref={dropdown_ref.clone()} class="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-white/10 rounded-lg shadow-2xl z-[60] py-1 animate-in fade-in zoom-in-95 duration-100">
-                                                            <div class="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mb-1">{ "Move to category" }</div>
-                                                            <div class="max-h-48 overflow-y-auto custom-scrollbar">
-                                                                { for categories_for_item.iter().filter(|c| c.id != current_cid_for_item).map(|c| {
-                                                                    let on_mv = on_move_for_item.clone(); let fid = file_id_inner.clone(); let tcid = c.id.clone();
-                                                                    let cname = c.name.clone();
-                                                                    html! { <button onclick={move |e: MouseEvent| { e.stop_propagation(); on_mv.emit((fid.clone(), tcid.clone())); }} class="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-emerald-600 hover:text-white transition-colors flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg><span>{ if cname == "OTHERS" { i18n::t("OTHERS", lang) } else { cname } }</span></button> }
-                                                                }) }
-                                                            </div>
-                                                        </div>
-                                                    }
                                                 </div>
                                                 <button 
                                                     onclick={let fid = file_id_inner.clone(); let fname = file_name_inner.clone(); let p_del = p_del_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid.clone(), fname.clone()))); }}
@@ -1375,8 +1375,40 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         }
     };
 
+    // カテゴリー変更ドロップダウン（fixedポジションでoverflow-hidden回避）
+    let dropdown_menu_html = if let Some(ref dropdown_fid) = *active_dropdown_file_id {
+        let (dd_right, dd_top) = *dropdown_pos;
+        let vh = web_sys::window().map(|w| w.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(800.0)).unwrap_or(800.0);
+        let dropdown_left = (dd_right - 192.0).max(4.0); // w-48 = 192px
+        let max_dropdown_h = 240.0;
+        let use_top = if dd_top + max_dropdown_h > vh { (dd_top - max_dropdown_h - 8.0).max(4.0) } else { dd_top };
+        let current_cid_for_dd = (*current_category_id).clone();
+        let ads_dd = active_dropdown_file_id.clone();
+        let fid_dd = dropdown_fid.clone();
+        html! {
+            <>
+                <div class="fixed inset-0 z-[350]" onclick={let ads = ads_dd.clone(); move |_| ads.set(None)}></div>
+                <div ref={dropdown_ref.clone()} class="fixed z-[360] w-48 bg-gray-800 border border-white/10 rounded-lg shadow-2xl py-1 animate-in fade-in zoom-in-95 duration-100"
+                    style={format!("left: {}px; top: {}px;", dropdown_left, use_top)}
+                    onclick={|e: MouseEvent| e.stop_propagation()}
+                >
+                    <div class="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mb-1">{ "Move to category" }</div>
+                    <div class="max-h-48 overflow-y-auto custom-scrollbar">
+                        { for sorted_categories.iter().filter(|c| c.id != current_cid_for_dd).map(|c| {
+                            let on_mv = on_move_file.clone(); let fid = fid_dd.clone(); let tcid = c.id.clone();
+                            let cname = c.name.clone();
+                            html! { <button onclick={move |e: MouseEvent| { e.stop_propagation(); on_mv.emit((fid.clone(), tcid.clone())); }} class="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-emerald-600 hover:text-white transition-colors flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg><span>{ if cname == "OTHERS" { i18n::t("OTHERS", lang) } else { cname } }</span></button> }
+                        }) }
+                    </div>
+                </div>
+            </>
+        }
+    } else {
+        html! {}
+    };
+
     html! {
-        <div 
+        <div
             ref={root_ref.clone()}
             tabindex="0"
             onkeydown={on_keydown}
@@ -1462,6 +1494,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     </div>
                 </div>
             </div>
+
+            { dropdown_menu_html.clone() }
 
             if props.is_creating_category {
                 <div class="z-[210]">
