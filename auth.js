@@ -104,6 +104,7 @@ export function init_google_auth(clientId, onSuccessCallback) {
 
         // 定期的にトークン期限をチェック
         setInterval(async () => {
+            if (!navigator.onLine) return; // オフライン時はスキップ
             const expiry = localStorage.getItem(EXPIRY_KEY);
             if (expiry) {
                 const timeLeft = parseInt(expiry) - Date.now();
@@ -181,14 +182,20 @@ export async function try_silent_refresh(clientId = window.leafClientId) {
         refreshPromise = null;
         return data.access_token;
     } catch (e) {
-        console.error("[Auth] Refresh token failed (possibly offline):", e);
-        refreshPromise.reject(e);
-        refreshPromise = null;
-        // ネットワークエラーでなければ再ログインを促す
+        const isNetworkError = e instanceof TypeError && e.message.includes('fetch');
+        if (isNetworkError) {
+            console.warn("[Auth] Refresh failed (network unavailable). Will retry later.");
+        } else {
+            console.error("[Auth] Refresh token failed:", e);
+        }
+        if (refreshPromise) { refreshPromise.reject(e); refreshPromise = null; }
+        // ネットワークエラーの場合は静かに失敗（スリープ復帰時等）
+        if (isNetworkError) return null;
+        // それ以外で、オンラインなら再ログインを促す
         if (navigator.onLine) {
             return force_reauth(clientId);
         }
-        throw e;
+        return null;
     }
 }
 
