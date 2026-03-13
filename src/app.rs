@@ -2083,9 +2083,6 @@ pub fn app() -> Html {
                                                                                                                     <a href="licenses.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { i18n::t("oss_licenses", lang) }
                                                                                                                     </a>
-                                                                                                                    <a href={format!("features_{}.html", match lang { Language::Ja => "ja", Language::Zh => "zh", Language::Ko => "ko", Language::Es => "es", Language::De => "de", Language::Fr => "fr", Language::It => "it", Language::Nl => "nl", _ => "en" })} target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
-                                                                                                                        { i18n::t("tutorial", lang) }
-                                                                                                                    </a>
                                                                                                                 </div>
                                                                                                                                                                                                                                                                                                                                                                                                         <div class="mt-4 text-gray-500 text-[10px]">{ i18n::t("login_required", lang) }</div>
                                                     </div>
