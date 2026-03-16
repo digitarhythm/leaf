@@ -162,36 +162,35 @@ fn generate_random_color() -> String {
 }
 
 fn trigger_conflict_check(
-    aid_ref: Rc<RefCell<Option<String>>>, 
-    s_ref: Rc<RefCell<Vec<Sheet>>>, 
-    cq: UseStateHandle<Vec<ConflictData>>,
+    aid_ref: Rc<RefCell<Option<String>>>,
+    s_ref: Rc<RefCell<Vec<Sheet>>>,
+    s_state: UseStateHandle<Vec<Sheet>>,
     ild: UseStateHandle<bool>,
     ifo: UseStateHandle<bool>,
     lmk: UseStateHandle<&'static str>,
     is_init: Option<UseStateHandle<bool>>,
-    on_save: Callback<bool> // 追加
+    on_save: Callback<bool>
 ) {
     let aid = (*aid_ref.borrow()).clone();
     let sheets = (*s_ref.borrow()).clone();
-    
+
     if let Some(id) = aid {
         if let Some(sheet) = sheets.iter().find(|s| s.id == id) {
             if let Some(drive_id) = &sheet.drive_id {
                 let drive_id = drive_id.clone();
                 let sheet_id = sheet.id.clone();
-                let local_content = sheet.content.clone();
                 let is_modified = sheet.is_modified;
                 // ローカルの最終更新時刻（tempがあればそれを、なければ同期時刻を使用）
                 let local_time = sheet.temp_timestamp.unwrap_or_else(|| sheet.last_sync_timestamp.unwrap_or(0));
                 let last_sync = sheet.last_sync_timestamp.unwrap_or(0);
-                let title = sheet.title.clone();
-                let cq = cq.clone();
                 let ild_inner = ild.clone();
                 let ifo_inner = ifo.clone();
                 let lmk_inner = lmk.clone();
                 let is_init_inner = is_init.clone();
                 let on_save_inner = on_save.clone();
 
+                let s_ref_inner = s_ref.clone();
+                let s_state_inner = s_state.clone();
                 // 競合チェック開始（オーバーレイは出さず、バックグラウンドでメタデータを確認）
                 spawn_local(async move {
                     if let Ok(metadata) = get_file_metadata(&drive_id).await {
@@ -199,32 +198,38 @@ fn trigger_conflict_check(
                             if let Some(time_str) = time_val.as_string() {
                                 let drive_time = crate::drive_interop::parse_date(&time_str) as u64;
                                 gloo::console::log!(format!("[Leaf-SYSTEM] Sync Check: drive={}, last_sync={}, local_temp={}, is_modified={}", drive_time, last_sync, local_time, is_modified));
-                                
+
                                 if drive_time > last_sync + 1000 {
-                                    // Googleドライブの方が新しい -> 競合ダイアログを表示
+                                    // Googleドライブの方が新しい → ダイアログを出さずにDriveの内容で自動更新
                                     lmk_inner.set("synchronizing");
                                     ild_inner.set(true);
                                     ifo_inner.set(false);
 
-                                    gloo::console::warn!(format!("[Leaf-SYSTEM] Remote conflict! drive_time({}) > last_sync({}). Showing dialog.", drive_time, last_sync));
+                                    gloo::console::log!(format!("[Leaf-SYSTEM] Drive is newer (drive_time={}, last_sync={}). Auto-loading from Drive.", drive_time, last_sync));
                                     if let Ok(drive_bytes) = download_file(&drive_id, None, None).await {
                                         let decoder = js_sys::Reflect::get(&web_sys::window().unwrap(), &JsValue::from_str("TextDecoder")).unwrap();
                                         let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
                                         let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
                                         let drive_content = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&drive_bytes)).unwrap().as_string().unwrap_or_default();
+                                        let content_len = drive_content.len() as u64;
 
-                                        if drive_content != local_content {
-                                            let mut current_q = (*cq).clone();
-                                            if !current_q.iter().any(|c| c.sheet_id == sheet_id) {
-                                                current_q.push(ConflictData {
-                                                    sheet_id, title, drive_id, local_content, drive_time, time_str: time_str.clone(), is_missing_on_drive: false,
-                                                });
-                                                cq.set(current_q);
-                                            }
+                                        let mut us = (*s_ref_inner.borrow()).clone();
+                                        if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) {
+                                            s.content = drive_content.clone();
+                                            s.temp_content = None;
+                                            s.temp_timestamp = None;
+                                            s.last_sync_timestamp = Some(drive_time);
+                                            s.is_modified = false;
+                                            s.loaded_bytes = content_len;
+                                            s.total_size = content_len;
+                                            let js = s.to_js();
+                                            let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                            if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                         }
+                                        *s_ref_inner.borrow_mut() = us.clone();
+                                        s_state_inner.set(us);
+                                        load_editor_content(&drive_content);
                                     }
-                                    
-                                    // インジケータを消してダイアログを表示
                                     let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = is_init_inner.clone();
                                     ifo.set(true);
                                     Timeout::new(300, move || { ild.set(false); ifo.set(false); if let Some(h) = isi { h.set(false); } }).forget();
@@ -542,6 +547,8 @@ pub fn app() -> Html {
         let ris_h = saving_id_ref.clone(); let is_saving_h = saving_sheet_id.clone();
         let ncq_h = name_conflict_queue.clone();
         let osh_cb = os_handle.clone();
+        let cq_save = conflict_queue.clone();
+        let ifo_save = is_fading_out.clone();
         Callback::from(move |is_manual: bool| {
             let aid_opt = (*r_aid.borrow()).clone();
             let id = if let Some(ref id) = aid_opt {
@@ -561,7 +568,9 @@ pub fn app() -> Html {
             let ris_h = ris_h.clone(); let is_saving_h = is_saving_h.clone();
             let ncq_h = ncq_h.clone();
             let osh_async = osh_cb.clone();
-            
+            let cq_async = cq_save.clone();
+            let ifo_async = ifo_save.clone();
+
             Timeout::new(0, move || {
                 let ncid_val = (*r_ncid.borrow()).clone();
                 let cur_c = captured_content;
@@ -743,6 +752,36 @@ pub fn app() -> Html {
                              }
                          }
 
+
+                         // 保存前コンフリクトチェック: Driveのファイルが更新されていないか確認
+                         if let Some(ref did) = sheet.drive_id {
+                             if let Some(sync_ts) = sheet.last_sync_timestamp {
+                                 if let Ok(metadata) = get_file_metadata(did).await {
+                                     if let Ok(tv) = js_sys::Reflect::get(&metadata, &JsValue::from_str("modifiedTime")) {
+                                         if let Some(ts) = tv.as_string() {
+                                             let drive_time = crate::drive_interop::parse_date(&ts) as u64;
+                                             if drive_time > sync_ts + 1000 {
+                                                 // Driveの方が新しい → コンフリクトダイアログを表示して保存中断
+                                                 gloo::console::warn!(format!("[Leaf-SYSTEM] Pre-save conflict! drive_time({}) > sync_ts({}). Aborting save.", drive_time, sync_ts));
+                                                 let mut current_q = (*cq_async).clone();
+                                                 if !current_q.iter().any(|c| c.sheet_id == sheet.id) {
+                                                     current_q.push(ConflictData {
+                                                         sheet_id: sheet.id.clone(), title: fname.clone(), drive_id: did.clone(),
+                                                         local_content: sheet.content.clone(), drive_time, time_str: ts, is_missing_on_drive: false,
+                                                     });
+                                                     cq_async.set(current_q);
+                                                 }
+                                                 *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
+                                                 ifo_async.set(true);
+                                                 let ild = ild_inner.clone(); let ifo = ifo_async.clone();
+                                                 Timeout::new(300, move || { ild.set(false); ifo.set(false); }).forget();
+                                                 return;
+                                             }
+                                         }
+                                     }
+                                 }
+                             }
+                         }
 
                          let final_content = &sheet.content;
                          let res = upload_file(&fname, &JsValue::from_str(final_content), &target_folder_id, sheet.drive_id.as_deref()).await;
@@ -1152,11 +1191,18 @@ pub fn app() -> Html {
                     let c = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&cv)).unwrap().as_string().unwrap_or_default();
                     let c_len = c.len() as u64;
                     
+                    // DriveのmodifiedTimeを取得して正確なタイムスタンプを使用
+                    let sync_ts = if let Ok(meta) = get_file_metadata(&did).await {
+                        if let Ok(tv) = js_sys::Reflect::get(&meta, &JsValue::from_str("modifiedTime")) {
+                            tv.as_string().map(|ts| crate::drive_interop::parse_date(&ts) as u64)
+                        } else { None }
+                    } else { None };
+
                     let mut cs = (*rs_inner.borrow()).clone();
                     let tidx = if cs.len() == 1 && cs[0].drive_id.is_none() { Some(0) } else { None };
                     let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
                     let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
-                    let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: Some(js_sys::Date::now() as u64), tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom };
+                    let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: sync_ts, tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom };
                     load_editor_content(&c); set_gutter_status("none");
                     if let Some(idx) = tidx { cs[idx] = ns.clone(); } else { cs = vec![ns.clone()]; }
                     *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
@@ -1389,7 +1435,7 @@ pub fn app() -> Html {
         let nc = network_connected.clone();
         let aid_ref_effect = active_id_ref.clone();
         let s_ref_effect = sheets_ref.clone();
-        let cq_effect = conflict_queue.clone();
+        let s_handle_effect = sheets.clone();
         let lmk_effect = loading_message_key.clone();
         let on_save_for_net = on_save_cb.clone();
 
@@ -1415,7 +1461,7 @@ pub fn app() -> Html {
                 let nc = nc_online.clone();
                 let aid_ref = aid_ref_effect.clone();
                 let s_ref = s_ref_effect.clone();
-                let cq = cq_effect.clone();
+                let s_st = s_handle_effect.clone();
                 let ild = is_ld.clone();
                 let ifo = is_fo.clone();
                 let lmk = lmk_effect.clone();
@@ -1423,11 +1469,11 @@ pub fn app() -> Html {
                 EventListener::new(&window, "online", move |_| {
                     gloo::console::log!("[Leaf-SYSTEM] Network online. Waiting 500ms for stable connection...");
                     nc.set(true);
-                    let ar = aid_ref.clone(); let sr = s_ref.clone(); let c = cq.clone();
+                    let ar = aid_ref.clone(); let sr = s_ref.clone(); let ss = s_st.clone();
                     let il = ild.clone(); let i = ifo.clone(); let l = lmk.clone(); let o = os_cb.clone();
                     Timeout::new(500, move || {
                         gloo::console::log!("[Leaf-SYSTEM] connection stable. Checking for conflicts...");
-                        trigger_conflict_check(ar, sr, c, il, i, l, None, o);
+                        trigger_conflict_check(ar, sr, ss, il, i, l, None, o);
                     }).forget();
                 })
             };
@@ -1441,7 +1487,7 @@ pub fn app() -> Html {
             let listener_visibility = {
                 let aid_ref = aid_ref_effect.clone();
                 let s_ref = s_ref_effect.clone();
-                let cq = cq_effect.clone();
+                let s_st = s_handle_effect.clone();
                 let ild = is_ld.clone();
                 let ifo = is_fo.clone();
                 let lmk = lmk_effect.clone();
@@ -1451,7 +1497,7 @@ pub fn app() -> Html {
                     let doc = web_sys::window().unwrap().document().unwrap();
                     if !doc.hidden() {
                         gloo::console::log!("[Leaf-SYSTEM] App visible. Checking for conflicts...");
-                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), cq.clone(), ild.clone(), ifo.clone(), lmk.clone(), None, os_cb.clone());
+                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), s_st.clone(), ild.clone(), ifo.clone(), lmk.clone(), None, os_cb.clone());
                     }
                 })
             };
@@ -1516,7 +1562,6 @@ pub fn app() -> Html {
         let client_id = client_id.clone(); let s_state = sheets.clone(); let rs = sheets_ref.clone();
         let ild_h = is_loading.clone(); let ifo_h = is_fading_out.clone(); let is_init_h = is_initial_load.clone();
         let nc_h = network_connected.clone();
-        let cq_h = conflict_queue.clone();
         let lmk_h = loading_message_key.clone();
         let aid_ref_h = active_id_ref.clone();
         let aid_state_h = active_sheet_id.clone();
@@ -1535,7 +1580,6 @@ pub fn app() -> Html {
             let cats_cb = cats_init.clone(); let s_state_cb = s_state.clone(); let rs_cb = rs.clone();
             let ild_cb = ild_h.clone(); let ifo_cb = ifo_h.clone(); let is_init_cb = is_init_h.clone();
             let nc_cb = nc_h.clone();
-            let cq_cb = cq_h.clone();
             let lmk_cb = lmk_h.clone();
             let aid_ref_cb = aid_ref_h.clone();
             let aid_state_cb = aid_state_h.clone();
@@ -1570,7 +1614,6 @@ pub fn app() -> Html {
                     let ild_inner = ild_cb.clone(); let ifo_inner = ifo_cb.clone(); let is_init_inner = is_init_cb.clone();
                     let is_auth_err = is_auth_inner.clone();
                     let nc_inner = nc_cb.clone();
-                    let cq_inner = cq_cb.clone();
                     let lmk_inner = lmk_cb.clone();
                     let aid_ref_inner = aid_ref_cb.clone();
                     let aid_state_inner = aid_state_cb.clone();
@@ -1683,9 +1726,9 @@ pub fn app() -> Html {
                                         
                                         // 初期化の最後に衝突チェックを実行
                                         trigger_conflict_check(
-                                            aid_ref_inner, 
+                                            aid_ref_inner,
                                             rs_inner.clone(),
-                                            cq_inner,
+                                            s_inner.clone(),
                                             ild_inner.clone(),
                                             ifo_inner.clone(),
                                             lmk_inner,
