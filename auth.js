@@ -185,13 +185,13 @@ export async function try_silent_refresh(clientId = window.leafClientId) {
         const isNetworkError = e instanceof TypeError && e.message.includes('fetch');
         if (isNetworkError) {
             console.warn("[Auth] Refresh failed (network unavailable). Will retry later.");
-        } else {
-            console.error("[Auth] Refresh token failed:", e);
+            // ネットワークエラーの場合はresolve(null)で静かに失敗（スリープ復帰時等）
+            if (refreshPromise) { refreshPromise.resolve(null); refreshPromise = null; }
+            return null;
         }
+        console.error("[Auth] Refresh token failed:", e);
         if (refreshPromise) { refreshPromise.reject(e); refreshPromise = null; }
-        // ネットワークエラーの場合は静かに失敗（スリープ復帰時等）
-        if (isNetworkError) return null;
-        // それ以外で、オンラインなら再ログインを促す
+        // オンラインなら再ログインを促す
         if (navigator.onLine) {
             return force_reauth(clientId);
         }

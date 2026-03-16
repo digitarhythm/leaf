@@ -1,6 +1,6 @@
 [package]
 name = "leaf"
-version = "0.18.25"
+version = "0.18.26"
 edition = "2021"
 
 [dependencies]
