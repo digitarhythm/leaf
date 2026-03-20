@@ -131,15 +131,9 @@ export async function save_sheet(sheet) {
         }
         const transaction = db.transaction([STORE_SHEETS], "readwrite");
         const store = transaction.objectStore(STORE_SHEETS);
-
-        // 常に最新の1件のみを保持するため、既存データを全削除してから追加する
-        const clearReq = store.clear();
-        clearReq.onsuccess = () => {
-            const request = store.put(sheet);
-            request.onsuccess = () => resolve();
-            request.onerror = (e) => reject(e.target.error);
-        };
-        clearReq.onerror = (e) => reject(e.target.error);
+        const request = store.put(sheet);
+        request.onsuccess = () => resolve();
+        request.onerror = (e) => reject(e.target.error);
     });
 }
 

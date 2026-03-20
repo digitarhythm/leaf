@@ -20,6 +20,10 @@ pub struct ButtonBarProps {
     pub on_toggle_vim: Callback<()>,
     pub file_extension: String,
     pub on_change_extension: Callback<String>,
+    #[prop_or_default]
+    pub sheet_count: usize,
+    #[prop_or_default]
+    pub on_open_sheet_list: Option<Callback<()>>,
 }
 
 #[function_component(ButtonBar)]
@@ -242,6 +246,20 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 {"Leaf"}
             </span>
 
+            // Sheet list button (Portrait only, shown when multiple sheets)
+            if props.sheet_count > 1 {
+                if let Some(ref on_open_sl) = props.on_open_sheet_list {
+                    <button
+                        onclick={let cb = on_open_sl.clone(); move |_| cb.emit(())}
+                        class="desktop:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white transition-colors"
+                        title={i18n::t("open_sheets", lang)}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 003.75 9v.878m0 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128M3.75 9.878A2.25 2.25 0 001.5 12v6a2.25 2.25 0 002.25 2.25h16.5A2.25 2.25 0 0022.5 18v-6a2.25 2.25 0 00-2.25-2.122" />
+                        </svg>
+                    </button>
+                }
+            }
             // Hamburger menu (Portrait only)
             <div class="relative inline-block text-left desktop:hidden mr-1">
                 <button
