@@ -422,6 +422,7 @@ pub fn app() -> Html {
 
     let is_ad_free = use_state(|| false);
     let pending_close_tab = use_state(|| None::<String>);
+    let pending_close_unsynced_tab = use_state(|| None::<String>);
     let pending_save_close_tab = use_state(|| None::<String>);
     let is_sheet_list_visible = use_state(|| false);
 
@@ -2051,6 +2052,8 @@ pub fn app() -> Html {
                 let saving_id_ref_ev = saving_id_ref.clone();
                 let ncid_ev = no_category_folder_id.clone();
                 let pending_close_tab_ev = pending_close_tab.clone();
+                let pending_close_unsynced_tab_ev = pending_close_unsynced_tab.clone();
+                let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty())), move |deps| {
                     let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc)) = *deps;
@@ -2072,6 +2075,8 @@ pub fn app() -> Html {
                     let saving_ref_c = saving_id_ref_ev.clone();
                     let ncid_c = ncid_ev.clone();
                     let pending_close_tab_c = pending_close_tab_ev.clone();
+                    let pending_close_unsynced_c = pending_close_unsynced_tab_ev.clone();
+                    let nc_c = nc_ev.clone();
                     let pending_save_close_c = pending_save_close_tab_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
@@ -2219,9 +2224,13 @@ pub fn app() -> Html {
                                         pending_save_close_c.set(Some(close_id));
                                         return;
                                     }
-                                    // 未保存チェック
+                                    // 未同期チェック（オフライン＋未保存変更あり）
                                     let sheets_list = (*rs_c.borrow()).clone();
                                     if let Some(sheet) = sheets_list.iter().find(|s| s.id == close_id) {
+                                        if sheet.is_modified && !*nc_c {
+                                            pending_close_unsynced_c.set(Some(close_id));
+                                            return;
+                                        }
                                         if sheet.is_modified {
                                             pending_close_tab_c.set(Some(close_id));
                                             return;
@@ -2294,7 +2303,7 @@ pub fn app() -> Html {
     } else { ("".to_string(), "".to_string(), "txt".to_string()) };
 
     let is_current_new_sheet = if let Some(aid) = active_sheet_id.as_ref() { let rs = sheets_ref.borrow(); rs.iter().find(|s| s.id == *aid).map(|s| s.title.starts_with("Untitled.txt")).unwrap_or(false) } else { false };
-    let is_sub_overlay_active = *is_creating_category || (*pending_delete_category).is_some() || !(*conflict_queue).is_empty() || !(*fallback_queue).is_empty() || !(*name_conflict_queue).is_empty() || *is_logout_confirm_visible || *is_install_confirm_visible || *is_install_manual_visible || (*pending_close_tab).is_some() || (*pending_save_close_tab).is_some();
+    let is_sub_overlay_active = *is_creating_category || (*pending_delete_category).is_some() || !(*conflict_queue).is_empty() || !(*fallback_queue).is_empty() || !(*name_conflict_queue).is_empty() || *is_logout_confirm_visible || *is_install_confirm_visible || *is_install_manual_visible || (*pending_close_tab).is_some() || (*pending_close_unsynced_tab).is_some() || (*pending_save_close_tab).is_some();
 
     // --- Tab Bar ---
     let tab_infos: Vec<TabInfo> = {
@@ -2371,11 +2380,13 @@ pub fn app() -> Html {
     let on_tab_close_cb = {
         let rs = sheets_ref.clone();
         let pending = pending_close_tab.clone();
+        let pending_unsynced = pending_close_unsynced_tab.clone();
         let s_state = sheets.clone();
         let aid = active_sheet_id.clone();
         let aid_ref = active_id_ref.clone();
         let sp = is_suppressing_changes.clone();
         let ncid = no_category_folder_id.clone();
+        let nc = network_connected.clone();
         Callback::from(move |close_id: String| {
             // 現在のエディタ内容を反映
             if let Some(current_aid) = (*aid).clone() {
@@ -2391,9 +2402,13 @@ pub fn app() -> Html {
                     }
                 }
             }
-            // 未保存チェック
+            // 未同期チェック（オフライン＋未保存変更あり）
             let sheets_list = (*rs.borrow()).clone();
             if let Some(sheet) = sheets_list.iter().find(|s| s.id == close_id) {
+                if sheet.is_modified && !*nc {
+                    pending_unsynced.set(Some(close_id));
+                    return;
+                }
                 if sheet.is_modified {
                     pending.set(Some(close_id));
                     return;
@@ -2406,6 +2421,22 @@ pub fn app() -> Html {
 
     let on_close_tab_confirm = {
         let pending = pending_close_tab.clone();
+        let rs = sheets_ref.clone();
+        let s_state = sheets.clone();
+        let aid = active_sheet_id.clone();
+        let aid_ref = active_id_ref.clone();
+        let sp = is_suppressing_changes.clone();
+        let ncid = no_category_folder_id.clone();
+        Callback::from(move |_: ()| {
+            if let Some(close_id) = (*pending).clone() {
+                pending.set(None);
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()));
+            }
+        })
+    };
+
+    let on_close_unsynced_tab_confirm = {
+        let pending = pending_close_unsynced_tab.clone();
         let rs = sheets_ref.clone();
         let s_state = sheets.clone();
         let aid = active_sheet_id.clone();
@@ -2526,6 +2557,7 @@ pub fn app() -> Html {
                 if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
                 if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if (*pending_close_tab).is_some() { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("close_tab", lang)} message={i18n::t("confirm_close_unsaved_tab", lang)} on_confirm={on_close_tab_confirm} on_cancel={let pc = pending_close_tab.clone(); move |_| pc.set(None)} /></div> }
+                if (*pending_close_unsynced_tab).is_some() { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("close_tab", lang)} message={i18n::t("confirm_close_unsynced_tab", lang)} ok_label={i18n::t("close_anyway", lang)} cancel_label={i18n::t("cancel", lang)} on_confirm={on_close_unsynced_tab_confirm} on_cancel={let pc = pending_close_unsynced_tab.clone(); move |_| pc.set(None)} /></div> }
                 if (*pending_save_close_tab).is_some() {
                     <div class="pointer-events-auto fixed inset-0 z-[250] flex items-center justify-center bg-black/60">
                         <div class="flex flex-col items-center">
