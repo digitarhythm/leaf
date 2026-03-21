@@ -163,6 +163,38 @@ fn generate_random_color() -> String {
     format!("hsl({}, {}%, {}%)", h, s, l)
 }
 
+fn render_preview_inline(
+    active_sheet_id: &UseStateHandle<Option<String>>,
+    sheets: &UseStateHandle<Vec<Sheet>>,
+    file_ext: &str,
+    font_size: i32,
+) -> Html {
+    use yew::AttrValue;
+    let aid = (**active_sheet_id).clone();
+    let content = if let Some(id) = aid {
+        crate::js_interop::get_editor_content().as_string().unwrap_or_else(|| {
+            sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default()
+        })
+    } else { "".to_string() };
+    let is_markdown = file_ext == "md" || file_ext == "markdown";
+    let rendered_html = if is_markdown {
+        crate::js_interop::render_markdown(&content)
+    } else {
+        let code_html = crate::js_interop::highlight_code(&content, file_ext);
+        format!(r#"<pre class="hljs whitespace-pre-wrap break-all"><code class="hljs language-{}">{}</code></pre>"#, file_ext, code_html)
+    };
+    html! {
+        <div class="absolute inset-0 z-20 overflow-y-auto bg-[#1a1b26] p-6 sm:p-12">
+            <div
+                class={classes!(if is_markdown { "markdown-body" } else { "hljs" }, "max-w-none")}
+                style={format!("font-size: {}pt;", font_size)}
+            >
+                { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
+            </div>
+        </div>
+    }
+}
+
 fn close_tab_direct(
     close_id: String,
     rs: Rc<RefCell<Vec<Sheet>>>,
@@ -1509,15 +1541,10 @@ pub fn app() -> Html {
     };
     let on_preview_cb = {
         let ip = is_preview_visible.clone();
-        let close = close_preview.clone();
         Callback::from(move |_| {
-            if *ip {
-                close.emit(());
-            } else {
-                let cur = crate::js_interop::get_editor_content();
-                let is_empty = cur.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
-                if !is_empty { ip.set(true); }
-            }
+            let new_val = !*ip;
+            ip.set(new_val);
+            if !new_val { focus_editor(); }
         })
     };
 
@@ -2056,7 +2083,7 @@ pub fn app() -> Html {
                 let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty())), move |deps| {
-                    let (auth, (file_open, preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc)) = *deps;
+                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
@@ -2069,7 +2096,7 @@ pub fn app() -> Html {
                     let os_c = os_cb_ev.clone(); let sheets_c = sheets_ev.clone();
                     let aid_c = aid_ev.clone();
                     let file_close_trigger_c = file_close_trigger_ev.clone();
-                    let close_preview_c = close_preview_ev.clone();
+                    let _close_preview_c = close_preview_ev.clone();
                     let rs_c = sheets_ref_ev.clone();
                     let aid_ref_c = active_id_ref_ev.clone();
                     let saving_ref_c = saving_id_ref_ev.clone();
@@ -2082,7 +2109,7 @@ pub fn app() -> Html {
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                         let key = ke.key(); let code = ke.code();
-                        let is_dialog_open = file_open || preview || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat;
+                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat;
                         let is_overlay_active = is_dialog_open || imp_lock;
                         let key_lower = key.to_lowercase();
                         let is_l_key = code == "KeyL" || key_lower == "l" || key_lower == "¬";
@@ -2094,16 +2121,12 @@ pub fn app() -> Html {
                         let is_font_size_shortcut = ke.alt_key() && (is_plus_key || is_minus_key);
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
                         
-                        // Alt + L (Preview) のトグル
-                        if ke.alt_key() && is_l_key && (!is_overlay_active || *is_preview_c) {
+                        // Alt + L (エディタ/Markdownレンダリング切り替え)
+                        if ke.alt_key() && is_l_key && !is_overlay_active {
                             e.prevent_default(); e.stop_immediate_propagation();
-                            if *is_preview_c {
-                                close_preview_c.emit(());
-                            } else {
-                                let cur_c_val = get_editor_content();
-                                let is_empty = cur_c_val.as_string().map(|s| s.trim().is_empty()).unwrap_or(true);
-                                if !is_empty { is_preview_c.set(true); }
-                            }
+                            let new_val = !*is_preview_c;
+                            is_preview_c.set(new_val);
+                            if !new_val { focus_editor(); }
                             return;
                         }
                         
@@ -2254,7 +2277,7 @@ pub fn app() -> Html {
                             let is_nav_key = key == "ArrowUp" || key == "ArrowDown" || key == "ArrowLeft" || key == "ArrowRight" || key == "Enter" || key == " " || key == "Tab" || key == "PageUp" || key == "PageDown" || key == "Home" || key == "End";
                             let is_char_input = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !ke.alt_key();
                             let is_edit_key = ke.ctrl_key() || ke.meta_key() || (ke.alt_key() && !is_toggle_shortcut && !is_font_size_shortcut) || is_char_input;
-                            let skip_nav_block = (preview || help) && is_nav_key;
+                            let skip_nav_block = help && is_nav_key;
                             if (is_nav_key || is_edit_key) && !skip_nav_block { if is_target_in_editor || is_target_body { e.stop_immediate_propagation(); let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false); if !is_input { e.prevent_default(); } } }
                             if key == "Escape" {
                                 if fd_sub || file_open {
@@ -2274,7 +2297,6 @@ pub fn app() -> Html {
                                 else if has_del { pending_del_c.set(None); }
                                 else if has_conf { conflicts_c.set(Vec::new()); }
                                 else if has_fall { fallbacks_c.set(Vec::new()); }
-                                else if preview { close_preview_c.emit(()); return; }
                                 else if help { is_help_c.set(false); }
                                 else if file_open { is_file_open_c.set(false); sp_c.set(false); }
                                 focus_editor(); return;
@@ -2464,9 +2486,14 @@ pub fn app() -> Html {
                                     on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_toggle_vim={on_toggle_vim.clone()} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} />
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={(*active_sheet_id).clone()} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} />
                 <div class="flex-1 relative overflow-hidden bg-gray-900">
-                    // エディタ本体
-                    <div id="editor" key="ace-editor-fixed-node" class="absolute inset-0 z-10 bg-transparent" style="width: 100%; height: 100%;"></div>
-                    
+                    // エディタ本体（プレビュー時はhidden）
+                    <div id="editor" key="ace-editor-fixed-node" class={classes!("absolute", "inset-0", "z-10", "bg-transparent", if *is_preview_visible { "invisible" } else { "visible" })} style="width: 100%; height: 100%;"></div>
+
+                    // Markdownレンダリング表示（インライン）
+                    if *is_preview_visible {
+                        { render_preview_inline(&active_sheet_id, &sheets, &current_file_ext, *preview_font_size) }
+                    }
+
                     // フォールバック表示（エディタがロードできなかった場合用）
                     <div class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 bg-gray-900 z-0">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-12 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -2534,22 +2561,17 @@ pub fn app() -> Html {
                         </div>
                     }
                 }
-                if let Some(preview) = if *is_preview_visible {
-                    let aid = (*active_sheet_id).clone();
-                    let c = if let Some(id) = aid { sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default() } else { "".to_string() };
-                    let cp = close_preview.clone();
-                    Some(html! { <Preview content={c} lang={current_file_ext.clone()} on_close={Callback::from(move |_| { cp.emit(()); })} is_fading_out={*is_preview_fading_out} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()} /> }) 
-                } else if *is_help_visible { 
-                    let ih = is_help_visible.clone(); 
-                    let c = i18n::t("help_shortcuts", lang); 
+                if let Some(help_preview) = if *is_help_visible {
+                    let ih = is_help_visible.clone();
+                    let c = i18n::t("help_shortcuts", lang);
                     let on_install = if !crate::js_interop::is_tauri() {
-                        let is_conf = is_install_confirm_visible.clone(); 
-                        let is_man = is_install_manual_visible.clone(); 
-                        let ih_for_install = ih.clone(); 
+                        let is_conf = is_install_confirm_visible.clone();
+                        let is_man = is_install_manual_visible.clone();
+                        let ih_for_install = ih.clone();
                         Some(Callback::from(move |_: ()| { ih_for_install.set(false); if crate::js_interop::can_install_pwa() { is_conf.set(true); } else { is_man.set(true); } }))
                     } else { None };
-                    Some(html! { <Preview content={c} lang={"md".to_string()} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} is_help={true} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_font_size.clone()} /> }) 
-                } else { None } { <div class="pointer-events-auto">{ preview }</div> }
+                    Some(html! { <Preview content={c} lang={"md".to_string()} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} is_help={true} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_font_size.clone()} /> })
+                } else { None } { <div class="pointer-events-auto">{ help_preview }</div> }
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if *is_install_manual_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_manual_title", lang)} message={i18n::t("install_manual_message", lang)} ok_label={i18n::t("ok", lang)} on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)} on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)} /></div> }
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category { let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang); let pending = pending_delete_category.clone(); let on_cfm = on_delete_category_cfm.clone(); Some(html! { <ConfirmDialog title={title} message={message} on_confirm={move |_| { on_cfm.emit(1); }} on_cancel={move |_| { pending.set(None); }} /> }) } else { None } { <div class="pointer-events-auto">{ del_diag }</div> }
