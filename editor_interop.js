@@ -405,7 +405,11 @@ export function get_editor_content() {
     return editor.getValue();
 }
 
-export function resize_editor() { if (editor) editor.resize(); }
+export function resize_editor() {
+    if (!editor) return;
+    editor.resize(true);
+    editor.renderer.updateFull(true);
+}
 export function focus_editor() { if (editor) editor.focus(); }
 
 export function set_gutter_status(mode) {

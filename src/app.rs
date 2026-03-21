@@ -1544,7 +1544,9 @@ pub fn app() -> Html {
         Callback::from(move |_| {
             let new_val = !*ip;
             ip.set(new_val);
-            if !new_val { focus_editor(); }
+            if !new_val {
+                Timeout::new(50, || { crate::js_interop::resize_editor(); focus_editor(); }).forget();
+            }
         })
     };
 
@@ -2486,8 +2488,8 @@ pub fn app() -> Html {
                                     on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_toggle_vim={on_toggle_vim.clone()} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} />
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={(*active_sheet_id).clone()} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} />
                 <div class="flex-1 relative overflow-hidden bg-gray-900">
-                    // エディタ本体（プレビュー時はhidden）
-                    <div id="editor" key="ace-editor-fixed-node" class={classes!("absolute", "inset-0", "z-10", "bg-transparent", if *is_preview_visible { "invisible" } else { "visible" })} style="width: 100%; height: 100%;"></div>
+                    // エディタ本体（常に表示、プレビュー時はレンダリングが上に重なる）
+                    <div id="editor" key="ace-editor-fixed-node" class="absolute inset-0 z-10 bg-transparent" style="width: 100%; height: 100%;"></div>
 
                     // Markdownレンダリング表示（インライン）
                     if *is_preview_visible {
