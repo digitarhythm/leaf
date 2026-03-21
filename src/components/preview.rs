@@ -224,10 +224,10 @@ pub fn preview(props: &PreviewProps) -> Html {
                         }
                         if props.is_help {
                             <div class="flex items-center space-x-6 text-xs text-gray-500">
+                                <a href={if matches!(lang, Language::Ja) { "about_ja.html".to_string() } else { "about.html".to_string() }} target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("about", lang) }</a>
                                 <a href="terms.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("terms_of_service", lang) }</a>
                                 <a href="privacy.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("privacy_policy", lang) }</a>
                                 <a href="licenses.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("oss_licenses", lang) }</a>
-                                <a href={if matches!(lang, Language::Ja) { "about_ja.html".to_string() } else { "about.html".to_string() }} target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">{ i18n::t("about", lang) }</a>
                             </div>
                         }
                     </div>
