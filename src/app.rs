@@ -2497,6 +2497,9 @@ pub fn app() -> Html {
                                                                                                                     { i18n::t("signin_with_google", lang) }
                                                                                                                 </button>
                                                                                                                 <div class="mt-6 flex flex-row items-center justify-center space-x-4">
+                                                                                                                    <a href={if lang == Language::Ja { "about_ja.html" } else { "about.html" }} target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                        { i18n::t("about", lang) }
+                                                                                                                    </a>
                                                                                                                     <a href="terms.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { "Terms / 利用規約" }
                                                                                                                     </a>
