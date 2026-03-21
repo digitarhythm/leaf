@@ -2131,7 +2131,45 @@ pub fn app() -> Html {
                             if !new_val { focus_editor(); }
                             return;
                         }
-                        
+
+                        // Markdownモード中のキー操作（スクロール等）
+                        if _preview && !is_overlay_active {
+                            let is_up = key == "PageUp";
+                            let is_down = key == "PageDown";
+                            let is_arrow_up = key == "ArrowUp";
+                            let is_arrow_down = key == "ArrowDown";
+                            let is_space = key == " ";
+                            let is_home = key == "Home";
+                            let is_end = key == "End";
+
+                            // Alt+タブ切り替え/閉じるはそのまま通す
+                            if ke.alt_key() { /* fall through to normal shortcut handling */ }
+                            else if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end || is_space {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                                    // Markdownレンダリングのスクロールコンテナを取得（z-20の最初のdiv）
+                                    if let Ok(Some(el)) = doc.query_selector(".absolute.inset-0.z-20.overflow-y-auto") {
+                                        let client_height = el.client_height();
+                                        let current_scroll = el.scroll_top();
+                                        if is_up { el.set_scroll_top(current_scroll - client_height / 2); }
+                                        else if is_down || is_space { el.set_scroll_top(current_scroll + client_height / 2); }
+                                        else if is_arrow_up { el.set_scroll_top(current_scroll - 40); }
+                                        else if is_arrow_down { el.set_scroll_top(current_scroll + 40); }
+                                        else if is_home { el.set_scroll_top(0); }
+                                        else if is_end { el.set_scroll_top(el.scroll_height()); }
+                                    }
+                                }
+                                return;
+                            } else if key == "Tab" {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                return;
+                            } else {
+                                // その他のキー入力をブロック（エディタに渡さない）
+                                let is_printable = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !ke.alt_key();
+                                if is_printable { e.prevent_default(); e.stop_immediate_propagation(); return; }
+                            }
+                        }
+
                         // Alt + M (FileOpen) のトグル
                         if ke.alt_key() && is_m_key && (!is_overlay_active || *is_file_open_c) {
                             e.prevent_default(); e.stop_immediate_propagation();
