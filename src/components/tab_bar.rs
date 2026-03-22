@@ -11,42 +11,149 @@ pub struct TabInfo {
 
 // --- Desktop Tab Bar ---
 
+/// (from_id, to_id) - fromをtoの位置へ移動
+pub type ReorderEvent = (String, String);
+
 #[derive(Properties, PartialEq)]
 pub struct TabBarProps {
     pub sheets: Vec<TabInfo>,
     pub active_sheet_id: Option<String>,
     pub on_select_tab: Callback<String>,
     pub on_close_tab: Callback<String>,
+    #[prop_or_default]
+    pub on_reorder: Option<Callback<ReorderEvent>>,
 }
 
 #[function_component(TabBar)]
 pub fn tab_bar(props: &TabBarProps) -> Html {
     let lang = Language::detect();
+    let container_ref = use_node_ref();
+    let drag_from_id = use_state(|| None::<String>);
+    let last_mouse_x = use_mut_ref(|| 0i32);
 
     if props.sheets.len() <= 1 {
         return html! {};
     }
 
+    // コンテナレベルのondragover: マウス位置からタブの50%重なりを判定
+    let container_dragover = {
+        let drag_from = drag_from_id.clone();
+        let on_reorder = props.on_reorder.clone();
+        let c_ref = container_ref.clone();
+        let last_x = last_mouse_x.clone();
+        Callback::from(move |e: DragEvent| {
+            e.prevent_default();
+            let mouse_x = e.client_x();
+            // マウスが動いていない場合はスキップ
+            if mouse_x == *last_x.borrow() { return; }
+            *last_x.borrow_mut() = mouse_x;
+
+            let from_id = match (*drag_from).clone() {
+                Some(id) => id,
+                None => return,
+            };
+            let container = match c_ref.cast::<web_sys::Element>() {
+                Some(el) => el,
+                None => return,
+            };
+            // 各タブ子要素の位置を走査し、ドラッグ中タブと隣接タブの50%重なりを判定
+            let children = container.children();
+            let mut from_idx = None;
+            let mut swap_to_idx = None;
+            let mut tab_rects: Vec<(f64, f64)> = Vec::new(); // (left, width)
+            for i in 0..children.length() {
+                if let Some(child) = children.item(i) {
+                    let rect = child.get_bounding_client_rect();
+                    tab_rects.push((rect.left(), rect.width()));
+                    if let Some(attr) = child.get_attribute("data-tab-id") {
+                        if attr == from_id { from_idx = Some(i as usize); }
+                    }
+                }
+            }
+            let fi = match from_idx {
+                Some(i) => i,
+                None => return,
+            };
+            let (from_left, from_width) = tab_rects[fi];
+            let _from_center = from_left + from_width / 2.0;
+            let mouse_f = mouse_x as f64;
+
+            // 右方向: マウスが右隣タブの中央を超えたら入れ替え
+            if fi + 1 < tab_rects.len() {
+                let (next_left, next_width) = tab_rects[fi + 1];
+                let next_center = next_left + next_width / 2.0;
+                if mouse_f > next_center {
+                    swap_to_idx = Some(fi + 1);
+                }
+            }
+            // 左方向: マウスが左隣タブの中央を超えたら入れ替え
+            if fi > 0 && swap_to_idx.is_none() {
+                let (prev_left, prev_width) = tab_rects[fi - 1];
+                let prev_center = prev_left + prev_width / 2.0;
+                if mouse_f < prev_center {
+                    swap_to_idx = Some(fi - 1);
+                }
+            }
+
+            if let Some(ti) = swap_to_idx {
+                if let Some(target_el) = children.item(ti as u32) {
+                    if let Some(target_id) = target_el.get_attribute("data-tab-id") {
+                        if let Some(ref cb) = on_reorder {
+                            cb.emit((from_id, target_id));
+                        }
+                    }
+                }
+            }
+        })
+    };
+
     html! {
-        <div class="desktop:flex mobile:hidden items-center bg-[#1d2021] border-b border-[#3c3836] overflow-x-auto scrollbar-none" style="min-height: 32px;">
+        <div
+            ref={container_ref}
+            ondragover={container_dragover}
+            class="desktop:flex mobile:hidden items-center bg-[#1d2021] border-b border-[#3c3836] overflow-x-auto scrollbar-none"
+            style="min-height: 32px;"
+        >
             { for props.sheets.iter().map(|tab| {
                 let is_active = props.active_sheet_id.as_ref() == Some(&tab.id);
-                let tab_id = tab.id.clone();
+                let tab_id_select = tab.id.clone();
                 let tab_id_close = tab.id.clone();
+                let tab_id_drag = tab.id.clone();
                 let on_select = props.on_select_tab.clone();
                 let on_close = props.on_close_tab.clone();
                 let title = tab.title.clone();
                 let is_modified = tab.is_modified;
+                let is_dragging = drag_from_id.as_ref() == Some(&tab.id);
+
+                let drag_from = drag_from_id.clone();
+                let drag_from2 = drag_from_id.clone();
+
+                let ondragstart = Callback::from(move |e: DragEvent| {
+                    if let Some(dt) = e.data_transfer() {
+                        let _ = dt.set_data("text/plain", &tab_id_drag);
+                        dt.set_effect_allowed("move");
+                    }
+                    drag_from.set(Some(tab_id_drag.clone()));
+                });
+
+                let ondragend = Callback::from(move |_: DragEvent| {
+                    drag_from2.set(None);
+                });
 
                 html! {
                     <div
+                        draggable="true"
+                        data-tab-id={tab.id.clone()}
+                        ondragstart={ondragstart}
+                        ondragend={ondragend}
                         class={classes!(
-                            "flex", "items-center", "gap-1", "px-3", "py-1", "cursor-pointer",
-                            "text-xs", "whitespace-nowrap", "select-none", "transition-colors", "duration-150",
+                            "flex", "items-center", "gap-1", "px-3", "py-1", "cursor-grab",
+                            "text-xs", "whitespace-nowrap", "select-none", "transition-all", "duration-150",
                             "border-r", "border-[#3c3836]", "shrink-0",
-                            if is_active { "bg-[#3c3836] text-[#ebdbb2] border-b-2 border-b-emerald-500" } else { "bg-[#282828] text-gray-400 hover:bg-[#3c3836] hover:text-gray-300 border-b-2 border-b-transparent" }
+                            if is_active { "bg-[#3c3836] text-[#ebdbb2] border-b-2 border-b-emerald-500" } else { "bg-[#282828] text-gray-400 hover:bg-[#3c3836] hover:text-gray-300 border-b-2 border-b-transparent" },
+                            if is_dragging { "opacity-50" } else { "" }
                         )}
-                        onclick={Callback::from(move |_| on_select.emit(tab_id.clone()))}
+                        onclick={Callback::from(move |_| on_select.emit(tab_id_select.clone()))}
                     >
                         <span class="max-w-[120px] truncate" title={title.clone()}>{title}</span>
                         if is_modified {

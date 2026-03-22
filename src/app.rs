@@ -1,12 +1,12 @@
 use yew::prelude::*;
 use crate::components::button_bar::ButtonBar;
 use crate::components::status_bar::StatusBar;
-use crate::components::tab_bar::{TabBar, TabInfo, SheetListPanel};
+use crate::components::tab_bar::{TabBar, TabInfo, SheetListPanel, ReorderEvent};
 use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameConflictDialog, LoadingOverlay};
 use crate::components::file_open_dialog::FileOpenDialog;
 use crate::components::preview::Preview;
-use crate::components::settings_dialog::SettingsDialog;
-use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, set_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
+use crate::components::settings_dialog::{SettingsDialog, EmptySaveBehavior};
+use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
 use crate::db_interop::{save_sheet, save_categories, JSCategory, JSSheet};
 use crate::drive_interop::{upload_file, ensure_directory_structure, list_folders, download_file, list_files, get_file_metadata, delete_file, move_file, find_file_by_name};
@@ -123,6 +123,7 @@ const PREVIEW_FONT_SIZE_KEY: &str = "leaf_preview_font_size";
 const FIRST_LAUNCH_KEY: &str = "leaf_first_launch_v1";
 const ACTIVE_TAB_KEY: &str = "leaf_active_tab";
 const EDITOR_THEME_KEY: &str = "leaf_editor_theme";
+const EMPTY_SAVE_KEY: &str = "leaf_empty_save_behavior";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -458,6 +459,10 @@ pub fn app() -> Html {
     let editor_theme = use_state(|| {
         get_account_storage(EDITOR_THEME_KEY).unwrap_or_else(|| "gruvbox".to_string())
     });
+    let empty_save_behavior = use_state(|| {
+        get_account_storage(EMPTY_SAVE_KEY).map(|v| EmptySaveBehavior::from_str(&v)).unwrap_or(EmptySaveBehavior::Confirm)
+    });
+    let pending_empty_delete = use_state(|| None::<String>); // 空データ削除確認用のsheet_id
     let is_install_manual_visible = use_state(|| false);
 
     let is_ad_free = use_state(|| false);
@@ -472,6 +477,7 @@ pub fn app() -> Html {
     let is_loading_ref = use_mut_ref(|| true);
     let saving_id_ref = use_mut_ref(|| None::<String>);
     let is_suppressing_ref = use_mut_ref(|| false);
+    let empty_save_ref = use_mut_ref(|| EmptySaveBehavior::Confirm);
     let is_first_edit_done_ref = use_mut_ref(|| false);
     let is_preview_ref = use_mut_ref(|| false);
     let is_file_open_ref = use_mut_ref(|| false);
@@ -563,12 +569,15 @@ pub fn app() -> Html {
         let r_prev = is_preview_ref.clone(); let r_open = is_file_open_ref.clone(); let r_help = is_help_ref.clone();
         let r_saving = saving_id_ref.clone();
 
-        use_effect_with((((*s).clone(), (*aid).clone(), (*ncid).clone()), (*ld, *sp, *prev, *open, *help, (*saving_sheet_id).clone())), move |deps| {
-            let ((s_val, aid_val, ncid_val), (ld_val, sp_val, prev_val, open_val, help_val, saving_val)) = deps;
+        let r_esb = empty_save_ref.clone();
+        let esb = empty_save_behavior.clone();
+        use_effect_with((((*s).clone(), (*aid).clone(), (*ncid).clone()), (*ld, *sp, *prev, *open, *help, (*saving_sheet_id).clone()), *esb), move |deps| {
+            let ((s_val, aid_val, ncid_val), (ld_val, sp_val, prev_val, open_val, help_val, saving_val), esb_val) = deps;
             *r_s.borrow_mut() = s_val.clone(); *r_aid.borrow_mut() = aid_val.clone();
             *r_ncid.borrow_mut() = ncid_val.clone(); *r_ld.borrow_mut() = *ld_val; *r_sp.borrow_mut() = *sp_val;
             *r_prev.borrow_mut() = *prev_val; *r_open.borrow_mut() = *open_val; *r_help.borrow_mut() = *help_val;
             *r_saving.borrow_mut() = saving_val.clone();
+            *r_esb.borrow_mut() = *esb_val;
             || ()
         });
     }
@@ -670,6 +679,8 @@ pub fn app() -> Html {
         let lmk_h = loading_message_key.clone();
         let ris_h = saving_id_ref.clone(); let is_saving_h = saving_sheet_id.clone();
         let ncq_h = name_conflict_queue.clone();
+        let esb_ref_h = empty_save_ref.clone();
+        let ped_h = pending_empty_delete.clone();
         let osh_cb = os_handle.clone();
         let cq_save = conflict_queue.clone();
         let ifo_save = is_fading_out.clone();
@@ -691,6 +702,8 @@ pub fn app() -> Html {
             let lock_fade_h = lock_fade_h.clone();
             let ris_h = ris_h.clone(); let is_saving_h = is_saving_h.clone();
             let ncq_h = ncq_h.clone();
+            let esb_ref = esb_ref_h.clone();
+            let ped_h = ped_h.clone();
             let osh_async = osh_cb.clone();
             let cq_async = cq_save.clone();
             let ifo_async = ifo_save.clone();
@@ -710,12 +723,60 @@ pub fn app() -> Html {
                     {
                         let sheet = &mut cur_s[idx];
 
-                        // 自動保存時の空データ保護:
-                        // エディタが空で、かつ元のデータが空でない場合、異常事態とみなして復元する。
-                        if !is_manual && cur_c.is_empty() && !sheet.content.is_empty() {
-                            gloo::console::warn!("[Leaf-SYSTEM] Auto-save blocked: captured content is empty. Restoring from state.");
-                            set_editor_content(&sheet.content);
-                            return;
+                        // 自動保存時の空データ処理（設定に応じて動作を分岐）
+                        // cur_cが空で、シートがDriveまたはGUIDに紐付いている場合（一度は保存されたファイル）
+                        if !is_manual && cur_c.trim().is_empty() && (sheet.drive_id.is_some() || sheet.guid.is_some()) {
+                            let behavior = *esb_ref.borrow();
+                            match behavior {
+                                EmptySaveBehavior::Nothing => {
+                                    gloo::console::log!("[Leaf-SYSTEM] Auto-save: empty content, doing nothing (user setting).");
+                                    return;
+                                },
+                                EmptySaveBehavior::Confirm => {
+                                    gloo::console::log!("[Leaf-SYSTEM] Auto-save: empty content, showing confirm dialog.");
+                                    ped_h.set(Some(id.clone()));
+                                    return;
+                                },
+                                EmptySaveBehavior::Delete => {
+                                    gloo::console::log!("[Leaf-SYSTEM] Auto-save: empty content, deleting sheet (user setting).");
+                                    // 直接削除（ダイアログなし）
+                                    let rs_del = r_s.clone(); let s_del = s_state.clone();
+                                    let aid_del = r_aid.clone();
+                                    let ncid_del = r_ncid.clone();
+                                    let sheet_id = id.clone();
+                                    // Timeoutで次のイベントループで実行（借用競合回避）
+                                    Timeout::new(0, move || {
+                                        let aid_val = (*aid_del.borrow()).clone();
+                                        let ncid_val = (*ncid_del.borrow()).clone();
+                                        let mut us = (*rs_del.borrow()).clone();
+                                        if let Some(pos) = us.iter().position(|s| s.id == sheet_id) {
+                                            us.remove(pos);
+                                            if us.is_empty() {
+                                                let nid = js_sys::Date::now().to_string();
+                                                let ns = Sheet { id: nid.clone(), guid: None, category: ncid_val.unwrap_or_default(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false };
+                                                us.push(ns.clone());
+                                                *rs_del.borrow_mut() = us.clone();
+                                                s_del.set(us);
+                                                load_editor_content("");
+                                                set_gutter_status("unsaved");
+                                                spawn_local(async move { let js = ns.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
+                                            } else {
+                                                let was_active = aid_val.as_ref() == Some(&sheet_id);
+                                                *rs_del.borrow_mut() = us.clone();
+                                                s_del.set(us.clone());
+                                                if was_active {
+                                                    let new_idx = if pos > 0 { pos - 1 } else { 0 };
+                                                    let new_sheet = &us[new_idx];
+                                                    load_editor_content(&new_sheet.content);
+                                                    crate::js_interop::set_editor_mode(&new_sheet.title);
+                                                }
+                                            }
+                                            spawn_local(async move { let _ = crate::db_interop::delete_sheet(&sheet_id).await; });
+                                        }
+                                    }).forget();
+                                    return;
+                                },
+                            }
                         }
 
                         if !is_manual && !sheet.is_modified && sheet.content == cur_c { return; }
@@ -2158,7 +2219,8 @@ pub fn app() -> Html {
                         if modifier_active {
                             let is_app_key = is_l_key || is_h_key || is_m_key || is_plus_key || is_minus_key
                                 || code == "KeyN" || code == "KeyS" || code == "KeyO" || code == "KeyF" || code == "KeyW"
-                                || code == "BracketLeft" || code == "BracketRight";
+                                || code == "BracketLeft" || code == "BracketRight"
+                                || code == "Comma";
                             if is_app_key { e.prevent_default(); e.stop_immediate_propagation(); }
                         }
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
@@ -2254,6 +2316,15 @@ pub fn app() -> Html {
                             }
                         }
 
+                        // Alt + , (設定) のトグル
+                        if modifier_active && (code == "Comma" || key == ",") && (!is_overlay_active || settings_open) {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            let new_val = !settings_open;
+                            is_settings_c.set(new_val);
+                            if !new_val { focus_editor(); }
+                            return;
+                        }
+
                         // Alt + M (FileOpen) のトグル
                         if modifier_active && is_m_key && (!is_overlay_active || *is_file_open_c) {
                             e.prevent_default(); e.stop_immediate_propagation();
@@ -2318,20 +2389,22 @@ pub fn app() -> Html {
                                         };
                                         let new_id = current_sheets[new_idx].id.clone();
                                         if new_id == current_id { return; }
-                                        // 現在のエディタ内容を保存
+                                        // 現在のエディタ内容を保存し、変更があれば自動保存をトリガー
                                         sp_c.set(true);
+                                        let mut needs_save = false;
                                         let cur_c_val = get_editor_content();
                                         if let Some(cur_c) = cur_c_val.as_string() {
                                             let mut us = current_sheets;
                                             if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
                                                 if sheet.content != cur_c {
                                                     sheet.content = cur_c;
-                                                    if sheet.drive_id.is_some() || sheet.guid.is_some() { sheet.is_modified = true; }
-                                                }
+                                                    if sheet.drive_id.is_some() || sheet.guid.is_some() { sheet.is_modified = true; needs_save = true; }
+                                                } else if sheet.is_modified { needs_save = true; }
                                             }
                                             *rs_c.borrow_mut() = us.clone();
                                             sheets_c.set(us);
                                         }
+                                        if needs_save { os_c.emit(false); }
                                         // 新タブの内容をロード
                                         let sheets_list = (*rs_c.borrow()).clone();
                                         if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
@@ -2452,7 +2525,7 @@ pub fn app() -> Html {
     } else { ("".to_string(), "".to_string(), "txt".to_string()) };
 
     let is_current_new_sheet = if let Some(aid) = active_sheet_id.as_ref() { let rs = sheets_ref.borrow(); rs.iter().find(|s| s.id == *aid).map(|s| s.title.starts_with("Untitled.txt")).unwrap_or(false) } else { false };
-    let is_sub_overlay_active = *is_creating_category || (*pending_delete_category).is_some() || !(*conflict_queue).is_empty() || !(*fallback_queue).is_empty() || !(*name_conflict_queue).is_empty() || *is_logout_confirm_visible || *is_install_confirm_visible || *is_install_manual_visible || (*pending_close_tab).is_some() || (*pending_close_unsynced_tab).is_some() || (*pending_save_close_tab).is_some();
+    let is_sub_overlay_active = *is_creating_category || (*pending_delete_category).is_some() || !(*conflict_queue).is_empty() || !(*fallback_queue).is_empty() || !(*name_conflict_queue).is_empty() || *is_logout_confirm_visible || *is_install_confirm_visible || *is_install_manual_visible || (*pending_close_tab).is_some() || (*pending_close_unsynced_tab).is_some() || (*pending_save_close_tab).is_some() || (*pending_empty_delete).is_some();
 
     // --- Tab Bar ---
     let tab_infos: Vec<TabInfo> = {
@@ -2485,12 +2558,14 @@ pub fn app() -> Html {
         let s_state = sheets.clone();
         let sp = is_suppressing_changes.clone();
         let ip = is_preview_visible.clone();
+        let os = on_save_cb.clone();
         Callback::from(move |new_id: String| {
             // RefCellから最新のactive_idを取得
             let current_aid = (*aid_ref.borrow()).clone();
             if current_aid.as_ref() == Some(&new_id) { return; }
-            // 現在のエディタ内容を保存
+            // 現在のエディタ内容を保存し、変更があれば自動保存をトリガー
             sp.set(true);
+            let mut needs_save = false;
             if let Some(old_id) = current_aid {
                 let cur_c_val = get_editor_content();
                 if let Some(cur_c) = cur_c_val.as_string() {
@@ -2500,13 +2575,17 @@ pub fn app() -> Html {
                             sheet.content = cur_c;
                             if sheet.drive_id.is_some() || sheet.guid.is_some() {
                                 sheet.is_modified = true;
+                                needs_save = true;
                             }
+                        } else if sheet.is_modified {
+                            needs_save = true;
                         }
                     }
                     *rs.borrow_mut() = us.clone();
                     s_state.set(us);
                 }
             }
+            if needs_save { os.emit(false); }
             // 新タブの内容をロード
             let sheets_list = (*rs.borrow()).clone();
             if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
@@ -2603,6 +2682,24 @@ pub fn app() -> Html {
         })
     };
 
+    let on_tab_reorder_cb = {
+        let rs = sheets_ref.clone();
+        let s_state = sheets.clone();
+        Callback::from(move |(from_id, to_id): ReorderEvent| {
+            let mut us = (*rs.borrow()).clone();
+            let from_idx = us.iter().position(|s| s.id == from_id);
+            let to_idx = us.iter().position(|s| s.id == to_id);
+            if let (Some(fi), Some(ti)) = (from_idx, to_idx) {
+                if fi != ti {
+                    let sheet = us.remove(fi);
+                    us.insert(ti, sheet);
+                    *rs.borrow_mut() = us.clone();
+                    s_state.set(us);
+                }
+            }
+        })
+    };
+
     html! {
         <div class="relative h-screen w-screen overflow-hidden bg-gray-950" key="app-root">
             <main key="main-editor-surface" class={classes!("absolute", "inset-0", "flex", "flex-col", "text-white", "transition-opacity", "duration-300", if !*is_authenticated && *network_connected { "opacity-0" } else { "opacity-100" } )}>
@@ -2614,7 +2711,7 @@ pub fn app() -> Html {
                                     on_change_font_size={on_change_font_size.clone()} 
                                     on_change_category={on_change_category_cb} 
                                     on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_open_settings={let sv = is_settings_visible.clone(); Callback::from(move |_| sv.set(true))} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} />
-                <TabBar sheets={tab_infos.clone()} active_sheet_id={(*active_sheet_id).clone()} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} />
+                <TabBar sheets={tab_infos.clone()} active_sheet_id={(*active_sheet_id).clone()} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} on_reorder={on_tab_reorder_cb} />
                 <div class="flex-1 relative overflow-hidden bg-gray-900">
                     // エディタ本体（常に表示、プレビュー時はレンダリングが上に重なる）
                     <div id="editor" key="ace-editor-fixed-node" class="absolute inset-0 z-10 bg-transparent" style="width: 100%; height: 100%;"></div>
@@ -2720,6 +2817,19 @@ pub fn app() -> Html {
                         </div>
                     </div>
                 }
+                if (*pending_empty_delete).is_some() {
+                    <div class="pointer-events-auto"><ConfirmDialog
+                        title={i18n::t("delete", lang)}
+                        message={i18n::t("confirm_delete_empty", lang)}
+                        on_confirm={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); Callback::from(move |_| {
+                            if let Some(sheet_id) = (*ped).clone() {
+                                ped.set(None);
+                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()));
+                            }
+                        })}
+                        on_cancel={let ped = pending_empty_delete.clone(); Callback::from(move |_| ped.set(None))}
+                    /></div>
+                }
                 if *is_sheet_list_visible {
                     <div class="pointer-events-auto">
                         <SheetListPanel
@@ -2741,6 +2851,11 @@ pub fn app() -> Html {
                                 crate::js_interop::set_editor_theme(&theme);
                                 set_account_storage(EDITOR_THEME_KEY, &theme);
                                 et.set(theme);
+                            })}
+                            empty_save_behavior={*empty_save_behavior}
+                            on_change_empty_save={let esb = empty_save_behavior.clone(); Callback::from(move |v: EmptySaveBehavior| {
+                                set_account_storage(EMPTY_SAVE_KEY, v.to_str());
+                                esb.set(v);
                             })}
                             on_close={let sv = is_settings_visible.clone(); Callback::from(move |_| { sv.set(false); focus_editor(); })}
                         />

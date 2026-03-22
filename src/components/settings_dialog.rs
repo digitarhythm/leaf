@@ -1,15 +1,51 @@
 use yew::prelude::*;
+use wasm_bindgen::JsCast;
 use crate::i18n::{self, Language};
 
-pub const THEMES: &[(&str, &str)] = &[
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum EmptySaveBehavior {
+    Delete,
+    Nothing,
+    Confirm,
+}
+
+impl EmptySaveBehavior {
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "delete" => Self::Delete,
+            "nothing" => Self::Nothing,
+            _ => Self::Confirm,
+        }
+    }
+    pub fn to_str(self) -> &'static str {
+        match self {
+            Self::Delete => "delete",
+            Self::Nothing => "nothing",
+            Self::Confirm => "confirm",
+        }
+    }
+}
+
+pub const DARK_THEMES: &[(&str, &str)] = &[
     ("gruvbox", "Gruvbox"),
     ("monokai", "Monokai"),
-    ("dracula", "Tokyo Night"),
+    ("dracula", "Dracula"),
     ("nord_dark", "Nord"),
     ("solarized_dark", "Solarized Dark"),
     ("one_dark", "One Dark"),
     ("twilight", "Twilight"),
     ("tomorrow_night", "Tomorrow Night"),
+];
+
+pub const LIGHT_THEMES: &[(&str, &str)] = &[
+    ("chrome", "Chrome"),
+    ("clouds", "Clouds"),
+    ("crimson_editor", "Crimson Editor"),
+    ("dawn", "Dawn"),
+    ("dreamweaver", "Dreamweaver"),
+    ("eclipse", "Eclipse"),
+    ("github", "GitHub"),
+    ("solarized_light", "Solarized Light"),
 ];
 
 #[derive(Properties, PartialEq)]
@@ -18,6 +54,8 @@ pub struct SettingsDialogProps {
     pub on_toggle_vim: Callback<()>,
     pub current_theme: String,
     pub on_change_theme: Callback<String>,
+    pub empty_save_behavior: EmptySaveBehavior,
+    pub on_change_empty_save: Callback<EmptySaveBehavior>,
     pub on_close: Callback<()>,
 }
 
@@ -25,6 +63,25 @@ pub struct SettingsDialogProps {
 pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
     let lang = Language::detect();
     let is_closing = use_state(|| false);
+
+    // ESCキーで閉じる
+    {
+        let on_close_esc = props.on_close.clone();
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let listener = gloo::events::EventListener::new(&window, "keydown", move |e| {
+                let ke = e.dyn_ref::<web_sys::KeyboardEvent>().unwrap();
+                if ke.key() == "Escape" {
+                    e.stop_immediate_propagation();
+                    on_close_esc.emit(());
+                }
+            });
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
+    }
+
+    let is_light = LIGHT_THEMES.iter().any(|(id, _)| *id == props.current_theme.as_str());
+    let theme_tab = use_state(move || is_light); // false=Dark, true=Light
 
     let on_close = {
         let is_closing = is_closing.clone();
@@ -100,11 +157,59 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                     // Separator
                     <div class="border-t border-[#3c3836]"></div>
 
+                    // Empty Save Behavior
+                    <div>
+                        <div class="text-sm font-bold text-[#ebdbb2] mb-3">{ i18n::t("empty_save_behavior", lang) }</div>
+                        <div class="flex flex-col gap-2">
+                            { for [(EmptySaveBehavior::Confirm, "empty_save_confirm"), (EmptySaveBehavior::Delete, "empty_save_delete"), (EmptySaveBehavior::Nothing, "empty_save_nothing")].iter().map(|(behavior, key)| {
+                                let is_selected = props.empty_save_behavior == *behavior;
+                                let on_change = props.on_change_empty_save.clone();
+                                let b = *behavior;
+                                html! {
+                                    <button
+                                        onclick={Callback::from(move |_| on_change.emit(b))}
+                                        class={classes!(
+                                            "py-2", "px-3", "rounded-lg", "text-xs", "font-bold", "transition-all", "duration-150",
+                                            "border", "text-left",
+                                            if is_selected {
+                                                "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/20"
+                                            } else {
+                                                "bg-[#282828] text-gray-400 border-[#3c3836] hover:bg-[#3c3836] hover:text-gray-200"
+                                            }
+                                        )}
+                                    >
+                                        { i18n::t(key, lang) }
+                                    </button>
+                                }
+                            })}
+                        </div>
+                    </div>
+
+                    // Separator
+                    <div class="border-t border-[#3c3836]"></div>
+
                     // Editor Theme
                     <div>
-                        <div class="text-sm font-bold text-[#ebdbb2] mb-3">{ i18n::t("editor_theme", lang) }</div>
+                        <div class="text-sm font-bold text-[#ebdbb2] mb-2">{ i18n::t("editor_theme", lang) }</div>
+                        // Dark/Light タブ
+                        <div class="flex mb-3 border-b border-[#3c3836]">
+                            <button
+                                onclick={let t = theme_tab.clone(); Callback::from(move |_| t.set(false))}
+                                class={classes!(
+                                    "flex-1", "py-1.5", "text-xs", "font-bold", "transition-colors", "border-b-2",
+                                    if !*theme_tab { "text-[#ebdbb2] border-b-emerald-500" } else { "text-gray-500 border-b-transparent hover:text-gray-300" }
+                                )}
+                            >{ "Dark" }</button>
+                            <button
+                                onclick={let t = theme_tab.clone(); Callback::from(move |_| t.set(true))}
+                                class={classes!(
+                                    "flex-1", "py-1.5", "text-xs", "font-bold", "transition-colors", "border-b-2",
+                                    if *theme_tab { "text-[#ebdbb2] border-b-emerald-500" } else { "text-gray-500 border-b-transparent hover:text-gray-300" }
+                                )}
+                            >{ "Light" }</button>
+                        </div>
                         <div class="grid grid-cols-2 gap-2">
-                            { for THEMES.iter().map(|(id, name)| {
+                            { for (if *theme_tab { LIGHT_THEMES } else { DARK_THEMES }).iter().map(|(id, name)| {
                                 let is_selected = props.current_theme == *id;
                                 let on_change = props.on_change_theme.clone();
                                 let theme_id = id.to_string();
