@@ -20,6 +20,8 @@ pub struct JSSheet {
     pub loaded_bytes: u64,
     #[serde(default = "default_true")]
     pub needs_bom: bool,
+    #[serde(default)]
+    pub is_preview: bool,
 }
 
 fn default_true() -> bool { true }
