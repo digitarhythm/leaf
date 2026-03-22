@@ -524,6 +524,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Vim-modus",
             _ => "Vim Mode",
         }.to_string(),
+        "editor_theme" => match lang {
+            Language::Ja => "エディタテーマ",
+            Language::Zh => "编辑器主题",
+            Language::Ko => "에디터 테마",
+            Language::Es => "Tema del editor",
+            Language::De => "Editor-Thema",
+            Language::Fr => "Thème de l'éditeur",
+            Language::It => "Tema dell'editor",
+            Language::Nl => "Editor-thema",
+            _ => "Editor Theme",
+        }.to_string(),
         "shortcut_modifier" => match lang {
             Language::Ja => "ショートカット修飾キー",
             Language::Zh => "快捷键修饰键",
