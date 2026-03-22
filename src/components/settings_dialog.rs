@@ -1,10 +1,23 @@
 use yew::prelude::*;
 use crate::i18n::{self, Language};
 
+pub const THEMES: &[(&str, &str)] = &[
+    ("gruvbox", "Gruvbox"),
+    ("monokai", "Monokai"),
+    ("dracula", "Tokyo Night"),
+    ("nord_dark", "Nord"),
+    ("solarized_dark", "Solarized Dark"),
+    ("one_dark", "One Dark"),
+    ("twilight", "Twilight"),
+    ("tomorrow_night", "Tomorrow Night"),
+];
+
 #[derive(Properties, PartialEq)]
 pub struct SettingsDialogProps {
     pub vim_mode: bool,
     pub on_toggle_vim: Callback<()>,
+    pub current_theme: String,
+    pub on_change_theme: Callback<String>,
     pub on_close: Callback<()>,
 }
 
@@ -62,7 +75,7 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                 </div>
 
                 // Settings items
-                <div class="px-6 py-5">
+                <div class="px-6 py-5 space-y-5">
                     // Vim Mode
                     <div class="flex items-center justify-between">
                         <div>
@@ -82,6 +95,37 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                                 if props.vim_mode { "translate-x-[22px]" } else { "translate-x-0.5" }
                             )}></div>
                         </button>
+                    </div>
+
+                    // Separator
+                    <div class="border-t border-[#3c3836]"></div>
+
+                    // Editor Theme
+                    <div>
+                        <div class="text-sm font-bold text-[#ebdbb2] mb-3">{ i18n::t("editor_theme", lang) }</div>
+                        <div class="grid grid-cols-2 gap-2">
+                            { for THEMES.iter().map(|(id, name)| {
+                                let is_selected = props.current_theme == *id;
+                                let on_change = props.on_change_theme.clone();
+                                let theme_id = id.to_string();
+                                html! {
+                                    <button
+                                        onclick={Callback::from(move |_| on_change.emit(theme_id.clone()))}
+                                        class={classes!(
+                                            "py-2", "px-3", "rounded-lg", "text-xs", "font-bold", "transition-all", "duration-150",
+                                            "border", "text-left",
+                                            if is_selected {
+                                                "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/20"
+                                            } else {
+                                                "bg-[#282828] text-gray-400 border-[#3c3836] hover:bg-[#3c3836] hover:text-gray-200"
+                                            }
+                                        )}
+                                    >
+                                        { *name }
+                                    </button>
+                                }
+                            })}
+                        </div>
                     </div>
                 </div>
             </div>

@@ -189,7 +189,8 @@ export function init_editor(element_id, callback) {
     }
     commandCallback = callback;
     editor = ace.edit(element_id);
-    editor.setTheme("ace/theme/gruvbox");
+    const savedTheme = localStorage.getItem("leaf_editor_theme") || "gruvbox";
+    editor.setTheme("ace/theme/" + savedTheme);
     editor.session.setMode("ace/mode/javascript");
 
     // 基本設定
@@ -411,6 +412,10 @@ export function resize_editor() {
     editor.renderer.updateFull(true);
 }
 export function focus_editor() { if (editor) editor.focus(); }
+
+export function set_editor_theme(theme_name) {
+    if (editor) editor.setTheme("ace/theme/" + theme_name);
+}
 
 export function set_gutter_status(mode) {
     if (!editor) {

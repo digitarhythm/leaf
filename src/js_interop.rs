@@ -21,6 +21,7 @@ extern "C" {
     pub fn init_mermaid(element: &web_sys::Element);
     pub fn set_preview_active(active: bool);
     pub fn set_editor_mode(filename: &str);
+    pub fn set_editor_theme(theme_name: &str);
     pub fn exec_editor_command(command: &str);
 
     pub fn is_tauri() -> bool;

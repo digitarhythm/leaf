@@ -122,6 +122,7 @@ const VIM_MODE_KEY: &str = "leaf_vim_mode";
 const PREVIEW_FONT_SIZE_KEY: &str = "leaf_preview_font_size";
 const FIRST_LAUNCH_KEY: &str = "leaf_first_launch_v1";
 const ACTIVE_TAB_KEY: &str = "leaf_active_tab";
+const EDITOR_THEME_KEY: &str = "leaf_editor_theme";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -454,6 +455,9 @@ pub fn app() -> Html {
     let is_processing_dialog = use_state(|| false);
     let is_install_confirm_visible = use_state(|| false);
     let is_settings_visible = use_state(|| false);
+    let editor_theme = use_state(|| {
+        get_account_storage(EDITOR_THEME_KEY).unwrap_or_else(|| "gruvbox".to_string())
+    });
     let is_install_manual_visible = use_state(|| false);
 
     let is_ad_free = use_state(|| false);
@@ -1713,6 +1717,7 @@ pub fn app() -> Html {
         let is_ad_free_c = is_ad_free.clone();
         let vim_mode_auth = vim_mode.clone();
         let pfs_auth = preview_font_size.clone();
+        let et_auth = editor_theme.clone();
 
         use_effect_with((is_online, ), move |_| {
             let cleanup = || ();
@@ -1763,6 +1768,7 @@ pub fn app() -> Html {
 
                     // メールアドレス取得 → アカウント別DB初期化 → 設定再読み込み → Drive初期化
                     let vim_auth = vim_mode_auth.clone();
+                    let et_a = et_auth.clone();
                     let pfs_a = pfs_auth.clone();
                     let s_reload = s_inner.clone();
                     let rs_reload = rs_inner.clone();
@@ -1836,6 +1842,9 @@ pub fn app() -> Html {
                                     pfs_a.set(fs);
                                 }
                             }
+                            let theme_val = get_account_storage(EDITOR_THEME_KEY).unwrap_or_else(|| "gruvbox".to_string());
+                            crate::js_interop::set_editor_theme(&theme_val);
+                            et_a.set(theme_val);
                         }
                     });
 
@@ -2727,6 +2736,12 @@ pub fn app() -> Html {
                         <SettingsDialog
                             vim_mode={*vim_mode}
                             on_toggle_vim={on_toggle_vim}
+                            current_theme={(*editor_theme).clone()}
+                            on_change_theme={let et = editor_theme.clone(); Callback::from(move |theme: String| {
+                                crate::js_interop::set_editor_theme(&theme);
+                                set_account_storage(EDITOR_THEME_KEY, &theme);
+                                et.set(theme);
+                            })}
                             on_close={let sv = is_settings_visible.clone(); Callback::from(move |_| { sv.set(false); focus_editor(); })}
                         />
                     </div>
