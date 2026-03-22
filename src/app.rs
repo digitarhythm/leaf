@@ -5,6 +5,7 @@ use crate::components::tab_bar::{TabBar, TabInfo, SheetListPanel};
 use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameConflictDialog, LoadingOverlay};
 use crate::components::file_open_dialog::FileOpenDialog;
 use crate::components::preview::Preview;
+use crate::components::settings_dialog::SettingsDialog;
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, set_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
 use crate::db_interop::{save_sheet, save_categories, JSCategory, JSSheet};
@@ -452,6 +453,7 @@ pub fn app() -> Html {
     let pending_delete_category = use_state(|| None::<String>);
     let is_processing_dialog = use_state(|| false);
     let is_install_confirm_visible = use_state(|| false);
+    let is_settings_visible = use_state(|| false);
     let is_install_manual_visible = use_state(|| false);
 
     let is_ad_free = use_state(|| false);
@@ -2086,6 +2088,7 @@ pub fn app() -> Html {
                 let is_logout_conf = is_logout_confirm_visible.clone();
                 let ncq_esc = name_conflict_queue.clone(); let is_imp_lock = is_import_lock.clone();
                 let oi_cb = on_import_cb.clone(); let is_drop_ev = is_category_dropdown_open.clone();
+                let is_settings_ev = is_settings_visible.clone();
                 let is_fd_sub = is_file_dialog_sub_active.clone(); let is_creating_cat_ev = is_creating_category.clone();
                 let is_ld_ev = is_loading.clone(); let is_fo_ev = is_fading_out.clone();
                 let os_cb_ev = on_save_cb.clone(); let sheets_ev = sheets.clone();
@@ -2101,12 +2104,13 @@ pub fn app() -> Html {
                 let pending_close_unsynced_tab_ev = pending_close_unsynced_tab.clone();
                 let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty())), move |deps| {
-                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc)) = *deps;
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
+                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
-                    let is_help_c = is_help.clone(); let pending_del_c = pending_del.clone(); 
+                    let is_help_c = is_help.clone(); let pending_del_c = pending_del.clone();
+                    let is_settings_c = is_settings_ev.clone(); 
                     let conflicts_c = conflicts.clone(); let fallbacks_c = fallbacks.clone(); 
                     let sp_c = sp.clone();
                     let is_logout_conf_c = is_logout_conf.clone(); let ncq_esc_c = ncq_esc.clone();
@@ -2129,7 +2133,8 @@ pub fn app() -> Html {
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                         let key = ke.key(); let code = ke.code();
-                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat;
+                        let modifier_active = ke.alt_key();
+                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open;
                         let is_overlay_active = is_dialog_open || imp_lock;
                         let key_lower = key.to_lowercase();
                         let is_l_key = code == "KeyL" || key_lower == "l" || key_lower == "¬";
@@ -2137,12 +2142,20 @@ pub fn app() -> Html {
                         let is_m_key = code == "KeyM" || key_lower == "m" || key_lower == "µ";
                         let is_plus_key = code == "Equal" || key == "=" || key == "+" || key == "≠";
                         let is_minus_key = code == "Minus" || key == "-" || key == "–";
-                        let is_toggle_shortcut = ke.alt_key() && (is_l_key || is_h_key || is_m_key);
-                        let is_font_size_shortcut = ke.alt_key() && (is_plus_key || is_minus_key);
+                        let is_toggle_shortcut = modifier_active && (is_l_key || is_h_key || is_m_key);
+                        let is_font_size_shortcut = modifier_active && (is_plus_key || is_minus_key);
+                        // Modifier+アプリショートカットキーはブラウザデフォルト動作を先にブロック
+                        // 注意: Cmd+N, Cmd+W はブラウザが最優先で処理するため preventDefault では防げない
+                        if modifier_active {
+                            let is_app_key = is_l_key || is_h_key || is_m_key || is_plus_key || is_minus_key
+                                || code == "KeyN" || code == "KeyS" || code == "KeyO" || code == "KeyF" || code == "KeyW"
+                                || code == "BracketLeft" || code == "BracketRight";
+                            if is_app_key { e.prevent_default(); e.stop_immediate_propagation(); }
+                        }
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
                         
                         // Alt + L (エディタ/Markdownレンダリング切り替え)
-                        if ke.alt_key() && is_l_key && !is_overlay_active {
+                        if modifier_active && is_l_key && !is_overlay_active {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let new_val = !*is_preview_c;
                             is_preview_c.set(new_val);
@@ -2193,7 +2206,7 @@ pub fn app() -> Html {
                             let is_end = key == "End";
 
                             // Alt+フォントサイズ変更はプレビュー用に処理
-                            if ke.alt_key() && is_font_size_shortcut {
+                            if modifier_active && is_font_size_shortcut {
                                 e.prevent_default(); e.stop_immediate_propagation();
                                 let current = get_account_storage(PREVIEW_FONT_SIZE_KEY)
                                     .and_then(|s| s.parse::<i32>().ok())
@@ -2205,7 +2218,7 @@ pub fn app() -> Html {
                                 return;
                             }
                             // Alt+タブ切り替え/閉じるはそのまま通す
-                            if ke.alt_key() { /* fall through to normal shortcut handling */ }
+                            if modifier_active { /* fall through to normal shortcut handling */ }
                             else if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end || is_space {
                                 e.prevent_default(); e.stop_immediate_propagation();
                                 if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
@@ -2227,13 +2240,13 @@ pub fn app() -> Html {
                                 return;
                             } else {
                                 // その他のキー入力をブロック（エディタに渡さない）
-                                let is_printable = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !ke.alt_key();
+                                let is_printable = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !modifier_active;
                                 if is_printable { e.prevent_default(); e.stop_immediate_propagation(); return; }
                             }
                         }
 
                         // Alt + M (FileOpen) のトグル
-                        if ke.alt_key() && is_m_key && (!is_overlay_active || *is_file_open_c) {
+                        if modifier_active && is_m_key && (!is_overlay_active || *is_file_open_c) {
                             e.prevent_default(); e.stop_immediate_propagation();
                             if *is_file_open_c {
                                 // 閉じる時はダイアログのアニメーション付きclose処理をトリガー
@@ -2245,7 +2258,7 @@ pub fn app() -> Html {
                         }
                         
                         // Alt + H (Help) のトグル
-                        if ke.alt_key() && is_h_key && (!is_overlay_active || *is_help_c) {
+                        if modifier_active && is_h_key && (!is_overlay_active || *is_help_c) {
                             e.prevent_default(); e.stop_immediate_propagation(); 
                             let val = !*is_help_c;
                             is_help_c.set(val); 
@@ -2253,7 +2266,7 @@ pub fn app() -> Html {
                             return; 
                         }
 
-                        if ke.alt_key() && !is_overlay_active {
+                        if modifier_active && !is_overlay_active {
                             if is_font_size_shortcut { e.prevent_default(); e.stop_immediate_propagation(); if is_plus_key { crate::js_interop::change_font_size(1); } else { crate::js_interop::change_font_size(-1); } return; }
                             let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
                             let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
@@ -2379,8 +2392,8 @@ pub fn app() -> Html {
                                 return;
                             }
                             let is_nav_key = key == "ArrowUp" || key == "ArrowDown" || key == "ArrowLeft" || key == "ArrowRight" || key == "Enter" || key == " " || key == "Tab" || key == "PageUp" || key == "PageDown" || key == "Home" || key == "End";
-                            let is_char_input = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !ke.alt_key();
-                            let is_edit_key = ke.ctrl_key() || ke.meta_key() || (ke.alt_key() && !is_toggle_shortcut && !is_font_size_shortcut) || is_char_input;
+                            let is_char_input = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !modifier_active;
+                            let is_edit_key = ke.ctrl_key() || ke.meta_key() || (modifier_active && !is_toggle_shortcut && !is_font_size_shortcut) || is_char_input;
                             let skip_nav_block = help && is_nav_key;
                             if (is_nav_key || is_edit_key) && !skip_nav_block { if is_target_in_editor || is_target_body { e.stop_immediate_propagation(); let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false); if !is_input { e.prevent_default(); } } }
                             if key == "Escape" {
@@ -2401,6 +2414,7 @@ pub fn app() -> Html {
                                 else if has_del { pending_del_c.set(None); }
                                 else if has_conf { conflicts_c.set(Vec::new()); }
                                 else if has_fall { fallbacks_c.set(Vec::new()); }
+                                else if settings_open { is_settings_c.set(false); }
                                 else if help { is_help_c.set(false); }
                                 else if file_open { is_file_open_c.set(false); sp_c.set(false); }
                                 focus_editor(); return;
@@ -2590,7 +2604,7 @@ pub fn app() -> Html {
                                     on_import={on_import_cb} 
                                     on_change_font_size={on_change_font_size.clone()} 
                                     on_change_category={on_change_category_cb} 
-                                    on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_toggle_vim={on_toggle_vim.clone()} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} />
+                                    on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_open_settings={let sv = is_settings_visible.clone(); Callback::from(move |_| sv.set(true))} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} />
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={(*active_sheet_id).clone()} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} />
                 <div class="flex-1 relative overflow-hidden bg-gray-900">
                     // エディタ本体（常に表示、プレビュー時はレンダリングが上に重なる）
@@ -2614,8 +2628,7 @@ pub fn app() -> Html {
                                     key="bottom-status-bar" 
                                     network_status={*network_connected} 
                                     is_saving={(*saving_sheet_id).as_ref() == active_sheet_id.as_ref() && active_sheet_id.is_some()}
-                                    vim_mode={*vim_mode}
-                                    on_toggle_vim={on_toggle_vim}
+                                    on_open_settings={let sv = is_settings_visible.clone(); Callback::from(move |_| sv.set(true))}
                                     category_name={current_cat_name}
                                     file_name={current_file_name}
                                 />
@@ -2706,6 +2719,15 @@ pub fn app() -> Html {
                             on_select_tab={on_tab_select_cb.clone()}
                             on_close_tab={on_tab_close_cb.clone()}
                             on_close_panel={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(false))}
+                        />
+                    </div>
+                }
+                if *is_settings_visible {
+                    <div class="pointer-events-auto">
+                        <SettingsDialog
+                            vim_mode={*vim_mode}
+                            on_toggle_vim={on_toggle_vim}
+                            on_close={let sv = is_settings_visible.clone(); Callback::from(move |_| { sv.set(false); focus_editor(); })}
                         />
                     </div>
                 }
