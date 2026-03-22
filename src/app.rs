@@ -2097,6 +2097,7 @@ pub fn app() -> Html {
                 let saving_id_ref_ev = saving_id_ref.clone();
                 let ncid_ev = no_category_folder_id.clone();
                 let pending_close_tab_ev = pending_close_tab.clone();
+                let pfs_ev = preview_font_size.clone();
                 let pending_close_unsynced_tab_ev = pending_close_unsynced_tab.clone();
                 let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
@@ -2120,6 +2121,7 @@ pub fn app() -> Html {
                     let saving_ref_c = saving_id_ref_ev.clone();
                     let ncid_c = ncid_ev.clone();
                     let pending_close_tab_c = pending_close_tab_ev.clone();
+                    let pfs_c = pfs_ev.clone();
                     let pending_close_unsynced_c = pending_close_unsynced_tab_ev.clone();
                     let nc_c = nc_ev.clone();
                     let pending_save_close_c = pending_save_close_tab_ev.clone();
@@ -2190,6 +2192,18 @@ pub fn app() -> Html {
                             let is_home = key == "Home";
                             let is_end = key == "End";
 
+                            // Alt+フォントサイズ変更はプレビュー用に処理
+                            if ke.alt_key() && is_font_size_shortcut {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                let current = get_account_storage(PREVIEW_FONT_SIZE_KEY)
+                                    .and_then(|s| s.parse::<i32>().ok())
+                                    .unwrap_or(14);
+                                let delta = if is_plus_key { 1 } else { -1 };
+                                let new_size = std::cmp::max(8, std::cmp::min(72, current + delta));
+                                pfs_c.set(new_size);
+                                set_account_storage(PREVIEW_FONT_SIZE_KEY, &new_size.to_string());
+                                return;
+                            }
                             // Alt+タブ切り替え/閉じるはそのまま通す
                             if ke.alt_key() { /* fall through to normal shortcut handling */ }
                             else if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end || is_space {
