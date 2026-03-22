@@ -168,31 +168,46 @@ fn generate_random_color() -> String {
     format!("hsl({}, {}%, {}%)", h, s, l)
 }
 
-fn render_preview_inline(
-    active_sheet_id: &UseStateHandle<Option<String>>,
-    sheets: &UseStateHandle<Vec<Sheet>>,
-    file_ext: &str,
-    font_size: i32,
-) -> Html {
+#[derive(Properties, PartialEq)]
+struct InlinePreviewProps {
+    pub content: String,
+    pub file_ext: String,
+    pub font_size: i32,
+}
+
+#[function_component(InlinePreview)]
+fn inline_preview(props: &InlinePreviewProps) -> Html {
     use yew::AttrValue;
-    let aid = (**active_sheet_id).clone();
-    let content = if let Some(id) = aid {
-        crate::js_interop::get_editor_content().as_string().unwrap_or_else(|| {
-            sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default()
-        })
-    } else { "".to_string() };
-    let is_markdown = file_ext == "md" || file_ext == "markdown";
+    let node_ref = use_node_ref();
+    let is_markdown = props.file_ext == "md" || props.file_ext == "markdown";
     let rendered_html = if is_markdown {
-        crate::js_interop::render_markdown(&content)
+        crate::js_interop::render_markdown(&props.content)
     } else {
-        let code_html = crate::js_interop::highlight_code(&content, file_ext);
-        format!(r#"<pre class="hljs whitespace-pre-wrap break-all"><code class="hljs language-{}">{}</code></pre>"#, file_ext, code_html)
+        let code_html = crate::js_interop::highlight_code(&props.content, &props.file_ext);
+        format!(r#"<pre class="hljs whitespace-pre-wrap break-all"><code class="hljs language-{}">{}</code></pre>"#, props.file_ext, code_html)
     };
+
+    // Mermaid初期化
+    {
+        let node_ref = node_ref.clone();
+        let is_md = is_markdown;
+        let content = props.content.clone();
+        use_effect_with(content, move |_| {
+            if is_md {
+                if let Some(el) = node_ref.cast::<web_sys::Element>() {
+                    crate::js_interop::init_mermaid(&el);
+                }
+            }
+            || ()
+        });
+    }
+
     html! {
         <div class="absolute inset-0 z-20 overflow-y-auto bg-[#1a1b26] p-6 sm:p-12">
             <div
+                ref={node_ref}
                 class={classes!(if is_markdown { "markdown-body" } else { "hljs" }, "max-w-none")}
-                style={format!("font-size: {}pt;", font_size)}
+                style={format!("font-size: {}pt;", props.font_size)}
             >
                 { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
             </div>
@@ -2700,6 +2715,15 @@ pub fn app() -> Html {
         })
     };
 
+    let inline_preview_content = if *is_preview_visible {
+        let aid = (*active_sheet_id).clone();
+        if let Some(id) = aid {
+            get_editor_content().as_string().unwrap_or_else(|| {
+                sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default()
+            })
+        } else { "".to_string() }
+    } else { "".to_string() };
+
     html! {
         <div class="relative h-screen w-screen overflow-hidden bg-gray-950" key="app-root">
             <main key="main-editor-surface" class={classes!("absolute", "inset-0", "flex", "flex-col", "text-white", "transition-opacity", "duration-300", if !*is_authenticated && *network_connected { "opacity-0" } else { "opacity-100" } )}>
@@ -2718,7 +2742,7 @@ pub fn app() -> Html {
 
                     // Markdownレンダリング表示（インライン）
                     if *is_preview_visible {
-                        { render_preview_inline(&active_sheet_id, &sheets, &current_file_ext, *preview_font_size) }
+                        <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} />
                     }
 
                     // フォールバック表示（エディタがロードできなかった場合用）
