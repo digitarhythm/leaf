@@ -2303,12 +2303,22 @@ pub fn app() -> Html {
                                 set_account_storage(PREVIEW_FONT_SIZE_KEY, &new_size.to_string());
                                 return;
                             }
-                            // Alt+タブ切り替え/閉じるはそのまま通す
-                            if modifier_active { /* fall through to normal shortcut handling */ }
+                            // Alt+許可ショートカットのみ通す（L,H,M,[,],W,,,フォントサイズ）
+                            if modifier_active {
+                                let is_allowed = is_l_key || is_h_key || is_m_key
+                                    || code == "BracketLeft" || code == "BracketRight"
+                                    || code == "KeyW" || code == "Comma";
+                                if is_allowed {
+                                    /* fall through to normal shortcut handling */
+                                } else {
+                                    e.prevent_default(); e.stop_immediate_propagation();
+                                    return;
+                                }
+                            }
+                            // スクロール操作
                             else if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end || is_space {
                                 e.prevent_default(); e.stop_immediate_propagation();
                                 if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-                                    // Markdownレンダリングのスクロールコンテナを取得（z-20の最初のdiv）
                                     if let Ok(Some(el)) = doc.query_selector(".absolute.inset-0.z-20.overflow-y-auto") {
                                         let client_height = el.client_height();
                                         let current_scroll = el.scroll_top();
@@ -2321,13 +2331,11 @@ pub fn app() -> Html {
                                     }
                                 }
                                 return;
-                            } else if key == "Tab" {
+                            }
+                            // その他すべてのキー入力をブロック（エディタに渡さない）
+                            else {
                                 e.prevent_default(); e.stop_immediate_propagation();
                                 return;
-                            } else {
-                                // その他のキー入力をブロック（エディタに渡さない）
-                                let is_printable = key.len() == 1 && !ke.ctrl_key() && !ke.meta_key() && !modifier_active;
-                                if is_printable { e.prevent_default(); e.stop_immediate_propagation(); return; }
                             }
                         }
 
