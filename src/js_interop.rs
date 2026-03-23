@@ -25,6 +25,8 @@ extern "C" {
     pub fn get_editor_state() -> String;
     pub fn set_editor_state(state_json: &str);
     pub fn load_editor_content_raw(content: &str);
+    pub fn preload_markdown_libs();
+    pub fn is_marked_loaded() -> bool;
     pub fn exec_editor_command(command: &str);
 
     pub fn is_tauri() -> bool;

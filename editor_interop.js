@@ -454,8 +454,26 @@ export function load_editor_content_raw(content) {
     }
 }
 
+const loadedThemes = new Set();
 export function set_editor_theme(theme_name) {
-    if (editor) editor.setTheme("ace/theme/" + theme_name);
+    if (!editor) return;
+    const themePath = "ace/theme/" + theme_name;
+    // テーマが既にロード済みか確認
+    if (loadedThemes.has(theme_name) || ace.require(themePath)) {
+        editor.setTheme(themePath);
+        loadedThemes.add(theme_name);
+        return;
+    }
+    // 未ロード → CDNからスクリプトを動的ロード
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-" + theme_name + ".js";
+    script.crossOrigin = "anonymous";
+    script.onload = () => {
+        loadedThemes.add(theme_name);
+        editor.setTheme(themePath);
+    };
+    script.onerror = () => console.warn("[Leaf] Failed to load theme:", theme_name);
+    document.head.appendChild(script);
 }
 
 export function set_gutter_status(mode) {
@@ -507,8 +525,21 @@ export function generate_uuid() {
 }
 
 export function render_markdown(text) {
-    if (typeof marked === 'undefined') return text;
+    if (typeof marked === 'undefined') {
+        // markedがまだロードされていない場合、遅延ロードをトリガーしてプレーンテキストを返す
+        if (window.ensureMarked) window.ensureMarked(function() {});
+        return '<pre style="white-space:pre-wrap;color:#ebdbb2;">' + text.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</pre>';
+    }
     return marked.parse(text);
+}
+
+export function preload_markdown_libs() {
+    if (window.ensureMarked) window.ensureMarked(function() {});
+    if (window.ensureMermaid) window.ensureMermaid(function() {});
+}
+
+export function is_marked_loaded() {
+    return typeof marked !== 'undefined';
 }
 
 export function init_mermaid(element) {

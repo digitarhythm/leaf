@@ -20,21 +20,6 @@ const PRECACHE_ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-monokai.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-dracula.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-nord_dark.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-solarized_dark.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-one_dark.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-twilight.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-tomorrow_night.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-chrome.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-clouds.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-crimson_editor.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-dawn.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-dreamweaver.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-eclipse.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-github.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-solarized_light.js',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-javascript.js',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-markdown.js',
@@ -42,9 +27,7 @@ const PRECACHE_ASSETS = [
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-modelist.js',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-searchbox.js',
   'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/worker-javascript.js',
-  'https://cdn.jsdelivr.net/npm/marked/marked.min.js',
-  'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js'
+  'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/worker-javascript.js'
 ];
 
 const ALLOWED_DOMAINS = ['cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com'];
