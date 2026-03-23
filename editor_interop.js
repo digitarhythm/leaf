@@ -413,6 +413,47 @@ export function resize_editor() {
 }
 export function focus_editor() { if (editor) editor.focus(); }
 
+export function get_editor_state() {
+    if (!editor) return JSON.stringify({ row: 0, col: 0, scrollTop: 0, scrollLeft: 0 });
+    const pos = editor.getCursorPosition();
+    return JSON.stringify({
+        row: pos.row,
+        col: pos.column,
+        scrollTop: editor.session.getScrollTop(),
+        scrollLeft: editor.session.getScrollLeft()
+    });
+}
+
+export function set_editor_state(state_json) {
+    if (!editor) return;
+    try {
+        const s = JSON.parse(state_json);
+        const maxRow = editor.session.getLength() - 1;
+        const row = Math.min(s.row || 0, maxRow);
+        const maxCol = editor.session.getLine(row).length;
+        const col = Math.min(s.col || 0, maxCol);
+        editor.moveCursorToPosition({ row, column: col });
+        editor.clearSelection();
+        editor.session.setScrollTop(s.scrollTop || 0);
+        editor.session.setScrollLeft(s.scrollLeft || 0);
+    } catch (_) {}
+}
+
+export function load_editor_content_raw(content) {
+    if (!editor) { pendingContent = content; return; }
+    internalChange = true;
+    try {
+        editor.setValue(content || "", -1);
+        editor.clearSelection();
+        editor.moveCursorToPosition({ row: 0, column: 0 });
+        editor.session.setScrollTop(0);
+        editor.session.setScrollLeft(0);
+        pendingContent = null;
+    } finally {
+        internalChange = false;
+    }
+}
+
 export function set_editor_theme(theme_name) {
     if (editor) editor.setTheme("ace/theme/" + theme_name);
 }
