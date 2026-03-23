@@ -18,6 +18,16 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# 1.5. wasm-opt 最適化
+if command -v wasm-opt &> /dev/null; then
+    WASM_FILE=$(ls dist/*_bg.wasm 2>/dev/null)
+    if [ -n "$WASM_FILE" ]; then
+        echo "🔧 Optimizing WASM with wasm-opt..."
+        wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals "$WASM_FILE" -o "${WASM_FILE}.opt" && mv "${WASM_FILE}.opt" "$WASM_FILE"
+        echo "   $(ls -lh $WASM_FILE | awk '{print $5}') after wasm-opt"
+    fi
+fi
+
 # 2. Sync Frontend Assets (Excluding server configs and dependencies)
 echo "🚚 Syncing frontend assets..."
 rsync -avz --delete \

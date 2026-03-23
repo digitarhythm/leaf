@@ -181,7 +181,38 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
     use yew::AttrValue;
     let node_ref = use_node_ref();
     let is_markdown = props.file_ext == "md" || props.file_ext == "markdown";
-    let rendered_html = if is_markdown {
+    let libs_ready = use_state(|| crate::js_interop::is_marked_loaded());
+    let file_ext = props.file_ext.clone();
+
+    // Markdownライブラリの遅延ロード＋ポーリング
+    {
+        let libs_ready = libs_ready.clone();
+        use_effect_with(file_ext, move |ext| {
+            let is_md = ext == "md" || ext == "markdown";
+            if !is_md {
+                libs_ready.set(true);
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            }
+            if crate::js_interop::is_marked_loaded() {
+                libs_ready.set(true);
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            }
+            crate::js_interop::preload_markdown_libs();
+            let libs_ready = libs_ready.clone();
+            let interval = gloo::timers::callback::Interval::new(100, move || {
+                if crate::js_interop::is_marked_loaded() {
+                    libs_ready.set(true);
+                }
+            });
+            Box::new(move || drop(interval)) as Box<dyn FnOnce()>
+        });
+    }
+
+    let loading = is_markdown && !*libs_ready;
+
+    let rendered_html = if loading {
+        "".to_string()
+    } else if is_markdown {
         crate::js_interop::render_markdown(&props.content)
     } else {
         let code_html = crate::js_interop::highlight_code(&props.content, &props.file_ext);
@@ -192,9 +223,10 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
     {
         let node_ref = node_ref.clone();
         let is_md = is_markdown;
+        let ready = *libs_ready;
         let content = props.content.clone();
-        use_effect_with(content, move |_| {
-            if is_md {
+        use_effect_with((content, ready), move |_| {
+            if is_md && ready {
                 if let Some(el) = node_ref.cast::<web_sys::Element>() {
                     crate::js_interop::init_mermaid(&el);
                 }
@@ -204,10 +236,18 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
     }
 
     html! {
-        <div class="absolute inset-0 z-20 overflow-y-auto bg-[#1a1b26] p-6 sm:p-12">
+        <div class="absolute inset-0 z-20 overflow-y-auto bg-[#1a1b26]">
+            // ローディング表示
+            <div class={classes!("absolute", "inset-0", "flex", "items-center", "justify-center", if loading { "" } else { "hidden" })}>
+                <div class="flex flex-col items-center">
+                    <div class="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p class="text-emerald-500/70 text-sm font-bold animate-pulse">{ "Loading..." }</p>
+                </div>
+            </div>
+            // コンテンツ
             <div
                 ref={node_ref}
-                class={classes!(if is_markdown { "markdown-body" } else { "hljs" }, "max-w-none")}
+                class={classes!(if is_markdown { "markdown-body" } else { "hljs" }, "max-w-none", "p-6", "sm:p-12", if loading { "hidden" } else { "" })}
                 style={format!("font-size: {}pt;", props.font_size)}
             >
                 { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
@@ -738,6 +778,14 @@ pub fn app() -> Html {
 
                     {
                         let sheet = &mut cur_s[idx];
+
+                        // 自動保存時：キャプチャした内容が空だが、sheet.contentに内容がある場合はsheet.contentを使う
+                        // （リロード直後等でエディタが未描画の場合のフォールバック）
+                        let cur_c = if cur_c.trim().is_empty() && !sheet.content.trim().is_empty() {
+                            sheet.content.clone()
+                        } else {
+                            cur_c
+                        };
 
                         // 自動保存時の空データ処理（設定に応じて動作を分岐）
                         // cur_cが空で、シートがDriveまたはGUIDに紐付いている場合（一度は保存されたファイル）
@@ -2413,9 +2461,8 @@ pub fn app() -> Html {
                                         };
                                         let new_id = current_sheets[new_idx].id.clone();
                                         if new_id == current_id { return; }
-                                        // 現在のエディタ状態を保存し、変更があれば自動保存をトリガー
+                                        // 現在のエディタ状態を保存し、変更があればIndexedDBに直接保存
                                         sp_c.set(true);
-                                        let mut needs_save = false;
                                         let editor_state = crate::js_interop::get_editor_state();
                                         let cur_c_val = get_editor_content();
                                         if let Some(cur_c) = cur_c_val.as_string() {
@@ -2423,14 +2470,20 @@ pub fn app() -> Html {
                                             if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
                                                 sheet.editor_state = Some(editor_state);
                                                 if sheet.content != cur_c {
-                                                    sheet.content = cur_c;
-                                                    if sheet.drive_id.is_some() || sheet.guid.is_some() { sheet.is_modified = true; needs_save = true; }
-                                                } else if sheet.is_modified { needs_save = true; }
+                                                    sheet.content = cur_c.clone();
+                                                    if sheet.drive_id.is_some() || sheet.guid.is_some() { sheet.is_modified = true; }
+                                                }
+                                                if sheet.is_modified {
+                                                    sheet.temp_content = Some(sheet.content.clone());
+                                                    sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
+                                                    let js = sheet.to_js();
+                                                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                                    if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
+                                                }
                                             }
                                             *rs_c.borrow_mut() = us.clone();
                                             sheets_c.set(us);
                                         }
-                                        if needs_save { os_c.emit(false); }
                                         // 新タブの内容をロード
                                         let sheets_list = (*rs_c.borrow()).clone();
                                         if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
@@ -2587,14 +2640,12 @@ pub fn app() -> Html {
         let s_state = sheets.clone();
         let sp = is_suppressing_changes.clone();
         let ip = is_preview_visible.clone();
-        let os = on_save_cb.clone();
         Callback::from(move |new_id: String| {
             // RefCellから最新のactive_idを取得
             let current_aid = (*aid_ref.borrow()).clone();
             if current_aid.as_ref() == Some(&new_id) { return; }
-            // 現在のエディタ状態を保存し、変更があれば自動保存をトリガー
+            // 現在のエディタ状態を保存し、変更があればIndexedDBに直接保存
             sp.set(true);
-            let mut needs_save = false;
             if let Some(old_id) = current_aid {
                 let editor_state = crate::js_interop::get_editor_state();
                 let cur_c_val = get_editor_content();
@@ -2603,20 +2654,26 @@ pub fn app() -> Html {
                     if let Some(sheet) = us.iter_mut().find(|x| x.id == old_id) {
                         sheet.editor_state = Some(editor_state);
                         if sheet.content != cur_c {
-                            sheet.content = cur_c;
+                            sheet.content = cur_c.clone();
                             if sheet.drive_id.is_some() || sheet.guid.is_some() {
                                 sheet.is_modified = true;
-                                needs_save = true;
                             }
-                        } else if sheet.is_modified {
-                            needs_save = true;
+                        }
+                        // IndexedDBにtemp保存（on_save_cbを使わず直接保存）
+                        if sheet.is_modified {
+                            sheet.temp_content = Some(sheet.content.clone());
+                            sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
+                            let js = sheet.to_js();
+                            let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                            if let Ok(v) = js.serialize(&ser) {
+                                spawn_local(async move { let _ = save_sheet(v).await; });
+                            }
                         }
                     }
                     *rs.borrow_mut() = us.clone();
                     s_state.set(us);
                 }
             }
-            if needs_save { os.emit(false); }
             // 新タブの内容をロード
             let sheets_list = (*rs.borrow()).clone();
             if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
@@ -2734,6 +2791,20 @@ pub fn app() -> Html {
         })
     };
 
+    // ログインページ広告
+    {
+        let is_auth = *is_authenticated;
+        let nc = *network_connected;
+        use_effect_with((is_auth, nc), move |deps| {
+            let (auth, online) = *deps;
+            if !auth && online {
+                crate::adsense_interop::load_adsense_script();
+                Timeout::new(500, || { crate::adsense_interop::render_ad("login-ad"); }).forget();
+            }
+            || ()
+        });
+    }
+
     let inline_preview_content = if *is_preview_visible {
         let aid = (*active_sheet_id).clone();
         if let Some(id) = aid {
@@ -2789,6 +2860,8 @@ pub fn app() -> Html {
                             <img src="icon.svg" class="mx-auto mb-8 shadow-2xl" style="width: 15vmin; height: 15vmin;" alt="Leaf Icon" />
                             <h1 class="text-4xl font-extrabold text-white mb-6 tracking-tight">{ i18n::t("welcome_headline", lang) }</h1>
                             <div class="mb-10 text-gray-300 text-sm leading-relaxed whitespace-pre-wrap opacity-80 bg-gray-800/30 p-6 rounded-lg border border-white/5 shadow-inner text-left">{ Html::from_html_unchecked(i18n::t("app_policy_description", lang).into()) }</div>
+                                                                                                                // 広告枠（ログインページ）
+                                                                                                                <div id="login-ad" class="mb-8 w-full max-w-2xl mx-auto"></div>
                                                                                                                 <button onclick={on_login} class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
                                                                                                                     { i18n::t("signin_with_google", lang) }
                                                                                                                 </button>

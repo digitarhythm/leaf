@@ -23,7 +23,7 @@
   <meta name="twitter:description" content="A modern text editor designed for focus. Auto-save to Google Drive, Vim keybindings, Markdown preview, and offline support.">
   <meta name="twitter:image" content="https://leaf.digitarhythm.net/img/leaf_ogp_optimized.jpg">
 
-  <link data-trunk rel="rust" data-target-name="leaf" data-integrity="none" />
+  <link data-trunk rel="rust" data-target-name="leaf" data-integrity="none" data-wasm-opt="0" />
   <link data-trunk rel="css" href="tailwind.css" data-integrity="none" />
   <link data-trunk rel="copy-file" href="robots.txt" />
 
@@ -415,22 +415,16 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
     crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-gruvbox.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-monokai.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-dracula.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-nord_dark.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-solarized_dark.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-one_dark.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-twilight.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-tomorrow_night.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-chrome.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-clouds.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-crimson_editor.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-dawn.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-dreamweaver.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-eclipse.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-github.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-solarized_light.js" crossorigin="anonymous"></script>
+  <!-- テーマは起動時にlocalStorageから読み取り、必要な1つだけ動的ロード -->
+  <script>
+    (function() {
+      var theme = localStorage.getItem("leaf_editor_theme") || "gruvbox";
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-" + theme + ".js";
+      s.crossOrigin = "anonymous";
+      document.head.appendChild(s);
+    })();
+  </script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-javascript.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js"
@@ -438,17 +432,48 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-modelist.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-searchbox.js" crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js" crossorigin="anonymous"></script>
   <script>
-    if (typeof mermaid !== 'undefined') {
-      mermaid.initialize({ startOnLoad: false, theme: 'dark' });
-    }
+    // marked/mermaid は遅延ロード（Markdownプレビュー初回使用時）
+    window._markedLoaded = false;
+    window._mermaidLoaded = false;
+    window.ensureMarked = function(callback) {
+      if (typeof marked !== 'undefined') { callback(); return; }
+      if (window._markedLoaded) { setTimeout(function() { window.ensureMarked(callback); }, 100); return; }
+      window._markedLoaded = true;
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      s.crossOrigin = 'anonymous';
+      s.onload = function() {
+        if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+          marked.setOptions({
+            highlight: function(code, lang) {
+              var language = hljs.getLanguage(lang) ? lang : 'plaintext';
+              return hljs.highlight(code, { language }).value;
+            },
+            langPrefix: 'hljs language-'
+          });
+        }
+        callback();
+      };
+      document.head.appendChild(s);
+    };
+    window.ensureMermaid = function(callback) {
+      if (typeof mermaid !== 'undefined') { callback(); return; }
+      if (window._mermaidLoaded) { setTimeout(function() { window.ensureMermaid(callback); }, 100); return; }
+      window._mermaidLoaded = true;
+      var s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js';
+      s.crossOrigin = 'anonymous';
+      s.onload = function() {
+        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+        callback();
+      };
+      document.head.appendChild(s);
+    };
 
     window.initMermaid = function (el) {
-      if (typeof mermaid !== 'undefined' && el) {
-        // marked が生成する <pre><code class="language-mermaid">...</code></pre> を
-        // Mermaid が処理できる <div class="mermaid">...</div> に変換
+      if (!el) return;
+      window.ensureMermaid(function() {
         el.querySelectorAll('code.language-mermaid').forEach(function(code) {
           var pre = code.parentElement;
           if (pre && pre.tagName === 'PRE') {
@@ -459,21 +484,11 @@
           }
         });
         mermaid.run({ nodes: el.querySelectorAll('.mermaid') });
-      }
+      });
     };
 
     if (typeof ace !== 'undefined') {
       ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
-    }
-
-    if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
-      marked.setOptions({
-        highlight: function (code, lang) {
-          const language = hljs.getLanguage(lang) ? lang : 'plaintext';
-          return hljs.highlight(code, { language }).value;
-        },
-        langPrefix: 'hljs language-'
-      });
     }
 
     // Service Worker 登録 (Tauri環境では無効化)
