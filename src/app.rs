@@ -2379,7 +2379,8 @@ pub fn app() -> Html {
                             if modifier_active {
                                 let is_allowed = is_l_key || is_h_key || is_m_key
                                     || code == "BracketLeft" || code == "BracketRight"
-                                    || code == "KeyW" || code == "Comma";
+                                    || code == "KeyW" || code == "Comma"
+                                    || code == "KeyN";
                                 if is_allowed {
                                     /* fall through to normal shortcut handling */
                                 } else {
