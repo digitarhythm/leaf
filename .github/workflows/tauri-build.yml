@@ -73,7 +73,7 @@ jobs:
 
       - name: Install wasm-opt (Windows)
         if: matrix.platform == 'windows-latest'
-        run: choco install binaryen -y
+        run: npm install -g binaryen
 
       # Build
       - name: Build Tauri App
