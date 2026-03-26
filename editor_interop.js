@@ -542,6 +542,56 @@ export function is_marked_loaded() {
     return typeof marked !== 'undefined';
 }
 
+export function set_window_opacity(opacity) {
+    if (!is_tauri()) return;
+    if (window.__TAURI__ && window.__TAURI__.core) {
+        window.__TAURI__.core.invoke('set_window_opacity', { opacity: opacity });
+    }
+}
+
+export function set_window_blur(blur) {
+    if (!is_tauri()) return;
+    if (window.__TAURI__ && window.__TAURI__.core) {
+        window.__TAURI__.core.invoke('set_window_blur', { blur: blur });
+        // ブラーが有効な場合、アプリ背景を半透明にして効果を見せる
+        if (blur > 0) {
+            const bgAlpha = 1.0 - (blur / 100.0) * 0.9;
+            document.documentElement.style.background = 'transparent';
+            document.body.style.background = 'transparent';
+            const appRoot = document.getElementById('app-root');
+            if (appRoot) appRoot.style.backgroundColor = `rgba(2, 6, 23, ${bgAlpha})`;
+            document.querySelectorAll('.bg-gray-800, .bg-gray-900, .bg-gray-950').forEach(el => {
+                el.dataset.origBg = el.style.backgroundColor || '';
+                el.style.backgroundColor = `rgba(31, 41, 55, ${bgAlpha})`;
+            });
+        } else {
+            document.documentElement.style.background = '';
+            document.body.style.background = '';
+            const appRoot = document.getElementById('app-root');
+            if (appRoot) appRoot.style.backgroundColor = '';
+            document.querySelectorAll('.bg-gray-800, .bg-gray-900, .bg-gray-950').forEach(el => {
+                el.style.backgroundColor = el.dataset.origBg || '';
+            });
+        }
+    }
+}
+
+export function is_macos_tauri() {
+    if (!is_tauri()) return false;
+    return window._is_macos_tauri || false;
+}
+
+export function is_windows_tauri() {
+    if (!is_tauri()) return false;
+    return window._is_windows_tauri || false;
+}
+
+// 起動時にOS判定をキャッシュ
+if (is_tauri() && window.__TAURI__ && window.__TAURI__.core) {
+    window.__TAURI__.core.invoke('is_macos').then(v => { window._is_macos_tauri = v; });
+    window.__TAURI__.core.invoke('is_windows').then(v => { window._is_windows_tauri = v; });
+}
+
 export function init_mermaid(element) {
     if (typeof mermaid === 'undefined') return;
     mermaid.run({

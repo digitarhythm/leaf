@@ -56,6 +56,14 @@ pub struct SettingsDialogProps {
     pub on_change_theme: Callback<String>,
     pub empty_save_behavior: EmptySaveBehavior,
     pub on_change_empty_save: Callback<EmptySaveBehavior>,
+    #[prop_or(100)]
+    pub window_opacity: i32,
+    #[prop_or_default]
+    pub on_change_opacity: Option<Callback<i32>>,
+    #[prop_or_default]
+    pub window_blur: i32,
+    #[prop_or_default]
+    pub on_change_blur: Option<Callback<i32>>,
     pub on_close: Callback<()>,
 }
 
@@ -184,6 +192,46 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                             })}
                         </div>
                     </div>
+
+                    // Window Opacity (Tauri macOS only)
+                    if let Some(ref on_opacity) = props.on_change_opacity {
+                        <div class="border-t border-[#3c3836]"></div>
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-sm font-bold text-[#ebdbb2]">{ i18n::t("window_opacity", lang) }</div>
+                                <span class="text-xs text-gray-400 font-mono">{ format!("{}%", props.window_opacity) }</span>
+                            </div>
+                            <input type="range" min="50" max="100" step="5"
+                                value={props.window_opacity.to_string()}
+                                onchange={let cb = on_opacity.clone(); Callback::from(move |e: Event| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); if let Ok(v) = input.value().parse::<i32>() { cb.emit(v); } })}
+                                oninput={let cb = on_opacity.clone(); Callback::from(move |e: InputEvent| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); if let Ok(v) = input.value().parse::<i32>() { cb.emit(v); } })}
+                                class="w-full h-2 bg-[#3c3836] rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                            <div class="flex justify-between text-[10px] text-gray-600 mt-1">
+                                <span>{ "50%" }</span><span>{ "75%" }</span><span>{ "100%" }</span>
+                            </div>
+                        </div>
+                    }
+
+                    // Window Blur (Tauri Windows only)
+                    if let Some(ref on_blur) = props.on_change_blur {
+                        <div class="border-t border-[#3c3836]"></div>
+                        <div>
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-sm font-bold text-[#ebdbb2]">{ i18n::t("window_blur", lang) }</div>
+                                <span class="text-xs text-gray-400 font-mono">{ format!("{}%", props.window_blur) }</span>
+                            </div>
+                            <input type="range" min="0" max="100" step="10"
+                                value={props.window_blur.to_string()}
+                                onchange={let cb = on_blur.clone(); Callback::from(move |e: Event| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); if let Ok(v) = input.value().parse::<i32>() { cb.emit(v); } })}
+                                oninput={let cb = on_blur.clone(); Callback::from(move |e: InputEvent| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); if let Ok(v) = input.value().parse::<i32>() { cb.emit(v); } })}
+                                class="w-full h-2 bg-[#3c3836] rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                            />
+                            <div class="flex justify-between text-[10px] text-gray-600 mt-1">
+                                <span>{ "OFF" }</span><span>{ "50%" }</span><span>{ "100%" }</span>
+                            </div>
+                        </div>
+                    }
 
                     // Separator
                     <div class="border-t border-[#3c3836]"></div>

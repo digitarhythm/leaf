@@ -2,6 +2,8 @@ use tauri_plugin_sql::{Builder as SqlBuilder, Migration, MigrationKind};
 use std::time::Duration;
 use serde_json::Value;
 use tauri_plugin_dialog::DialogExt;
+#[cfg(target_os = "macos")]
+use objc::{msg_send, sel, sel_impl, class};
 
 // Desktop App 用の OAuth リダイレクトポート
 #[allow(dead_code)]
@@ -20,6 +22,66 @@ fn init_db() -> Result<(), String> {
 #[tauri::command]
 fn log_from_js(msg: String) {
     eprintln!("[JS_ERROR] {}", msg);
+}
+
+#[tauri::command]
+fn set_window_opacity(app: tauri::AppHandle, opacity: f64) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use tauri::Manager;
+        use cocoa::appkit::{NSWindow, CGFloat};
+        if let Some(window) = app.get_webview_window("main") {
+            let ns_window = window.ns_window().map_err(|e| format!("{}", e))?;
+            let alpha = opacity.clamp(0.5, 1.0);
+            unsafe {
+                let ns_win: cocoa::base::id = ns_window as cocoa::base::id;
+                ns_win.setAlphaValue_(alpha as CGFloat);
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window("main") {
+            use window_vibrancy::apply_blur;
+            // Windows: ウィンドウ透明度はblur経由で制御
+            let _ = opacity; // Windowsではset_window_blurで一括管理
+        }
+    }
+    #[cfg(target_os = "linux")]
+    { let _ = (app, opacity); }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_window_blur(app: tauri::AppHandle, blur: i32) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use tauri::Manager;
+        if let Some(window) = app.get_webview_window("main") {
+            if blur > 0 {
+                // Windows 11: Mica, Windows 10: Acrylic
+                if window_vibrancy::apply_mica(&window, None).is_err() {
+                    let _ = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, (255.0 * (1.0 - blur as f64 / 100.0)) as u8)));
+                }
+            } else {
+                let _ = window_vibrancy::clear_acrylic(&window);
+            }
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    { let _ = (app, blur); }
+    Ok(())
+}
+
+#[tauri::command]
+fn is_macos() -> bool {
+    cfg!(target_os = "macos")
+}
+
+#[tauri::command]
+fn is_windows() -> bool {
+    cfg!(target_os = "windows")
 }
 
 #[tauri::command]
@@ -321,7 +383,11 @@ pub fn run() {
             refresh_google_token,
             log_from_js,
             open_local_file_native,
-            save_local_file_native
+            save_local_file_native,
+            set_window_opacity,
+            set_window_blur,
+            is_macos,
+            is_windows
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

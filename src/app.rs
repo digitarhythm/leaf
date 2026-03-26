@@ -126,6 +126,8 @@ const FIRST_LAUNCH_KEY: &str = "leaf_first_launch_v1";
 const ACTIVE_TAB_KEY: &str = "leaf_active_tab";
 const EDITOR_THEME_KEY: &str = "leaf_editor_theme";
 const EMPTY_SAVE_KEY: &str = "leaf_empty_save_behavior";
+const WINDOW_OPACITY_KEY: &str = "leaf_window_opacity";
+const WINDOW_BLUR_KEY: &str = "leaf_window_blur";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -542,6 +544,12 @@ pub fn app() -> Html {
         get_account_storage(EMPTY_SAVE_KEY).map(|v| EmptySaveBehavior::from_str(&v)).unwrap_or(EmptySaveBehavior::Confirm)
     });
     let pending_empty_delete = use_state(|| None::<String>); // 空データ削除確認用のsheet_id
+    let window_opacity = use_state(|| {
+        get_account_storage(WINDOW_OPACITY_KEY).and_then(|v| v.parse::<i32>().ok()).unwrap_or(100)
+    });
+    let window_blur = use_state(|| {
+        get_account_storage(WINDOW_BLUR_KEY).and_then(|v| v.parse::<i32>().ok()).unwrap_or(0)
+    });
     let is_install_manual_visible = use_state(|| false);
 
     let is_ad_free = use_state(|| false);
@@ -2828,6 +2836,21 @@ pub fn app() -> Html {
         })
     };
 
+    // Tauri版: 起動時にウィンドウ透明度/ブラーを適用
+    {
+        let opacity = *window_opacity;
+        let blur = *window_blur;
+        use_effect_with((), move |_| {
+            if crate::js_interop::is_macos_tauri() && opacity < 100 {
+                crate::js_interop::set_window_opacity(opacity as f64 / 100.0);
+            }
+            if crate::js_interop::is_windows_tauri() && blur > 0 {
+                crate::js_interop::set_window_blur(blur);
+            }
+            || ()
+        });
+    }
+
     // ログインページ広告
     {
         let is_auth = *is_authenticated;
@@ -3010,6 +3033,26 @@ pub fn app() -> Html {
                                 set_account_storage(EMPTY_SAVE_KEY, v.to_str());
                                 esb.set(v);
                             })}
+                            window_opacity={*window_opacity}
+                            on_change_opacity={if crate::js_interop::is_macos_tauri() { Some({
+                                let wo = window_opacity.clone();
+                                Callback::from(move |v: i32| {
+                                    let opacity = v.clamp(50, 100);
+                                    crate::js_interop::set_window_opacity(opacity as f64 / 100.0);
+                                    set_account_storage(WINDOW_OPACITY_KEY, &opacity.to_string());
+                                    wo.set(opacity);
+                                })
+                            }) } else { None }}
+                            window_blur={*window_blur}
+                            on_change_blur={if crate::js_interop::is_windows_tauri() { Some({
+                                let wb = window_blur.clone();
+                                Callback::from(move |v: i32| {
+                                    let blur = v.clamp(0, 100);
+                                    crate::js_interop::set_window_blur(blur);
+                                    set_account_storage(WINDOW_BLUR_KEY, &blur.to_string());
+                                    wb.set(blur);
+                                })
+                            }) } else { None }}
                             on_close={let sv = is_settings_visible.clone(); Callback::from(move |_| { sv.set(false); focus_editor(); })}
                         />
                     </div>
