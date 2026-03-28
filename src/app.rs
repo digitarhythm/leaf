@@ -3079,7 +3079,7 @@ pub fn app() -> Html {
         let opacity = *window_opacity;
         let blur = *window_blur;
         use_effect_with((), move |_| {
-            if crate::js_interop::is_macos_tauri() && opacity < 100 {
+            if (crate::js_interop::is_macos_tauri() || crate::js_interop::is_windows_tauri()) && opacity < 100 {
                 crate::js_interop::set_window_opacity(opacity as f64 / 100.0);
             }
             if crate::js_interop::is_windows_tauri() && blur > 0 {
@@ -3292,7 +3292,7 @@ pub fn app() -> Html {
                                 esb.set(v);
                             })}
                             window_opacity={*window_opacity}
-                            on_change_opacity={if crate::js_interop::is_macos_tauri() { Some({
+                            on_change_opacity={if crate::js_interop::is_macos_tauri() || crate::js_interop::is_windows_tauri() { Some({
                                 let wo = window_opacity.clone();
                                 Callback::from(move |v: i32| {
                                     let opacity = v.clamp(50, 100);

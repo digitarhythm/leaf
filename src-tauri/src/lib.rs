@@ -54,9 +54,14 @@ fn set_window_opacity(app: tauri::AppHandle, opacity: f64) -> Result<(), String>
     {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
-            use window_vibrancy::apply_blur;
-            // Windows: ウィンドウ透明度はblur経由で制御
-            let _ = opacity; // Windowsではset_window_blurで一括管理
+            let hwnd = window.hwnd().map_err(|e| format!("{}", e))?;
+            let alpha = (opacity.clamp(0.5, 1.0) * 255.0) as u8;
+            unsafe {
+                use windows_sys::Win32::UI::WindowsAndMessaging::*;
+                let style = GetWindowLongW(hwnd.0 as _, GWL_EXSTYLE);
+                SetWindowLongW(hwnd.0 as _, GWL_EXSTYLE, style | WS_EX_LAYERED as i32);
+                SetLayeredWindowAttributes(hwnd.0 as _, 0, alpha, LWA_ALPHA);
+            }
         }
     }
     #[cfg(target_os = "linux")]
@@ -106,6 +111,15 @@ fn pty_spawn(app: tauri::AppHandle, id: String, cols: u16, rows: u16) -> Result<
 
     let shell = get_default_shell();
     let mut cmd = CommandBuilder::new(&shell);
+    #[cfg(target_os = "windows")]
+    {
+        // WSLの場合は-eオプションでbashを直接起動
+        if shell.contains("wsl") {
+            cmd.arg("-e");
+            cmd.arg("bash");
+            cmd.arg("--login");
+        }
+    }
     cmd.env("TERM", "xterm-256color");
     if let Some(home) = dirs::home_dir() { cmd.cwd(home); }
 
@@ -172,10 +186,11 @@ fn pty_kill(id: String) -> Result<(), String> {
 fn get_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // WSL2のbash.exeを使用（Windows Terminalを経由せずインラインで動作）
-        let bash_path = format!("{}\\System32\\bash.exe", std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string()));
-        if std::path::Path::new(&bash_path).exists() {
-            return bash_path;
+        // WSL2が利用可能ならwsl.exeを使用（pty_spawnで-e bashオプション付き）
+        if let Ok(output) = std::process::Command::new("wsl").arg("--status").output() {
+            if output.status.success() {
+                return "wsl".to_string();
+            }
         }
         // WSL未インストールの場合はPowerShellにフォールバック
         return "powershell.exe".to_string();
