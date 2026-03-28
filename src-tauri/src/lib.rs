@@ -20,8 +20,8 @@ static PTY_INSTANCES: once_cell::sync::Lazy<Arc<Mutex<std::collections::HashMap<
 #[allow(dead_code)]
 const OAUTH_PORT: u16 = 3456;
 
-// フロントエンドのバックエンドプロキシ (server/index.js) 用のURL
-const BACKEND_URL: &str = "http://127.0.0.1:3000";
+// 本番サーバーのAPI URL
+const BACKEND_URL: &str = "https://leaf.digitarhythm.net";
 
 
 #[tauri::command]
