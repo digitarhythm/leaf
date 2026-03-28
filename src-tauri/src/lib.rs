@@ -142,8 +142,14 @@ fn pty_write(id: String, data: String) -> Result<(), String> {
     use std::io::Write;
     let mut instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
     if let Some(inst) = instances.get_mut(&id) {
-        inst.writer.write_all(data.as_bytes()).map_err(|e| format!("{}", e))?;
-        inst.writer.flush().map_err(|e| format!("{}", e))?;
+        if let Err(_) = inst.writer.write_all(data.as_bytes()) {
+            // シェルが終了済み — インスタンスを除去して静かに返す
+            if let Some(mut dead) = instances.remove(&id) {
+                let _ = dead.child.kill();
+            }
+            return Ok(());
+        }
+        let _ = inst.writer.flush();
     }
     Ok(())
 }
@@ -166,11 +172,13 @@ fn pty_kill(id: String) -> Result<(), String> {
 fn get_default_shell() -> String {
     #[cfg(target_os = "windows")]
     {
-        // WSL2が利用可能か確認
-        if std::process::Command::new("wsl").arg("--status").output().is_ok() {
-            return "wsl".to_string();
+        // WSL2のbash.exeを使用（Windows Terminalを経由せずインラインで動作）
+        let bash_path = format!("{}\\System32\\bash.exe", std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string()));
+        if std::path::Path::new(&bash_path).exists() {
+            return bash_path;
         }
-        return std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+        // WSL未インストールの場合はPowerShellにフォールバック
+        return "powershell.exe".to_string();
     }
     #[cfg(not(target_os = "windows"))]
     {

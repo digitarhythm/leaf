@@ -633,6 +633,16 @@ function ensureGlobalListeners() {
         const inst = _terminals.get(id);
         if (inst && inst.terminal) {
             inst.terminal.write('\r\n[Process exited]\r\n');
+            // フェードアウト後にタブを閉じる
+            if (inst.wrapper) {
+                inst.wrapper.style.transition = 'opacity 0.5s ease-out';
+                inst.wrapper.style.opacity = '0';
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('terminal-exit', { detail: { id } }));
+                }, 600);
+            } else {
+                window.dispatchEvent(new CustomEvent('terminal-exit', { detail: { id } }));
+            }
         }
     }).then(fn => { _ptyExitUnlisten = fn; });
 }

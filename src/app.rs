@@ -2696,12 +2696,28 @@ pub fn app() -> Html {
 
     // --- Tab Bar ---
     // tab_order_stateの順序でtab_infosを構築（シート+ターミナル統合）
+    // RefCellから直接読み、sheets/terminalsと即時同期して1フレーム遅延を防ぐ
     let tab_infos: Vec<TabInfo> = {
         let rs = sheets_ref.borrow();
         let active_id = active_sheet_id.as_ref();
         let editor_content = active_id.and_then(|_| get_editor_content().as_string());
+        let term_ids_current = (*terminal_tab_ids).clone();
+        let sheet_ids_current: Vec<String> = rs.iter().map(|s| s.id.clone()).collect();
+
+        // tab_order_refをsheets/terminalsと即時同期
+        {
+            let mut order = tab_order_ref.borrow_mut();
+            order.retain(|id| sheet_ids_current.contains(id) || term_ids_current.contains(id));
+            for id in sheet_ids_current.iter().chain(term_ids_current.iter()) {
+                if !order.contains(id) {
+                    order.push(id.clone());
+                }
+            }
+        }
+        let order = tab_order_ref.borrow();
+
         let mut term_counter = 0u32;
-        tab_order_state.iter().filter_map(|id| {
+        order.iter().filter_map(|id| {
             if id.starts_with("__TERM__") {
                 term_counter += 1;
                 Some(TabInfo {
@@ -2820,19 +2836,47 @@ pub fn app() -> Html {
         let tids_ref_close = terminal_ids_ref.clone();
         let ttids_close = terminal_tab_ids.clone();
         let atid_close = active_terminal_id.clone();
+        let atref_close = active_terminal_ref.clone();
         let aid = active_sheet_id.clone();
         let aid_ref = active_id_ref.clone();
         let sp = is_suppressing_changes.clone();
         let ncid = no_category_folder_id.clone();
         let nc = network_connected.clone();
+        let to_ref_close = tab_order_ref.clone();
         Callback::from(move |close_id: String| {
             // ターミナルタブの閉じ処理
             if close_id.starts_with("__TERM__") {
+                let was_active = atref_close.borrow().as_ref() == Some(&close_id);
+                // 閉じる前に隣接タブを特定（左優先）
+                let next_tab = if was_active {
+                    let order = to_ref_close.borrow();
+                    let idx = order.iter().position(|x| x == &close_id);
+                    idx.and_then(|i| {
+                        if i > 0 { order.get(i - 1).cloned() } else { order.get(i + 1).cloned() }
+                    })
+                } else { None };
                 crate::js_interop::terminal_close(&close_id);
                 tids_ref_close.borrow_mut().retain(|x| x != &close_id);
                 ttids_close.set(tids_ref_close.borrow().clone());
-                if (*atid_close).as_ref() == Some(&close_id) {
+                if was_active {
                     atid_close.set(None);
+                    *atref_close.borrow_mut() = None;
+                    if let Some(ref next) = next_tab {
+                        if next.starts_with("__TERM__") {
+                            // 隣がターミナルタブ
+                            atid_close.set(Some(next.clone()));
+                            *atref_close.borrow_mut() = Some(next.clone());
+                        } else {
+                            // 隣がシートタブ → アクティブシートに設定
+                            aid.set(Some(next.clone()));
+                            *aid_ref.borrow_mut() = Some(next.clone());
+                        }
+                    }
+                    // エディタを再表示
+                    Timeout::new(50, || {
+                        crate::js_interop::resize_editor();
+                        crate::js_interop::focus_editor();
+                    }).forget();
                 }
                 return;
             }
@@ -2976,6 +3020,57 @@ pub fn app() -> Html {
                 }).forget();
             }
             || ()
+        });
+    }
+
+    // ターミナル終了イベント（シェルがCtrl+Dなどで終了した場合）
+    {
+        let tids_ref_exit = terminal_ids_ref.clone();
+        let ttids_exit = terminal_tab_ids.clone();
+        let atid_exit = active_terminal_id.clone();
+        let atref_exit = active_terminal_ref.clone(); // RefCellで最新値を確実に取得
+        let to_ref_exit = tab_order_ref.clone();
+        let aid_exit = active_sheet_id.clone();
+        let aid_ref_exit = active_id_ref.clone();
+        use_effect_with((), move |_| {
+            let window = web_sys::window().unwrap();
+            let listener = EventListener::new(&window, "terminal-exit", move |e| {
+                let ce = e.unchecked_ref::<web_sys::CustomEvent>();
+                let detail = ce.detail();
+                if let Some(id) = js_sys::Reflect::get(&detail, &JsValue::from_str("id")).ok().and_then(|v| v.as_string()) {
+                    // RefCellから最新のactive_terminal_idを取得
+                    let was_active = atref_exit.borrow().as_ref() == Some(&id);
+                    // 隣接タブを特定（左優先）
+                    let next_tab = if was_active {
+                        let order = to_ref_exit.borrow();
+                        let idx = order.iter().position(|x| x == &id);
+                        idx.and_then(|i| {
+                            if i > 0 { order.get(i - 1).cloned() } else { order.get(i + 1).cloned() }
+                        })
+                    } else { None };
+                    crate::js_interop::terminal_close(&id);
+                    tids_ref_exit.borrow_mut().retain(|x| x != &id);
+                    ttids_exit.set(tids_ref_exit.borrow().clone());
+                    if was_active {
+                        atid_exit.set(None);
+                        *atref_exit.borrow_mut() = None;
+                        if let Some(ref next) = next_tab {
+                            if next.starts_with("__TERM__") {
+                                atid_exit.set(Some(next.clone()));
+                                *atref_exit.borrow_mut() = Some(next.clone());
+                            } else {
+                                aid_exit.set(Some(next.clone()));
+                                *aid_ref_exit.borrow_mut() = Some(next.clone());
+                            }
+                        }
+                        Timeout::new(50, || {
+                            crate::js_interop::resize_editor();
+                            crate::js_interop::focus_editor();
+                        }).forget();
+                    }
+                }
+            });
+            move || { drop(listener); }
         });
     }
 
