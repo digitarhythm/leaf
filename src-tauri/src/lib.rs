@@ -1,9 +1,20 @@
 use tauri_plugin_sql::{Builder as SqlBuilder, Migration, MigrationKind};
 use std::time::Duration;
+use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use tauri_plugin_dialog::DialogExt;
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 #[cfg(target_os = "macos")]
 use objc::{msg_send, sel, sel_impl, class};
+
+// 複数PTY状態管理
+struct PtyInstance {
+    writer: Box<dyn std::io::Write + Send>,
+    child: Box<dyn portable_pty::Child + Send>,
+}
+
+static PTY_INSTANCES: once_cell::sync::Lazy<Arc<Mutex<std::collections::HashMap<String, PtyInstance>>>> =
+    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(std::collections::HashMap::new())));
 
 // Desktop App 用の OAuth リダイレクトポート
 #[allow(dead_code)]
@@ -82,6 +93,89 @@ fn is_macos() -> bool {
 #[tauri::command]
 fn is_windows() -> bool {
     cfg!(target_os = "windows")
+}
+
+#[tauri::command]
+fn pty_spawn(app: tauri::AppHandle, id: String, cols: u16, rows: u16) -> Result<(), String> {
+    use std::io::Read;
+    use tauri::Emitter;
+
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| format!("Failed to open PTY: {}", e))?;
+
+    let shell = get_default_shell();
+    let mut cmd = CommandBuilder::new(&shell);
+    cmd.env("TERM", "xterm-256color");
+    if let Some(home) = dirs::home_dir() { cmd.cwd(home); }
+
+    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn: {}", e))?;
+    let mut reader = pair.master.try_clone_reader().map_err(|e| format!("{}", e))?;
+    let writer = pair.master.take_writer().map_err(|e| format!("{}", e))?;
+    drop(pair.slave);
+
+    let pty_id = id.clone();
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    use base64::Engine;
+                    let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+                    let _ = app_handle.emit("pty-output", serde_json::json!({ "id": pty_id, "data": encoded }));
+                }
+                Err(_) => break,
+            }
+        }
+        let _ = app_handle.emit("pty-exit", serde_json::json!({ "id": pty_id }));
+    });
+
+    let mut instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
+    instances.insert(id, PtyInstance { writer, child });
+    Ok(())
+}
+
+#[tauri::command]
+fn pty_write(id: String, data: String) -> Result<(), String> {
+    use std::io::Write;
+    let mut instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
+    if let Some(inst) = instances.get_mut(&id) {
+        inst.writer.write_all(data.as_bytes()).map_err(|e| format!("{}", e))?;
+        inst.writer.flush().map_err(|e| format!("{}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn pty_resize(id: String, cols: u16, rows: u16) -> Result<(), String> {
+    let _ = (id, cols, rows); // TODO: リサイズ対応
+    Ok(())
+}
+
+#[tauri::command]
+fn pty_kill(id: String) -> Result<(), String> {
+    let mut instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
+    if let Some(mut inst) = instances.remove(&id) {
+        let _ = inst.child.kill();
+    }
+    Ok(())
+}
+
+fn get_default_shell() -> String {
+    #[cfg(target_os = "windows")]
+    {
+        // WSL2が利用可能か確認
+        if std::process::Command::new("wsl").arg("--status").output().is_ok() {
+            return "wsl".to_string();
+        }
+        return std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
+    }
 }
 
 #[tauri::command]
@@ -387,7 +481,11 @@ pub fn run() {
             set_window_opacity,
             set_window_blur,
             is_macos,
-            is_windows
+            is_windows,
+            pty_spawn,
+            pty_write,
+            pty_resize,
+            pty_kill
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

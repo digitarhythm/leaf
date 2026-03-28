@@ -592,6 +592,166 @@ if (is_tauri() && window.__TAURI__ && window.__TAURI__.core) {
     window.__TAURI__.core.invoke('is_windows').then(v => { window._is_windows_tauri = v; });
 }
 
+// --- Terminal (xterm.js) - 複数インスタンス対応 ---
+const _terminals = new Map(); // id -> { terminal, fitAddon, unlisten, exitUnlisten }
+let _ptyOutputUnlisten = null;
+let _ptyExitUnlisten = null;
+
+async function ensureXtermLoaded() {
+    if (window.Terminal) return;
+    await new Promise((resolve, reject) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5/css/xterm.min.css';
+        document.head.appendChild(link);
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5/lib/xterm.min.js';
+        script.onload = () => {
+            const fitScript = document.createElement('script');
+            fitScript.src = 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0/lib/addon-fit.min.js';
+            fitScript.onload = resolve;
+            fitScript.onerror = reject;
+            document.head.appendChild(fitScript);
+        };
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
+}
+
+function ensureGlobalListeners() {
+    if (_ptyOutputUnlisten) return;
+    window.__TAURI__.event.listen('pty-output', (event) => {
+        const { id, data } = event.payload;
+        const inst = _terminals.get(id);
+        if (inst && inst.terminal) {
+            const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+            inst.terminal.write(bytes);
+        }
+    }).then(fn => { _ptyOutputUnlisten = fn; });
+    window.__TAURI__.event.listen('pty-exit', (event) => {
+        const { id } = event.payload;
+        const inst = _terminals.get(id);
+        if (inst && inst.terminal) {
+            inst.terminal.write('\r\n[Process exited]\r\n');
+        }
+    }).then(fn => { _ptyExitUnlisten = fn; });
+}
+
+let _activeTermId = null;
+
+export async function terminal_open(id, containerId, cols, rows) {
+    if (!is_tauri()) return false;
+    await ensureXtermLoaded();
+    ensureGlobalListeners();
+
+    const container = document.getElementById(containerId);
+    if (!container) return false;
+
+    // 既存の表示中ターミナルをデタッチ
+    if (_activeTermId && _terminals.has(_activeTermId)) {
+        const prev = _terminals.get(_activeTermId);
+        if (prev.wrapper && prev.wrapper.parentNode === container) {
+            container.removeChild(prev.wrapper);
+        }
+    }
+
+    // 既にPTY起動済みなら再アタッチ
+    if (_terminals.has(id)) {
+        const inst = _terminals.get(id);
+        container.appendChild(inst.wrapper);
+        _activeTermId = id;
+        if (inst.fitAddon) setTimeout(() => inst.fitAddon.fit(), 50);
+        inst.terminal.focus();
+        return true;
+    }
+
+    // 新規作成
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'width:100%;height:100%;';
+    container.appendChild(wrapper);
+
+    const terminal = new window.Terminal({
+        cursorBlink: true, fontSize: 14,
+        fontFamily: "'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
+        theme: {
+            background: '#1d2021', foreground: '#ebdbb2', cursor: '#ebdbb2', selectionBackground: '#504945',
+            black: '#282828', red: '#cc241d', green: '#98971a', yellow: '#d79921',
+            blue: '#458588', magenta: '#b16286', cyan: '#689d6a', white: '#a89984',
+            brightBlack: '#928374', brightRed: '#fb4934', brightGreen: '#b8bb26',
+            brightYellow: '#fabd2f', brightBlue: '#83a598', brightMagenta: '#d3869b',
+            brightCyan: '#8ec07c', brightWhite: '#ebdbb2',
+        },
+        allowProposedApi: true,
+    });
+
+    let fitAddon = null;
+    if (window.FitAddon) {
+        fitAddon = new window.FitAddon.FitAddon();
+        terminal.loadAddon(fitAddon);
+    }
+    terminal.open(wrapper);
+    if (fitAddon) setTimeout(() => fitAddon.fit(), 100);
+
+    const fitCols = terminal.cols || cols || 80;
+    const fitRows = terminal.rows || rows || 24;
+    await window.__TAURI__.core.invoke('pty_spawn', { id, cols: fitCols, rows: fitRows });
+
+    terminal.onData((data) => {
+        window.__TAURI__.core.invoke('pty_write', { id, data });
+    });
+
+    if (fitAddon) {
+        new ResizeObserver(() => {
+            if (fitAddon && terminal) {
+                fitAddon.fit();
+                window.__TAURI__.core.invoke('pty_resize', { id, cols: terminal.cols, rows: terminal.rows });
+            }
+        }).observe(wrapper);
+    }
+
+    _terminals.set(id, { terminal, fitAddon, wrapper });
+    _activeTermId = id;
+    return true;
+}
+
+export function terminal_close(id) {
+    const inst = _terminals.get(id);
+    if (inst) {
+        if (inst.wrapper && inst.wrapper.parentNode) inst.wrapper.parentNode.removeChild(inst.wrapper);
+        if (inst.terminal) inst.terminal.dispose();
+        _terminals.delete(id);
+    }
+    if (_activeTermId === id) _activeTermId = null;
+    if (is_tauri() && window.__TAURI__ && window.__TAURI__.core) {
+        window.__TAURI__.core.invoke('pty_kill', { id });
+    }
+}
+
+export function terminal_is_open(id) {
+    return _terminals.has(id);
+}
+
+export function terminal_focus(id) {
+    const container = document.getElementById('terminal-area');
+    if (!container) return;
+    // 別のターミナルから切り替え
+    if (_activeTermId && _activeTermId !== id && _terminals.has(_activeTermId)) {
+        const prev = _terminals.get(_activeTermId);
+        if (prev.wrapper && prev.wrapper.parentNode === container) {
+            container.removeChild(prev.wrapper);
+        }
+    }
+    const inst = _terminals.get(id);
+    if (inst) {
+        if (inst.wrapper && inst.wrapper.parentNode !== container) {
+            container.appendChild(inst.wrapper);
+        }
+        if (inst.fitAddon) setTimeout(() => inst.fitAddon.fit(), 50);
+        inst.terminal.focus();
+        _activeTermId = id;
+    }
+}
+
 export function init_mermaid(element) {
     if (typeof mermaid === 'undefined') return;
     mermaid.run({

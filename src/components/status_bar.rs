@@ -6,6 +6,10 @@ pub struct StatusBarProps {
     pub network_status: bool, // true = connected, false = disconnected
     pub is_saving: bool,
     pub on_open_settings: Callback<()>,
+    #[prop_or_default]
+    pub on_toggle_terminal: Option<Callback<()>>,
+    #[prop_or_default]
+    pub is_terminal_open: bool,
     pub category_name: String,
     pub file_name: String,
 }
@@ -71,6 +75,23 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                     </div>
                 }
 
+
+                // ターミナルボタン（Tauri版のみ）
+                if let Some(ref on_term) = props.on_toggle_terminal {
+                    <button
+                        onclick={on_term.reform(|_| ())}
+                        class={classes!(
+                            "flex", "items-center", "space-x-1", "px-2", "py-0.5", "rounded",
+                            "transition-colors", "cursor-pointer", "font-semibold",
+                            if props.is_terminal_open { "text-emerald-400 bg-gray-700" } else { "text-gray-500 hover:text-gray-300 hover:bg-gray-700" }
+                        )}
+                        title={i18n::t("terminal", lang)}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-3.5 h-3.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+                        </svg>
+                    </button>
+                }
 
                 <span class={classes!(
                     "flex", "items-center", "space-x-2", "font-semibold",

@@ -177,7 +177,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                             on_change.emit(select.value());
                         })
                     }
-                    class="bg-gray-700 text-gray-300 text-[10px] font-bold py-0.5 px-1 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-emerald-500 transition-colors cursor-pointer text-center"
+                    class="bg-gray-700 text-gray-200 text-xs font-bold py-1 px-3 rounded border border-gray-600 outline-none hover:bg-gray-600 focus:border-emerald-500 transition-colors cursor-pointer text-center"
                 >
                     { for extensions.iter().map(|(ext, key)| {
                         let is_mobile = gloo::utils::document().body()

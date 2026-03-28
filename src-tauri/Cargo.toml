@@ -35,6 +35,10 @@ reqwest = { version = "0.13.2", features = ["json"] }
 url = "2.5.8"
 tokio = { version = "1.49.0", features = ["sync", "time", "macros"] }
 open = "5.3.3"
+portable-pty = "0.8"
+once_cell = "1"
+base64 = "0.22"
+dirs = "6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa = "0.26"

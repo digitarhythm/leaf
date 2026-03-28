@@ -1,4 +1,5 @@
 use yew::prelude::*;
+use wasm_bindgen::JsCast;
 use crate::i18n::{self, Language};
 
 #[derive(Clone, PartialEq)]
@@ -22,95 +23,21 @@ pub struct TabBarProps {
     pub on_close_tab: Callback<String>,
     #[prop_or_default]
     pub on_reorder: Option<Callback<ReorderEvent>>,
+    #[prop_or_default]
+    pub on_drag_end: Option<Callback<()>>,
 }
 
 #[function_component(TabBar)]
 pub fn tab_bar(props: &TabBarProps) -> Html {
     let lang = Language::detect();
-    let container_ref = use_node_ref();
-    let drag_from_id = use_state(|| None::<String>);
-    let last_mouse_x = use_mut_ref(|| 0i32);
+    let dragging_id = use_state(|| None::<String>);
 
     if props.sheets.len() <= 1 {
         return html! {};
     }
 
-    // コンテナレベルのondragover: マウス位置からタブの50%重なりを判定
-    let container_dragover = {
-        let drag_from = drag_from_id.clone();
-        let on_reorder = props.on_reorder.clone();
-        let c_ref = container_ref.clone();
-        let last_x = last_mouse_x.clone();
-        Callback::from(move |e: DragEvent| {
-            e.prevent_default();
-            let mouse_x = e.client_x();
-            // マウスが動いていない場合はスキップ
-            if mouse_x == *last_x.borrow() { return; }
-            *last_x.borrow_mut() = mouse_x;
-
-            let from_id = match (*drag_from).clone() {
-                Some(id) => id,
-                None => return,
-            };
-            let container = match c_ref.cast::<web_sys::Element>() {
-                Some(el) => el,
-                None => return,
-            };
-            // 各タブ子要素の位置を走査し、ドラッグ中タブと隣接タブの50%重なりを判定
-            let children = container.children();
-            let mut from_idx = None;
-            let mut swap_to_idx = None;
-            let mut tab_rects: Vec<(f64, f64)> = Vec::new(); // (left, width)
-            for i in 0..children.length() {
-                if let Some(child) = children.item(i) {
-                    let rect = child.get_bounding_client_rect();
-                    tab_rects.push((rect.left(), rect.width()));
-                    if let Some(attr) = child.get_attribute("data-tab-id") {
-                        if attr == from_id { from_idx = Some(i as usize); }
-                    }
-                }
-            }
-            let fi = match from_idx {
-                Some(i) => i,
-                None => return,
-            };
-            let (from_left, from_width) = tab_rects[fi];
-            let _from_center = from_left + from_width / 2.0;
-            let mouse_f = mouse_x as f64;
-
-            // 右方向: マウスが右隣タブの中央を超えたら入れ替え
-            if fi + 1 < tab_rects.len() {
-                let (next_left, next_width) = tab_rects[fi + 1];
-                let next_center = next_left + next_width / 2.0;
-                if mouse_f > next_center {
-                    swap_to_idx = Some(fi + 1);
-                }
-            }
-            // 左方向: マウスが左隣タブの中央を超えたら入れ替え
-            if fi > 0 && swap_to_idx.is_none() {
-                let (prev_left, prev_width) = tab_rects[fi - 1];
-                let prev_center = prev_left + prev_width / 2.0;
-                if mouse_f < prev_center {
-                    swap_to_idx = Some(fi - 1);
-                }
-            }
-
-            if let Some(ti) = swap_to_idx {
-                if let Some(target_el) = children.item(ti as u32) {
-                    if let Some(target_id) = target_el.get_attribute("data-tab-id") {
-                        if let Some(ref cb) = on_reorder {
-                            cb.emit((from_id, target_id));
-                        }
-                    }
-                }
-            }
-        })
-    };
-
     html! {
         <div
-            ref={container_ref}
-            ondragover={container_dragover}
             class="desktop:flex mobile:hidden items-center bg-[#1d2021] border-b border-[#3c3836] overflow-x-auto scrollbar-none"
             style="min-height: 32px;"
         >
@@ -118,40 +45,119 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
                 let is_active = props.active_sheet_id.as_ref() == Some(&tab.id);
                 let tab_id_select = tab.id.clone();
                 let tab_id_close = tab.id.clone();
-                let tab_id_drag = tab.id.clone();
                 let on_select = props.on_select_tab.clone();
                 let on_close = props.on_close_tab.clone();
+                let on_reorder = props.on_reorder.clone();
+                let on_drag_end = props.on_drag_end.clone();
                 let title = tab.title.clone();
                 let is_modified = tab.is_modified;
-                let is_dragging = drag_from_id.as_ref() == Some(&tab.id);
+                let is_dragging = (*dragging_id).as_ref() == Some(&tab.id);
 
-                let drag_from = drag_from_id.clone();
-                let drag_from2 = drag_from_id.clone();
+                let dragging = dragging_id.clone();
+                let tab_id_drag = tab.id.clone();
 
-                let ondragstart = Callback::from(move |e: DragEvent| {
-                    if let Some(dt) = e.data_transfer() {
-                        let _ = dt.set_data("text/plain", &tab_id_drag);
-                        dt.set_effect_allowed("move");
-                    }
-                    drag_from.set(Some(tab_id_drag.clone()));
-                });
+                // mousedownでドラッグ開始
+                let onmousedown = {
+                    let dragging = dragging.clone();
+                    let tab_id = tab_id_drag.clone();
+                    let on_reorder = on_reorder.clone();
+                    let on_drag_end = on_drag_end.clone();
+                    Callback::from(move |e: MouseEvent| {
+                        // 閉じるボタンのクリックは除外
+                        if let Some(target) = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+                            if target.closest("button").ok().flatten().is_some() { return; }
+                        }
+                        e.prevent_default();
+                        dragging.set(Some(tab_id.clone()));
 
-                let ondragend = Callback::from(move |_: DragEvent| {
-                    drag_from2.set(None);
-                });
+                        let drag_id = tab_id.clone();
+                        let dragging_end = dragging.clone();
+                        let on_reorder = on_reorder.clone();
+                        let on_drag_end = on_drag_end.clone();
+
+                        // window mousemove/mouseupリスナー
+                        let mousemove = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::MouseEvent)>::new(move |me: web_sys::MouseEvent| {
+                            let mx = me.client_x() as f64;
+                            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                                if let Ok(tabs) = doc.query_selector_all("[data-tab-id]") {
+                                    // ドラッグ元タブの位置を取得
+                                    let mut drag_idx = None;
+                                    let mut tab_data: Vec<(String, f64, f64)> = Vec::new(); // (id, left, width)
+                                    for i in 0..tabs.length() {
+                                        if let Some(el) = tabs.item(i).and_then(|n| n.dyn_into::<web_sys::Element>().ok()) {
+                                            if let Some(tid) = el.get_attribute("data-tab-id") {
+                                                let rect = el.get_bounding_client_rect();
+                                                if tid == drag_id { drag_idx = Some(tab_data.len()); }
+                                                tab_data.push((tid, rect.left(), rect.width()));
+                                            }
+                                        }
+                                    }
+                                    if let Some(di) = drag_idx {
+                                        // 右隣: マウスが右隣タブの中央を超えたら入れ替え
+                                        if di + 1 < tab_data.len() {
+                                            let (ref tid, left, width) = tab_data[di + 1];
+                                            let center = left + width / 2.0;
+                                            if mx > center {
+                                                if let Some(ref cb) = on_reorder {
+                                                    cb.emit((drag_id.clone(), tid.clone()));
+                                                }
+                                                return;
+                                            }
+                                        }
+                                        // 左隣: マウスが左隣タブの中央を超えたら入れ替え
+                                        if di > 0 {
+                                            let (ref tid, left, width) = tab_data[di - 1];
+                                            let center = left + width / 2.0;
+                                            if mx < center {
+                                                if let Some(ref cb) = on_reorder {
+                                                    cb.emit((drag_id.clone(), tid.clone()));
+                                                }
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+
+                        let mousemove_ref = std::rc::Rc::new(std::cell::RefCell::new(Some(mousemove)));
+                        let mouseup_ref: std::rc::Rc<std::cell::RefCell<Option<wasm_bindgen::closure::Closure<dyn FnMut(web_sys::MouseEvent)>>>> = std::rc::Rc::new(std::cell::RefCell::new(None));
+
+                        let mouseup_ref2 = mouseup_ref.clone();
+                        let mousemove_ref2 = mousemove_ref.clone();
+
+                        let mouseup = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::MouseEvent)>::new(move |_: web_sys::MouseEvent| {
+                            dragging_end.set(None);
+                            if let Some(ref cb) = on_drag_end { cb.emit(()); }
+                            // リスナー解除
+                            if let Some(win) = web_sys::window() {
+                                if let Some(cb) = mousemove_ref2.borrow_mut().take() {
+                                    let _ = win.remove_event_listener_with_callback("mousemove", cb.as_ref().unchecked_ref());
+                                }
+                                if let Some(cb) = mouseup_ref2.borrow_mut().take() {
+                                    let _ = win.remove_event_listener_with_callback("mouseup", cb.as_ref().unchecked_ref());
+                                }
+                            }
+                        });
+
+                        if let Some(win) = web_sys::window() {
+                            let _ = win.add_event_listener_with_callback("mousemove", mousemove_ref.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+                            *mouseup_ref.borrow_mut() = Some(mouseup);
+                            let _ = win.add_event_listener_with_callback("mouseup", mouseup_ref.borrow().as_ref().unwrap().as_ref().unchecked_ref());
+                        }
+                    })
+                };
 
                 html! {
                     <div
-                        draggable="true"
                         data-tab-id={tab.id.clone()}
-                        ondragstart={ondragstart}
-                        ondragend={ondragend}
+                        onmousedown={onmousedown}
                         class={classes!(
                             "flex", "items-center", "gap-1", "px-3", "py-1", "cursor-grab",
-                            "text-xs", "whitespace-nowrap", "select-none", "transition-all", "duration-150",
+                            "text-xs", "whitespace-nowrap", "select-none", "transition-all", "duration-100",
                             "border-r", "border-[#3c3836]", "shrink-0",
                             if is_active { "bg-[#3c3836] text-[#ebdbb2] border-b-2 border-b-emerald-500" } else { "bg-[#282828] text-gray-400 hover:bg-[#3c3836] hover:text-gray-300 border-b-2 border-b-transparent" },
-                            if is_dragging { "opacity-50" } else { "" }
+                            if is_dragging { "opacity-40" } else { "" }
                         )}
                         onclick={Callback::from(move |_| on_select.emit(tab_id_select.clone()))}
                     >
@@ -319,7 +325,6 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
                 let dy = touch.client_y() as f64 - *sy.borrow();
                 let is_h = *sh.borrow();
                 if is_h.is_none() {
-                    // 方向判定: 8px以上動いたら水平か垂直か決定
                     if dx.abs() > 8.0 || dy.abs() > 8.0 {
                         let horizontal = dx.abs() > dy.abs();
                         *sh.borrow_mut() = Some(horizontal);
@@ -328,12 +333,10 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
                         return;
                     }
                 } else if !is_h.unwrap_or(false) {
-                    // 垂直スワイプと判定済み → スクロールに任せる
                     return;
                 }
                 e.prevent_default();
                 dragging.set(true);
-                // 左スワイプのみ
                 if dx < 0.0 {
                     ox.set(dx);
                 } else {
@@ -353,14 +356,12 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
         Callback::from(move |_: TouchEvent| {
             dragging.set(false);
             let offset = *ox;
-            // 要素幅の1/3を閾値とする
             let item_width = rr.cast::<web_sys::Element>()
                 .map(|el| el.client_width() as f64)
                 .unwrap_or(300.0);
             let threshold = item_width / 3.0;
             if offset < -threshold {
-                // 左スワイプ確定 → 閉じる
-                ox.set(-item_width); // 画面外へ飛ばす
+                ox.set(-item_width);
                 let cb_close = on_close_tab.clone();
                 let cb_panel = on_close_panel.clone();
                 let id = tid.clone();
@@ -369,13 +370,11 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
                     cb_panel.emit(());
                 }).forget();
             } else {
-                // 不足 → アニメーションで戻す
                 ox.set(0.0);
             }
         })
     };
 
-    // ✕ボタンクリック
     let on_close_click = {
         let on_close_tab = props.on_close_tab.clone();
         let on_close_panel = props.on_close_panel.clone();
@@ -392,7 +391,6 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
         let tid = tab_id.clone();
         let sh = swipe_is_horizontal.clone();
         Callback::from(move |_: MouseEvent| {
-            // 水平スワイプ判定されていなければ選択
             let was_horizontal = (*sh.borrow()).unwrap_or(false);
             if !was_horizontal {
                 on_sel.emit(tid.clone());
@@ -402,7 +400,6 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
 
     let current_offset = *offset_x;
     let transition = if *is_dragging { "none" } else { "transform 0.2s ease-out" };
-    // スワイプ量に応じて赤背景を見せる
     let bg_reveal = current_offset.abs() > 10.0;
 
     html! {
@@ -415,7 +412,6 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
                     </svg>
                 </div>
             }
-            // スワイプ可能な行コンテンツ
             <div
                 class={classes!(
                     "relative", "z-[1]", "group", "flex", "items-center", "px-4", "py-3", "cursor-pointer",
@@ -431,7 +427,6 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class={classes!("w-5", "h-5", "mr-3", "shrink-0", if is_active { "text-[#ebdbb2]" } else { "text-gray-500" })}>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                 </svg>
-                // Title
                 <div class="flex-1 min-w-0">
                     <span class={classes!(
                         "block", "text-sm", "truncate",
@@ -440,13 +435,11 @@ fn swipeable_sheet_row(props: &SwipeableSheetRowProps) -> Html {
                         { title }
                     </span>
                 </div>
-                // Modified indicator
                 if is_modified {
                     <span class="text-amber-400 text-xs mr-2" title={i18n::t("modified_indicator", lang)}>
                         { "\u{25CF}" }
                     </span>
                 }
-                // Close button (hidden by default, visible on hover)
                 <button
                     class="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-500/20 text-gray-500 hover:text-red-400 transition-all duration-150 shrink-0"
                     title={i18n::t("close_tab", lang)}

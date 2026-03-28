@@ -5,3 +5,4 @@ tailwind.css
 .env
 *.pem
 node_modules/
+.DS_Store

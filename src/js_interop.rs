@@ -36,6 +36,11 @@ extern "C" {
     pub fn set_window_blur(blur: i32);
     pub fn get_safe_chunk(data: &JsValue) -> JsValue;
 
+    pub async fn terminal_open(id: &str, container_id: &str, cols: u16, rows: u16) -> JsValue;
+    pub fn terminal_close(id: &str);
+    pub fn terminal_is_open(id: &str) -> bool;
+    pub fn terminal_focus(id: &str);
+
     pub fn can_install_pwa() -> bool;
     pub async fn trigger_pwa_install() -> JsValue;
     pub fn is_webkit_or_safari() -> bool;
