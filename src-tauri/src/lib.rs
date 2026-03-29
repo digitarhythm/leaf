@@ -11,6 +11,7 @@ use objc::{msg_send, sel, sel_impl, class};
 struct PtyInstance {
     writer: Box<dyn std::io::Write + Send>,
     child: Box<dyn portable_pty::Child + Send>,
+    master: Box<dyn portable_pty::MasterPty + Send>,
 }
 
 static PTY_INSTANCES: once_cell::sync::Lazy<Arc<Mutex<std::collections::HashMap<String, PtyInstance>>>> =
@@ -126,6 +127,7 @@ fn pty_spawn(app: tauri::AppHandle, id: String, cols: u16, rows: u16) -> Result<
     let child = pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn: {}", e))?;
     let mut reader = pair.master.try_clone_reader().map_err(|e| format!("{}", e))?;
     let writer = pair.master.take_writer().map_err(|e| format!("{}", e))?;
+    let master = pair.master;
     drop(pair.slave);
 
     let pty_id = id.clone();
@@ -147,7 +149,7 @@ fn pty_spawn(app: tauri::AppHandle, id: String, cols: u16, rows: u16) -> Result<
     });
 
     let mut instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
-    instances.insert(id, PtyInstance { writer, child });
+    instances.insert(id, PtyInstance { writer, child, master });
     Ok(())
 }
 
@@ -170,7 +172,11 @@ fn pty_write(id: String, data: String) -> Result<(), String> {
 
 #[tauri::command]
 fn pty_resize(id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let _ = (id, cols, rows); // TODO: リサイズ対応
+    let instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
+    if let Some(inst) = instances.get(&id) {
+        inst.master.resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+            .map_err(|e| format!("Failed to resize PTY: {}", e))?;
+    }
     Ok(())
 }
 

@@ -2276,6 +2276,7 @@ pub fn app() -> Html {
                 let terminal_ids_ref_ev = terminal_ids_ref.clone();
                 let active_terminal_id_ev = active_terminal_id.clone();
                 let active_terminal_ref_ev = active_terminal_ref.clone();
+                let tab_order_ref_ev = tab_order_ref.clone();
                 let terminal_counter_ev = terminal_counter.clone();
                 let terminal_tab_ids_ev = terminal_tab_ids.clone();
                 let pfs_ev = preview_font_size.clone();
@@ -2306,6 +2307,7 @@ pub fn app() -> Html {
                     let term_ids_ref_c = terminal_ids_ref_ev.clone();
                     let atid_c = active_terminal_id_ev.clone();
                     let atref_c = active_terminal_ref_ev.clone();
+                    let tab_order_ref_c = tab_order_ref_ev.clone();
                     let term_counter_c = terminal_counter_ev.clone();
                     let term_tab_ids_c = terminal_tab_ids_ev.clone();
                     let pfs_c = pfs_ev.clone();
@@ -2513,11 +2515,9 @@ pub fn app() -> Html {
                             let is_bracket_right = code == "BracketRight";
                             if is_bracket_left || is_bracket_right {
                                 e.prevent_default(); e.stop_immediate_propagation();
-                                // シート+ターミナルの統合タブIDリスト
+                                // 表示順のタブIDリスト（tab_order_refの順序を使用）
                                 let current_sheets = (*rs_c.borrow()).clone();
-                                let term_list = term_ids_ref_c.borrow().clone();
-                                let mut all_tab_ids: Vec<String> = current_sheets.iter().map(|s| s.id.clone()).collect();
-                                all_tab_ids.extend(term_list.iter().cloned());
+                                let all_tab_ids: Vec<String> = tab_order_ref_c.borrow().clone();
                                 if all_tab_ids.len() <= 1 { return; }
                                 // 現在のアクティブタブID（RefCellから最新値を取得）
                                 let current_id = if let Some(ref tid) = *atref_c.borrow() {

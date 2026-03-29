@@ -670,7 +670,22 @@ export async function terminal_open(id, containerId, cols, rows) {
         const inst = _terminals.get(id);
         container.appendChild(inst.wrapper);
         _activeTermId = id;
-        if (inst.fitAddon) setTimeout(() => inst.fitAddon.fit(), 50);
+        if (inst.fitAddon) {
+            const fitAndResize = () => {
+                const rect = container.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    inst.fitAddon.fit();
+                    window.__TAURI__?.core?.invoke('pty_resize', {
+                        id,
+                        cols: inst.terminal.cols,
+                        rows: inst.terminal.rows,
+                    });
+                } else {
+                    setTimeout(fitAndResize, 30);
+                }
+            };
+            setTimeout(fitAndResize, 50);
+        }
         inst.terminal.focus();
         return true;
     }
@@ -713,8 +728,12 @@ export async function terminal_open(id, containerId, cols, rows) {
     if (fitAddon) {
         new ResizeObserver(() => {
             if (fitAddon && terminal) {
-                fitAddon.fit();
-                window.__TAURI__.core.invoke('pty_resize', { id, cols: terminal.cols, rows: terminal.rows });
+                // コンテナが表示されている時のみリサイズ（非表示時は幅0になるため無視）
+                const rect = wrapper.getBoundingClientRect();
+                if (rect.width > 20 && rect.height > 20) {
+                    fitAddon.fit();
+                    window.__TAURI__.core.invoke('pty_resize', { id, cols: terminal.cols, rows: terminal.rows });
+                }
             }
         }).observe(wrapper);
     }
@@ -756,7 +775,24 @@ export function terminal_focus(id) {
         if (inst.wrapper && inst.wrapper.parentNode !== container) {
             container.appendChild(inst.wrapper);
         }
-        if (inst.fitAddon) setTimeout(() => inst.fitAddon.fit(), 50);
+        // terminal-areaが表示されレイアウト確定後にfit+resizeを実行
+        if (inst.fitAddon) {
+            const fitAndResize = () => {
+                const rect = container.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    inst.fitAddon.fit();
+                    window.__TAURI__?.core?.invoke('pty_resize', {
+                        id,
+                        cols: inst.terminal.cols,
+                        rows: inst.terminal.rows,
+                    });
+                } else {
+                    // まだ非表示なので少し待って再試行
+                    setTimeout(fitAndResize, 30);
+                }
+            };
+            setTimeout(fitAndResize, 50);
+        }
         inst.terminal.focus();
         _activeTermId = id;
     }
