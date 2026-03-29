@@ -624,6 +624,11 @@ function ensureGlobalListeners() {
         const { id, data } = event.payload;
         const inst = _terminals.get(id);
         if (inst && inst.terminal) {
+            // 最初の出力でスピナーを非表示
+            if (inst.spinner) {
+                inst.spinner.remove();
+                inst.spinner = null;
+            }
             const bytes = Uint8Array.from(atob(data), c => c.charCodeAt(0));
             inst.terminal.write(bytes);
         }
@@ -695,8 +700,18 @@ export async function terminal_open(id, containerId, cols, rows) {
 
     // 新規作成
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'width:100%;height:100%;';
+    wrapper.style.cssText = 'width:100%;height:100%;position:relative;';
     container.appendChild(wrapper);
+
+    // ローディングスピナー（PTY起動待ち）
+    const spinner = document.createElement('div');
+    spinner.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#1d2021;z-index:10;gap:12px;';
+    spinner.innerHTML = `
+        <style>@keyframes leaf-spin{to{transform:rotate(360deg)}}</style>
+        <div style="width:32px;height:32px;border:3px solid #3c3836;border-top-color:#98971a;border-radius:50%;animation:leaf-spin 0.8s linear infinite;"></div>
+        <span style="color:#928374;font-size:12px;font-family:monospace;">Starting shell...</span>
+    `;
+    wrapper.appendChild(spinner);
 
     const terminal = new window.Terminal({
         cursorBlink: true, fontSize: 14,
@@ -741,7 +756,7 @@ export async function terminal_open(id, containerId, cols, rows) {
         }).observe(wrapper);
     }
 
-    _terminals.set(id, { terminal, fitAddon, wrapper });
+    _terminals.set(id, { terminal, fitAddon, wrapper, spinner });
     _activeTermId = id;
     return true;
 }
