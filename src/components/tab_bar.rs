@@ -25,6 +25,8 @@ pub struct TabBarProps {
     pub on_reorder: Option<Callback<ReorderEvent>>,
     #[prop_or_default]
     pub on_drag_end: Option<Callback<()>>,
+    #[prop_or_default]
+    pub on_new_tab: Option<Callback<()>>,
 }
 
 #[function_component(TabBar)]
@@ -36,10 +38,25 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
         return html! {};
     }
 
+    let on_dblclick_area = {
+        let on_new_tab = props.on_new_tab.clone();
+        Callback::from(move |e: MouseEvent| {
+            // タブ自体（.tab-item クラス持つ要素かその子）でのダブルクリックは無視
+            let target = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok());
+            let on_tab = target.as_ref().map(|el| {
+                el.closest(".tab-item").unwrap_or(None).is_some()
+            }).unwrap_or(false);
+            if !on_tab {
+                if let Some(ref cb) = on_new_tab { cb.emit(()); }
+            }
+        })
+    };
+
     html! {
         <div
             class="desktop:flex mobile:hidden items-center bg-[#1d2021] border-b border-[#3c3836] overflow-x-auto scrollbar-none"
             style="min-height: 32px;"
+            ondblclick={on_dblclick_area}
         >
             { for props.sheets.iter().map(|tab| {
                 let is_active = props.active_sheet_id.as_ref() == Some(&tab.id);
@@ -153,6 +170,7 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
                         data-tab-id={tab.id.clone()}
                         onmousedown={onmousedown}
                         class={classes!(
+                            "tab-item",
                             "flex", "items-center", "gap-1", "px-3", "py-1", "cursor-grab",
                             "text-xs", "whitespace-nowrap", "select-none", "transition-all", "duration-100",
                             "border-r", "border-[#3c3836]", "shrink-0",
