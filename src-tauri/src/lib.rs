@@ -10,7 +10,6 @@ use objc::{msg_send, sel, sel_impl, class};
 // 複数PTY状態管理
 struct PtyInstance {
     writer: Box<dyn std::io::Write + Send>,
-    child: Box<dyn portable_pty::Child + Send>,
     master: Box<dyn portable_pty::MasterPty + Send>,
 }
 
@@ -56,6 +55,7 @@ fn set_window_opacity(app: tauri::AppHandle, opacity: f64) -> Result<(), String>
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
             let hwnd = window.hwnd().map_err(|e| format!("{}", e))?;
+            // opacityは0.0〜1.0 (50%〜100%で渡される)、255=不透明 0=透明
             let alpha = (opacity.clamp(0.5, 1.0) * 255.0) as u8;
             unsafe {
                 use windows_sys::Win32::UI::WindowsAndMessaging::*;
@@ -78,10 +78,13 @@ fn set_window_blur(app: tauri::AppHandle, blur: i32) -> Result<(), String> {
         if let Some(window) = app.get_webview_window("main") {
             if blur > 0 {
                 // Windows 11: Mica, Windows 10: Acrylic
-                if window_vibrancy::apply_mica(&window, None).is_err() {
-                    let _ = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, (255.0 * (1.0 - blur as f64 / 100.0)) as u8)));
+                let opacity_byte = (255.0 * (1.0 - blur as f64 / 100.0)) as u8;
+                if window_vibrancy::apply_mica(&window, Some(true)).is_err() {
+                    let _ = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, opacity_byte)));
                 }
             } else {
+                // Mica/Acrylic両方をクリア試みる
+                let _ = window_vibrancy::clear_mica(&window);
                 let _ = window_vibrancy::clear_acrylic(&window);
             }
         }
@@ -124,14 +127,22 @@ fn pty_spawn(app: tauri::AppHandle, id: String, cols: u16, rows: u16) -> Result<
     cmd.env("TERM", "xterm-256color");
     if let Some(home) = dirs::home_dir() { cmd.cwd(home); }
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn: {}", e))?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(|e| format!("Failed to spawn: {}", e))?;
     let mut reader = pair.master.try_clone_reader().map_err(|e| format!("{}", e))?;
     let writer = pair.master.take_writer().map_err(|e| format!("{}", e))?;
     let master = pair.master;
     drop(pair.slave);
+    // childスレッド: プロセス終了を監視（Windowsのwsl等でreaderが終了を検知できない場合の保険）
+    let pty_id_child = id.clone();
+    let app_handle_child = app.clone();
+    std::thread::spawn(move || {
+        let _ = child.wait();
+        let _ = app_handle_child.emit("pty-exit", serde_json::json!({ "id": pty_id_child }));
+    });
 
     let pty_id = id.clone();
     let app_handle = app.clone();
+    // readerスレッド: PTY出力をJSへ転送
     std::thread::spawn(move || {
         let mut buf = [0u8; 4096];
         loop {
@@ -149,7 +160,7 @@ fn pty_spawn(app: tauri::AppHandle, id: String, cols: u16, rows: u16) -> Result<
     });
 
     let mut instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
-    instances.insert(id, PtyInstance { writer, child, master });
+    instances.insert(id, PtyInstance { writer, master });
     Ok(())
 }
 
@@ -160,9 +171,7 @@ fn pty_write(id: String, data: String) -> Result<(), String> {
     if let Some(inst) = instances.get_mut(&id) {
         if let Err(_) = inst.writer.write_all(data.as_bytes()) {
             // シェルが終了済み — インスタンスを除去して静かに返す
-            if let Some(mut dead) = instances.remove(&id) {
-                let _ = dead.child.kill();
-            }
+            let _ = instances.remove(&id);
             return Ok(());
         }
         let _ = inst.writer.flush();
@@ -183,9 +192,8 @@ fn pty_resize(id: String, cols: u16, rows: u16) -> Result<(), String> {
 #[tauri::command]
 fn pty_kill(id: String) -> Result<(), String> {
     let mut instances = PTY_INSTANCES.lock().map_err(|e| format!("{}", e))?;
-    if let Some(mut inst) = instances.remove(&id) {
-        let _ = inst.child.kill();
-    }
+    // masterを閉じることでPTYを終了させる（childスレッドがwaitで検知）
+    let _ = instances.remove(&id);
     Ok(())
 }
 

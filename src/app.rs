@@ -2652,9 +2652,10 @@ pub fn app() -> Html {
                                     return;
                                 }
                                 // input要素にフォーカスがある場合（カテゴリー名編集中など）はスキップ
+                                // ただし設定ダイアログが開いている場合はESCで閉じる（スライダーのフォーカスは無視）
                                 let esc_target = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok());
                                 let is_input_focused = esc_target.as_ref().map(|t| { let tag = t.tag_name().to_lowercase(); tag == "input" || tag == "textarea" }).unwrap_or(false);
-                                if is_input_focused { return; }
+                                if is_input_focused && !settings_open { return; }
                                 e.stop_immediate_propagation(); e.prevent_default();
                                 if is_creating_cat { is_creating_cat_c.set(false); }
                                 else if drop_open { is_drop_c.set(false); }

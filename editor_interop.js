@@ -631,7 +631,10 @@ function ensureGlobalListeners() {
     window.__TAURI__.event.listen('pty-exit', (event) => {
         const { id } = event.payload;
         const inst = _terminals.get(id);
+        // 既にexit処理中なら重複を無視
+        if (inst && inst._exiting) return;
         if (inst && inst.terminal) {
+            inst._exiting = true;
             inst.terminal.write('\r\n[Process exited]\r\n');
             // フェードアウト後にタブを閉じる
             if (inst.wrapper) {
