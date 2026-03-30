@@ -3151,19 +3151,19 @@ pub fn app() -> Html {
         })
     };
 
-    // 分割比率変更時にエディタをリサイズ
+    // 分割比率・ターミナル切り替え時にエディタをリサイズ
     {
         let ratio_i = (*split_ratio * 1000.0) as i32;
-        let is_split_i = *is_preview_visible && *split_preview_enabled;
+        let is_split_i = *is_preview_visible && *split_preview_enabled && (*active_terminal_id).is_none();
         use_effect_with((ratio_i, is_split_i), move |_| {
             crate::js_interop::resize_editor();
             || ()
         });
     }
 
-    // スプリットプレビュー有効時にカーソル同期を設定
+    // スプリットプレビュー有効時にカーソル同期を設定（ターミナルアクティブ時は解除）
     {
-        let is_split_i = *is_preview_visible && *split_preview_enabled;
+        let is_split_i = *is_preview_visible && *split_preview_enabled && (*active_terminal_id).is_none();
         use_effect_with(is_split_i, move |&is_split| {
             if is_split {
                 crate::js_interop::setup_cursor_sync();
@@ -3176,7 +3176,7 @@ pub fn app() -> Html {
         });
     }
 
-    let is_split_view = *is_preview_visible && *split_preview_enabled;
+    let is_split_view = *is_preview_visible && *split_preview_enabled && (*active_terminal_id).is_none();
     let left_width_style = if is_split_view {
         format!("width: {}%", (*split_ratio * 100.0) as i32)
     } else {
