@@ -2454,8 +2454,8 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        // Markdownモード中のキー操作（全画面プレビューのみ・分割モードは除く）
-                        if _preview && !is_split_preview && !is_overlay_active {
+                        // Markdownモード中のキー操作（全画面プレビューのみ・分割モード・ターミナルアクティブ時は除く）
+                        if _preview && !is_split_preview && !is_overlay_active && atref_c.borrow().is_none() {
                             // ESCで編集モードに戻る
                             if key == "Escape" {
                                 e.prevent_default(); e.stop_immediate_propagation();
