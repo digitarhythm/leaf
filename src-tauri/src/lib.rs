@@ -446,6 +446,11 @@ async fn save_local_file_native(app: tauri::AppHandle, content: String, needsBom
     }))
 }
 
+#[tauri::command]
+fn open_url_in_browser(url: String) -> Result<(), String> {
+    open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // .env ファイルから環境変数を読み込む
@@ -515,6 +520,7 @@ pub fn run() {
             log_from_js,
             open_local_file_native,
             save_local_file_native,
+            open_url_in_browser,
             set_window_opacity,
             set_window_blur,
             is_macos,

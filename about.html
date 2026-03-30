@@ -515,7 +515,7 @@
     <div class="hero-content">
         <div class="hero-badge">Free &middot; Quick Start with Google Account</div>
         <h1>Write Anywhere.<br><span class="accent">Sync Everywhere.</span></h1>
-        <p>Leaf is a modern cloud-synced text editor built for writers and developers. Vim keybindings, Markdown preview, Google Drive auto-save, and full offline support — all in your browser.</p>
+        <p>Leaf is a modern cloud-synced text editor built for writers and developers. Vim keybindings, split Markdown preview with cursor sync, Google Drive auto-save, integrated terminal, and full offline support — in your browser and as a desktop app.</p>
         <div class="hero-actions">
             <a href="/" class="btn-primary">Start Writing Now</a>
             <a href="#features" class="btn-secondary">Explore Features</a>
@@ -564,6 +564,13 @@
             </div>
             <div class="feature-card">
                 <div class="feature-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg>
+                </div>
+                <h3>Split Preview</h3>
+                <p>Edit Markdown on the left while the rendered preview scrolls in sync on the right. The preview automatically tracks your cursor position — even across Mermaid diagrams and code blocks.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
                     <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                 </div>
                 <h3>Smart Categories</h3>
@@ -575,6 +582,13 @@
                 </div>
                 <h3>Multi-Tab Editing</h3>
                 <p>Open multiple sheets simultaneously and switch between them with tabs. Use Alt+[ / Alt+] to navigate tabs, or Alt+W to close. On mobile, access the sheet list panel with a single tap.</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon">
+                    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                </div>
+                <h3>Integrated Terminal</h3>
+                <p>Open a full terminal session as a tab with Alt+T (Desktop app). Run shell commands without leaving Leaf. Multiple terminals can run simultaneously alongside your text sheets.</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon">
@@ -641,6 +655,7 @@
         </div>
         <div class="shortcuts-grid">
             <div class="shortcut-item"><kbd>Alt + N</kbd><span>Create a new sheet</span></div>
+            <div class="shortcut-item"><kbd>Alt + Shift + N</kbd><span>New local file (no cloud sync)</span></div>
             <div class="shortcut-item"><kbd>Alt + M</kbd><span>Open sheet management dialog</span></div>
             <div class="shortcut-item"><kbd>Alt + O</kbd><span>Open a local file</span></div>
             <div class="shortcut-item"><kbd>Alt + S</kbd><span>Force save to Google Drive</span></div>
@@ -650,6 +665,7 @@
             <div class="shortcut-item"><kbd>Alt + ]</kbd><span>Switch to right tab</span></div>
             <div class="shortcut-item"><kbd>Alt + W</kbd><span>Close current tab</span></div>
             <div class="shortcut-item"><kbd>Alt + T</kbd><span>New Terminal (Desktop)</span></div>
+            <div class="shortcut-item"><kbd>Alt + H</kbd><span>Show keyboard shortcuts</span></div>
             <div class="shortcut-item"><kbd>Alt + ,</kbd><span>Open Settings</span></div>
             <div class="shortcut-item"><kbd>Alt + -</kbd><span>Decrease font size</span></div>
             <div class="shortcut-item"><kbd>Alt + =</kbd><span>Increase font size</span></div>
@@ -699,6 +715,7 @@
         <div class="tech-grid">
             <div class="tech-item"><div class="tech-name">Rust + WASM</div><div class="tech-desc">Native performance</div></div>
             <div class="tech-item"><div class="tech-name">Yew Framework</div><div class="tech-desc">Reactive UI</div></div>
+            <div class="tech-item"><div class="tech-name">Tauri</div><div class="tech-desc">Desktop app</div></div>
             <div class="tech-item"><div class="tech-name">Tailwind CSS</div><div class="tech-desc">Modern styling</div></div>
             <div class="tech-item"><div class="tech-name">Ace Editor</div><div class="tech-desc">Code editing</div></div>
             <div class="tech-item"><div class="tech-name">IndexedDB</div><div class="tech-desc">Offline storage</div></div>

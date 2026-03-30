@@ -2262,10 +2262,17 @@ pub fn app() -> Html {
         let has_nc = name_conflict_queue.clone(); let has_fall = fallback_queue.clone();
         let is_imp_lock = is_import_lock.clone();
         let is_drop = is_category_dropdown_open.clone(); let last_obscured = use_state(|| true);
+        let atref_obscured = active_terminal_ref.clone();
         use_effect_with( ((is_auth, is_ld, is_file_open, is_prev, is_help, is_logout_conf), (has_del, has_conf, has_nc, has_fall, is_imp_lock, is_drop)), move |deps| {
                 let ((auth, ld, file_open, prev, help, logout_conf), (del, conf, nc, fall, imp_lock, drop_open)) = deps;
                 let obscured = !**auth || **ld || **file_open || **prev || **help || **logout_conf || (*del).is_some() || !(*conf).is_empty() || !(*nc).is_empty() || !(*fall).is_empty() || **imp_lock || **drop_open;
-                if *last_obscured && !obscured { focus_editor(); }
+                if *last_obscured && !obscured {
+                    if let Some(ref tid) = *atref_obscured.borrow() {
+                        crate::js_interop::terminal_focus(tid);
+                    } else {
+                        focus_editor();
+                    }
+                }
                 last_obscured.set(obscured); || ()
             }
         );
@@ -3217,6 +3224,7 @@ pub fn app() -> Html {
 
     let help_html: Html = if *is_help_visible {
         let ih = is_help_visible.clone();
+        let atid_help = active_terminal_id.clone();
         let on_install: Option<Callback<()>> = if !crate::js_interop::is_tauri() {
             let is_conf = is_install_confirm_visible.clone();
             let is_man = is_install_manual_visible.clone();
@@ -3226,7 +3234,14 @@ pub fn app() -> Html {
         html! {
             <div class="pointer-events-auto">
                 <ShortcutHelp
-                    on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })}
+                    on_close={Callback::from(move |_| {
+                        ih.set(false);
+                        if let Some(ref tid) = *atid_help {
+                            crate::js_interop::terminal_focus(tid);
+                        } else {
+                            focus_editor();
+                        }
+                    })}
                     on_install={on_install}
                 />
             </div>
@@ -3453,7 +3468,18 @@ pub fn app() -> Html {
                                     wb.set(blur);
                                 })
                             }) } else { None }}
-                            on_close={let sv = is_settings_visible.clone(); Callback::from(move |_| { sv.set(false); focus_editor(); })}
+                            on_close={{
+                                let sv = is_settings_visible.clone();
+                                let atid_settings = active_terminal_id.clone();
+                                Callback::from(move |_| {
+                                    sv.set(false);
+                                    if let Some(ref tid) = *atid_settings {
+                                        crate::js_interop::terminal_focus(tid);
+                                    } else {
+                                        focus_editor();
+                                    }
+                                })
+                            }}
                         />
                     </div>
                 }

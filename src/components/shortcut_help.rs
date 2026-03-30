@@ -79,6 +79,26 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
         "opacity-100 scale-100"
     };
 
+    let link_class = "hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700 cursor-pointer bg-transparent border-0 p-0 font-[inherit] text-inherit";
+    let make_link = |url: String, label: String| -> Html {
+        html! {
+            <button
+                onclick={Callback::from(move |_: MouseEvent| {
+                    let url = url.clone();
+                    wasm_bindgen_futures::spawn_local(async move {
+                        crate::js_interop::open_url_in_browser(&url).await;
+                    });
+                })}
+                class={link_class}
+            >{ label }</button>
+        }
+    };
+    let about_url = if is_ja { "about_ja.html".to_string() } else { "about.html".to_string() };
+    let link_about = make_link(about_url, i18n::t("about", lang).to_string());
+    let link_terms = make_link("terms.html".to_string(), i18n::t("terms_of_service", lang).to_string());
+    let link_privacy = make_link("privacy.html".to_string(), i18n::t("privacy_policy", lang).to_string());
+    let link_licenses = make_link("licenses.html".to_string(), i18n::t("oss_licenses", lang).to_string());
+
     html! {
         <div class="fixed inset-0 z-[200] flex items-center justify-center">
             // Backdrop
@@ -154,18 +174,10 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
                     }
                     // リンク
                     <div class="flex items-center justify-center gap-6 text-xs text-gray-500 whitespace-nowrap">
-                        <a href={if is_ja { "about_ja.html" } else { "about.html" }} target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
-                            { i18n::t("about", lang) }
-                        </a>
-                        <a href="terms.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
-                            { i18n::t("terms_of_service", lang) }
-                        </a>
-                        <a href="privacy.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
-                            { i18n::t("privacy_policy", lang) }
-                        </a>
-                        <a href="licenses.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
-                            { i18n::t("oss_licenses", lang) }
-                        </a>
+                        { link_about }
+                        { link_terms }
+                        { link_privacy }
+                        { link_licenses }
                     </div>
                 </div>
             </div>

@@ -32,6 +32,7 @@ extern "C" {
     pub fn exec_editor_command(command: &str);
 
     pub fn is_tauri() -> bool;
+    pub async fn open_url_in_browser(url: &str);
     pub fn is_macos_tauri() -> bool;
     pub fn is_windows_tauri() -> bool;
     pub fn set_window_opacity(opacity: f64);

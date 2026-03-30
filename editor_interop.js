@@ -23,6 +23,14 @@ export function is_tauri() {
     return !!window.__TAURI__;
 }
 
+export async function open_url_in_browser(url) {
+    if (is_tauri()) {
+        await window.__TAURI__.core.invoke('open_url_in_browser', { url });
+    } else {
+        window.open(url, '_blank', 'noopener,noreferrer');
+    }
+}
+
 export async function trigger_pwa_install() {
     const prompt = window.leafDeferredPrompt;
     if (!prompt) {

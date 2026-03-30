@@ -190,7 +190,7 @@
     <div class="hero-content">
         <div class="hero-badge">無料 &middot; Googleアカウントで簡単スタート</div>
         <h1>どこでも書く。<br><span class="accent">どこでも同期。</span></h1>
-        <p>Leafは、ライターと開発者のために作られたモダンなクラウド同期テキストエディタです。Vimキーバインド、Markdownプレビュー、Googleドライブ自動保存、完全なオフライン対応をブラウザ上で実現します。</p>
+        <p>Leafは、ライターと開発者のために作られたモダンなクラウド同期テキストエディタです。Vimキーバインド、カーソル同期付き左右スプリットプレビュー、Googleドライブ自動保存、統合ターミナル、完全なオフライン対応をブラウザおよびデスクトップアプリとして実現します。</p>
         <div class="hero-actions">
             <a href="/" class="btn-primary">今すぐ書き始める</a>
             <a href="#features" class="btn-secondary">機能を見る</a>
@@ -229,6 +229,11 @@
                 <p>Markdownで書いて即座にプレビュー。コードブロック、テーブル、Mermaid図、数式に対応しています。</p>
             </div>
             <div class="feature-card">
+                <div class="feature-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg></div>
+                <h3>スプリットプレビュー</h3>
+                <p>左側でMarkdownを編集しながら、右側でレンダリングされたプレビューをリアルタイム確認。カーソル位置に合わせてプレビューが自動スクロール。Mermaid図やコードブロックをまたいでも正確に同期します。</p>
+            </div>
+            <div class="feature-card">
                 <div class="feature-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg></div>
                 <h3>スマートカテゴリー</h3>
                 <p>シートをフォルダで整理し、Googleドライブと同期。管理ダイアログでカテゴリー間の移動も簡単です。</p>
@@ -237,6 +242,11 @@
                 <div class="feature-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6.878V6a2.25 2.25 0 012.25-2.25h7.5A2.25 2.25 0 0118 6v.878m-12 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128m-12 0A2.25 2.25 0 003.75 9v.878m0 0c.235-.083.487-.128.75-.128h10.5c.263 0 .515.045.75.128M3.75 9.878A2.25 2.25 0 001.5 12v6a2.25 2.25 0 002.25 2.25h16.5A2.25 2.25 0 0022.5 18v-6a2.25 2.25 0 00-2.25-2.122" /></svg></div>
                 <h3>マルチタブ編集</h3>
                 <p>複数のシートを同時に開いてタブで切り替え。Alt+[/]でタブ移動、Alt+Wでタブを閉じることも。モバイルではワンタップでシート一覧パネルにアクセスできます。</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg></div>
+                <h3>統合ターミナル</h3>
+                <p>Alt+Tでターミナルをタブとして開く（デスクトップ版）。Leafを離れることなくシェルコマンドを実行できます。複数のターミナルをテキストシートと並行して同時に実行可能です。</p>
             </div>
             <div class="feature-card">
                 <div class="feature-icon"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg></div>
@@ -293,6 +303,7 @@
         </div>
         <div class="shortcuts-grid">
             <div class="shortcut-item"><kbd>Alt + N</kbd><span>新規シートを作成</span></div>
+            <div class="shortcut-item"><kbd>Alt + Shift + N</kbd><span>新規ローカルファイルを作成（クラウド同期なし）</span></div>
             <div class="shortcut-item"><kbd>Alt + M</kbd><span>シート管理ダイアログを開く</span></div>
             <div class="shortcut-item"><kbd>Alt + O</kbd><span>ローカルファイルを開く</span></div>
             <div class="shortcut-item"><kbd>Alt + S</kbd><span>Googleドライブに強制保存</span></div>
@@ -302,6 +313,7 @@
             <div class="shortcut-item"><kbd>Alt + ]</kbd><span>右のタブに切り替え</span></div>
             <div class="shortcut-item"><kbd>Alt + W</kbd><span>現在のタブを閉じる</span></div>
             <div class="shortcut-item"><kbd>Alt + T</kbd><span>新規ターミナル（デスクトップ版）</span></div>
+            <div class="shortcut-item"><kbd>Alt + H</kbd><span>ショートカット一覧を表示</span></div>
             <div class="shortcut-item"><kbd>Alt + ,</kbd><span>設定を開く</span></div>
             <div class="shortcut-item"><kbd>Alt + -</kbd><span>フォントサイズを縮小</span></div>
             <div class="shortcut-item"><kbd>Alt + =</kbd><span>フォントサイズを拡大</span></div>
@@ -349,6 +361,7 @@
         <div class="tech-grid">
             <div class="tech-item"><div class="tech-name">Rust + WASM</div><div class="tech-desc">ネイティブ級の性能</div></div>
             <div class="tech-item"><div class="tech-name">Yew Framework</div><div class="tech-desc">リアクティブUI</div></div>
+            <div class="tech-item"><div class="tech-name">Tauri</div><div class="tech-desc">デスクトップアプリ</div></div>
             <div class="tech-item"><div class="tech-name">Tailwind CSS</div><div class="tech-desc">モダンなスタイリング</div></div>
             <div class="tech-item"><div class="tech-name">Ace Editor</div><div class="tech-desc">コードエディタ</div></div>
             <div class="tech-item"><div class="tech-name">IndexedDB</div><div class="tech-desc">オフラインストレージ</div></div>

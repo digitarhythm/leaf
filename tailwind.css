@@ -884,6 +884,10 @@
     border-style: var(--tw-border-style);
     border-width: 1px;
   }
+  .border-0 {
+    border-style: var(--tw-border-style);
+    border-width: 0px;
+  }
   .border-2 {
     border-style: var(--tw-border-style);
     border-width: 2px;
@@ -1352,6 +1356,9 @@
   .text-left {
     text-align: left;
   }
+  .font-\[inherit\] {
+    font-family: inherit;
+  }
   .font-mono {
     font-family: var(--font-mono);
   }
@@ -1514,6 +1521,9 @@
   }
   .text-green-500 {
     color: var(--color-green-500);
+  }
+  .text-inherit {
+    color: inherit;
   }
   .text-red-400 {
     color: var(--color-red-400);
