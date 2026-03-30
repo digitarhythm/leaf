@@ -92,7 +92,7 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
 
             // Dialog
             <div class={classes!(
-                "relative", "z-10", "w-full", "max-w-lg", "mx-4",
+                "relative", "z-10", "w-full", "max-w-2xl", "mx-4",
                 "bg-[#1d2021]", "rounded-xl", "border", "border-[#3c3836]", "shadow-2xl",
                 "transition-all", "duration-150", anim_class
             )}>
@@ -141,17 +141,33 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
                     </table>
                 </div>
 
-                // Footer (PWAインストールボタン)
-                if let Some(ref on_install) = props.on_install {
-                    <div class="px-6 py-4 border-t border-[#3c3836]">
+                // Footer
+                <div class="px-6 py-4 border-t border-[#3c3836] flex flex-col gap-3">
+                    // PWAインストールボタン
+                    if let Some(ref on_install) = props.on_install {
                         <button
                             onclick={{let cb = on_install.clone(); move |_| cb.emit(())}}
                             class="w-full py-2 px-4 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
                         >
                             { i18n::t("install_title", lang) }
                         </button>
+                    }
+                    // リンク
+                    <div class="flex items-center justify-center gap-6 text-xs text-gray-500 whitespace-nowrap">
+                        <a href={if is_ja { "about_ja.html" } else { "about.html" }} target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
+                            { i18n::t("about", lang) }
+                        </a>
+                        <a href="terms.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
+                            { i18n::t("terms_of_service", lang) }
+                        </a>
+                        <a href="privacy.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
+                            { i18n::t("privacy_policy", lang) }
+                        </a>
+                        <a href="licenses.html" target="_blank" class="hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700">
+                            { i18n::t("oss_licenses", lang) }
+                        </a>
                     </div>
-                }
+                </div>
             </div>
         </div>
     }
