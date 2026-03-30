@@ -514,6 +514,7 @@ pub fn app() -> Html {
     let is_creating_new = use_state(|| false); // 新規作成連打防止用
     let is_import_lock = use_state(|| false);
     let is_import_fading_out = use_state(|| false);
+    let tab_closing_id = use_state(|| None::<String>);
     let is_initial_load = use_state(|| true);
     let loading_message_key = use_state(|| "synchronizing");
     let is_fading_out = use_state(|| false);
@@ -2301,6 +2302,7 @@ pub fn app() -> Html {
                 let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
                 let split_preview_ev = split_preview_enabled.clone();
+                let tci_ev = tab_closing_id.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *split_preview_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_split_preview), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -2328,6 +2330,7 @@ pub fn app() -> Html {
                     let tab_order_ref_c = tab_order_ref_ev.clone();
                     let term_counter_c = terminal_counter_ev.clone();
                     let term_tab_ids_c = terminal_tab_ids_ev.clone();
+                    let tci_c = tci_ev.clone();
                     let pfs_c = pfs_ev.clone();
                     let pending_close_unsynced_c = pending_close_unsynced_tab_ev.clone();
                     let nc_c = nc_ev.clone();
@@ -2637,8 +2640,14 @@ pub fn app() -> Html {
                                             return;
                                         }
                                     }
-                                    // 直接閉じる
-                                    close_tab_direct(close_id, rs_c.clone(), sheets_c.clone(), aid_c.clone(), sp_c.clone(), ncid_c.clone(), Some(aid_ref_c.clone()));
+                                    // 1秒フェードアウト後に閉じる
+                                    tci_c.set(Some(close_id.clone()));
+                                    let tci2 = tci_c.clone();
+                                    let rs2 = rs_c.clone(); let sc2 = sheets_c.clone(); let ac2 = aid_c.clone(); let sp2 = sp_c.clone(); let nc2 = ncid_c.clone(); let ar2 = aid_ref_c.clone();
+                                    Timeout::new(500, move || {
+                                        tci2.set(None);
+                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2));
+                                    }).forget();
                                 }
                                 return;
                             }
@@ -2852,6 +2861,7 @@ pub fn app() -> Html {
         let atref_close = active_terminal_ref.clone();
         let aid = active_sheet_id.clone();
         let aid_ref = active_id_ref.clone();
+        let tci_close = tab_closing_id.clone();
         let sp = is_suppressing_changes.clone();
         let ncid = no_category_folder_id.clone();
         let nc = network_connected.clone();
@@ -2868,29 +2878,39 @@ pub fn app() -> Html {
                         if i > 0 { order.get(i - 1).cloned() } else { order.get(i + 1).cloned() }
                     })
                 } else { None };
-                crate::js_interop::terminal_close(&close_id);
-                tids_ref_close.borrow_mut().retain(|x| x != &close_id);
-                ttids_close.set(tids_ref_close.borrow().clone());
-                if was_active {
-                    atid_close.set(None);
-                    *atref_close.borrow_mut() = None;
-                    if let Some(ref next) = next_tab {
-                        if next.starts_with("__TERM__") {
-                            // 隣がターミナルタブ
-                            atid_close.set(Some(next.clone()));
-                            *atref_close.borrow_mut() = Some(next.clone());
-                        } else {
-                            // 隣がシートタブ → アクティブシートに設定
-                            aid.set(Some(next.clone()));
-                            *aid_ref.borrow_mut() = Some(next.clone());
+                // 1秒フェードアウト後にターミナルを閉じる
+                tci_close.set(Some(close_id.clone()));
+                let tci2 = tci_close.clone();
+                let close_id2 = close_id.clone();
+                let tids2 = tids_ref_close.clone();
+                let ttids2 = ttids_close.clone();
+                let atid2 = atid_close.clone();
+                let atref2 = atref_close.clone();
+                let aid2 = aid.clone();
+                let aid_ref2 = aid_ref.clone();
+                Timeout::new(500, move || {
+                    tci2.set(None);
+                    crate::js_interop::terminal_close(&close_id2);
+                    tids2.borrow_mut().retain(|x| x != &close_id2);
+                    ttids2.set(tids2.borrow().clone());
+                    if was_active {
+                        atid2.set(None);
+                        *atref2.borrow_mut() = None;
+                        if let Some(ref next) = next_tab {
+                            if next.starts_with("__TERM__") {
+                                atid2.set(Some(next.clone()));
+                                *atref2.borrow_mut() = Some(next.clone());
+                            } else {
+                                aid2.set(Some(next.clone()));
+                                *aid_ref2.borrow_mut() = Some(next.clone());
+                            }
                         }
+                        Timeout::new(50, || {
+                            crate::js_interop::resize_editor();
+                            crate::js_interop::focus_editor();
+                        }).forget();
                     }
-                    // エディタを再表示
-                    Timeout::new(50, || {
-                        crate::js_interop::resize_editor();
-                        crate::js_interop::focus_editor();
-                    }).forget();
-                }
+                }).forget();
                 return;
             }
             // 現在のエディタ内容を反映
@@ -3177,6 +3197,8 @@ pub fn app() -> Html {
     }
 
     let is_split_view = *is_preview_visible && *split_preview_enabled && (*active_terminal_id).is_none();
+    let active_content_id = if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() };
+    let is_content_closing = (*tab_closing_id).is_some() && *tab_closing_id == active_content_id;
     let left_width_style = if is_split_view {
         format!("width: {}%", (*split_ratio * 100.0) as i32)
     } else {
@@ -3225,7 +3247,7 @@ pub fn app() -> Html {
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() }} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} on_reorder={on_tab_reorder_cb} on_drag_end={on_tab_drag_end_cb} on_new_tab={Some({ let cb = on_new_sheet_cb.clone(); Callback::from(move |_| cb.emit(())) })} />
                 // 分割プレビューモード
                 {html! {
-                        <div class="flex-1 flex overflow-hidden bg-gray-900"
+                        <div class={classes!("flex-1", "flex", "overflow-hidden", "bg-gray-900", "transition-opacity", "duration-500", if is_content_closing { "opacity-0" } else { "opacity-100" })}
                              onmousemove={on_container_mousemove.clone()}
                              onmouseup={on_container_mouseup.clone()}>
 

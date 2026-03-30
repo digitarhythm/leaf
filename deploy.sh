@@ -30,7 +30,7 @@ fi
 
 # 2. Sync Frontend Assets (Excluding server configs and dependencies)
 echo "🚚 Syncing frontend assets..."
-rsync -avz --delete \
+rsync -avz --checksum --delete \
     --exclude '.env' \
     --exclude 'server/' \
     --exclude 'node_modules/' \
