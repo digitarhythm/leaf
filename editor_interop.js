@@ -435,24 +435,35 @@ function syncPreviewToLine() {
     }
 
     // ソース行からブロック開始行のリストを構築
+    // 開きフェンス行をブロック開始として扱い、コードブロック内部と閉じフェンスはスキップ
     const blockStarts = [];
     let inCodeBlock = false;
     let prevWasEmpty = true;
 
     for (let i = 0; i < lines.length; i++) {
         const trimmed = lines[i].trim();
-        if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
-            inCodeBlock = !inCodeBlock;
+        if (!inCodeBlock && (trimmed.startsWith('```') || trimmed.startsWith('~~~'))) {
+            // 開きフェンス → ブロック開始として登録してコードブロックへ
+            blockStarts.push(i);
+            prevWasEmpty = false;
+            inCodeBlock = true;
+            continue;
         }
-        if (!inCodeBlock) {
-            if (trimmed === '') {
-                prevWasEmpty = true;
-            } else {
-                if (i === 0 || prevWasEmpty || /^#{1,6}\s/.test(trimmed)) {
-                    blockStarts.push(i);
-                }
-                prevWasEmpty = false;
+        if (inCodeBlock) {
+            // 閉じフェンスでコードブロック終了、それ以外はスキップ
+            if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+                inCodeBlock = false;
+                prevWasEmpty = true; // 閉じフェンス後は次の行を新ブロックとして認識させる
             }
+            continue;
+        }
+        if (trimmed === '') {
+            prevWasEmpty = true;
+        } else {
+            if (i === 0 || prevWasEmpty || /^#{1,6}\s/.test(trimmed)) {
+                blockStarts.push(i);
+            }
+            prevWasEmpty = false;
         }
     }
 
@@ -465,9 +476,24 @@ function syncPreviewToLine() {
         else break;
     }
 
-    // 対応する DOM 要素を取得
+    // 対応する DOM 要素を取得（ブロック数とDOM要素数が異なる場合は比例マッピング）
     const blockEls = contentDiv.children;
-    const targetEl = blockEls[Math.min(blockIdx, blockEls.length - 1)];
+    let domIdx;
+    if (blockStarts.length <= 1 || blockEls.length <= 1) {
+        domIdx = 0;
+    } else if (blockStarts.length === blockEls.length) {
+        domIdx = Math.min(blockIdx, blockEls.length - 1);
+    } else {
+        // Mermaid等の非同期描画でDOM要素数がズレた場合はハイブリッドアプローチ:
+        // ブロック比率とソース行比率を組み合わせてマッピング
+        const blockRatio = blockIdx / (blockStarts.length - 1);
+        const lineRatio = row / Math.max(1, totalRows - 1);
+        // ブロック比率を70%、行比率を30%で混合
+        const blendedRatio = blockRatio * 0.7 + lineRatio * 0.3;
+        domIdx = Math.round(blendedRatio * (blockEls.length - 1));
+        domIdx = Math.min(Math.max(0, domIdx), blockEls.length - 1);
+    }
+    const targetEl = blockEls[domIdx];
     if (!targetEl) return;
 
     // 対象ブロックのコンテナ内上端オフセットを計算
@@ -475,8 +501,8 @@ function syncPreviewToLine() {
                   - previewEl.getBoundingClientRect().top
                   + previewEl.scrollTop;
 
-    // 対象ブロックがプレビューの上から25%の位置に来るようスクロール
-    previewEl.scrollTop = Math.max(0, elTop - previewEl.clientHeight * 0.25);
+    // 対象ブロックがプレビューの縦中央付近に来るようスクロール
+    previewEl.scrollTop = Math.max(0, elTop - previewEl.clientHeight * 0.5);
 }
 
 export function setup_cursor_sync() {
@@ -903,8 +929,12 @@ export function terminal_focus(id) {
 export function init_mermaid(element) {
     if (typeof mermaid === 'undefined') return;
     mermaid.run({
-        nodes: element.querySelectorAll('.language-mermaid')
-    });
+        nodes: element.querySelectorAll('.language-mermaid'),
+        suppressErrors: true,
+    }).then(() => {
+        // Mermaid描画完了後にカーソル同期を再実行（SVGの高さが変わるため）
+        requestAnimationFrame(() => syncPreviewToLine());
+    }).catch(() => {});
 }
 
 export function set_preview_active(active) {
