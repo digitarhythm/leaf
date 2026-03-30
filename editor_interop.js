@@ -411,6 +411,90 @@ export function resize_editor() {
     editor.resize(true);
     editor.renderer.updateFull(true);
 }
+
+let cursorSyncHandler = null;
+let cursorSyncTimer = null;
+
+function syncPreviewToLine() {
+    const previewEl = document.getElementById('split-preview-scroll');
+    if (!previewEl) return;
+
+    const row = editor.getCursorPosition().row;
+    const lines = editor.getValue().split('\n');
+    const totalRows = lines.length;
+    if (totalRows <= 1) return;
+
+    // .markdown-body の直下ブロック要素を取得
+    const contentDiv = previewEl.querySelector('.markdown-body');
+    if (!contentDiv || contentDiv.children.length === 0) {
+        // コードファイルなど非Markdown: 比率ベースにフォールバック
+        const ratio = row / (totalRows - 1);
+        const maxScroll = previewEl.scrollHeight - previewEl.clientHeight;
+        if (maxScroll > 0) previewEl.scrollTop = Math.max(0, ratio * maxScroll - previewEl.clientHeight * 0.25);
+        return;
+    }
+
+    // ソース行からブロック開始行のリストを構築
+    const blockStarts = [];
+    let inCodeBlock = false;
+    let prevWasEmpty = true;
+
+    for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim();
+        if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+            inCodeBlock = !inCodeBlock;
+        }
+        if (!inCodeBlock) {
+            if (trimmed === '') {
+                prevWasEmpty = true;
+            } else {
+                if (i === 0 || prevWasEmpty || /^#{1,6}\s/.test(trimmed)) {
+                    blockStarts.push(i);
+                }
+                prevWasEmpty = false;
+            }
+        }
+    }
+
+    if (blockStarts.length === 0) return;
+
+    // カーソル行が属するブロックインデックスを特定
+    let blockIdx = 0;
+    for (let i = 0; i < blockStarts.length; i++) {
+        if (blockStarts[i] <= row) blockIdx = i;
+        else break;
+    }
+
+    // 対応する DOM 要素を取得
+    const blockEls = contentDiv.children;
+    const targetEl = blockEls[Math.min(blockIdx, blockEls.length - 1)];
+    if (!targetEl) return;
+
+    // 対象ブロックのコンテナ内上端オフセットを計算
+    const elTop = targetEl.getBoundingClientRect().top
+                  - previewEl.getBoundingClientRect().top
+                  + previewEl.scrollTop;
+
+    // 対象ブロックがプレビューの上から25%の位置に来るようスクロール
+    previewEl.scrollTop = Math.max(0, elTop - previewEl.clientHeight * 0.25);
+}
+
+export function setup_cursor_sync() {
+    if (!editor) return;
+    teardown_cursor_sync();
+    cursorSyncHandler = function() {
+        if (cursorSyncTimer) clearTimeout(cursorSyncTimer);
+        cursorSyncTimer = setTimeout(syncPreviewToLine, 50);
+    };
+    editor.session.selection.on('changeCursor', cursorSyncHandler);
+}
+
+export function teardown_cursor_sync() {
+    if (cursorSyncTimer) { clearTimeout(cursorSyncTimer); cursorSyncTimer = null; }
+    if (!editor || !cursorSyncHandler) return;
+    editor.session.selection.off('changeCursor', cursorSyncHandler);
+    cursorSyncHandler = null;
+}
 export function focus_editor() { if (editor) editor.focus(); }
 
 export function get_editor_state() {

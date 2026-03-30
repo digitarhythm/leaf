@@ -12,6 +12,8 @@ extern "C" {
     pub fn get_editor_content() -> JsValue;
     pub fn resize_editor();
     pub fn focus_editor();
+    pub fn setup_cursor_sync();
+    pub fn teardown_cursor_sync();
     pub fn set_gutter_status(mode: &str);
     pub fn generate_uuid() -> String;
     pub fn get_font_size() -> i32;

@@ -4,8 +4,8 @@ use crate::components::status_bar::StatusBar;
 use crate::components::tab_bar::{TabBar, TabInfo, SheetListPanel, ReorderEvent};
 use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameConflictDialog, LoadingOverlay};
 use crate::components::file_open_dialog::FileOpenDialog;
-use crate::components::preview::Preview;
 use crate::components::settings_dialog::{SettingsDialog, EmptySaveBehavior};
+use crate::components::shortcut_help::ShortcutHelp;
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
 use crate::db_interop::{save_sheet, save_categories, JSCategory, JSSheet};
@@ -128,6 +128,7 @@ const EDITOR_THEME_KEY: &str = "leaf_editor_theme";
 const EMPTY_SAVE_KEY: &str = "leaf_empty_save_behavior";
 const WINDOW_OPACITY_KEY: &str = "leaf_window_opacity";
 const WINDOW_BLUR_KEY: &str = "leaf_window_blur";
+const SPLIT_PREVIEW_KEY: &str = "leaf_split_preview";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -179,6 +180,8 @@ struct InlinePreviewProps {
     pub font_size: i32,
     #[prop_or_default]
     pub initial_scroll_top: f64,
+    #[prop_or_default]
+    pub is_split: bool,
 }
 
 #[function_component(InlinePreview)]
@@ -260,8 +263,14 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
         });
     }
 
+    let container_class = if props.is_split {
+        "h-full w-full overflow-y-auto bg-[#1a1b26]"
+    } else {
+        "absolute inset-0 z-20 overflow-y-auto bg-[#1a1b26]"
+    };
+    let container_id = if props.is_split { "split-preview-scroll" } else { "" };
     html! {
-        <div ref={scroll_ref} class="absolute inset-0 z-20 overflow-y-auto bg-[#1a1b26]">
+        <div ref={scroll_ref} id={container_id} class={container_class}>
             // ローディング表示
             <div class={classes!("absolute", "inset-0", "flex", "items-center", "justify-center", if loading { "" } else { "hidden" })}>
                 <div class="flex flex-col items-center">
@@ -531,6 +540,14 @@ pub fn app() -> Html {
     });
     let is_preview_visible = use_state(|| false);
     let is_preview_fading_out = use_state(|| false);
+    let split_preview_enabled = use_state(|| {
+        get_account_storage(SPLIT_PREVIEW_KEY)
+            .map(|v| v == "true")
+            .unwrap_or(false)
+    });
+    let split_ratio = use_state(|| 0.5f64);
+    let split_ratio_ref = use_mut_ref(|| 0.5f64);
+    let is_splitter_dragging = use_mut_ref(|| false);
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
@@ -2283,8 +2300,9 @@ pub fn app() -> Html {
                 let pending_close_unsynced_tab_ev = pending_close_unsynced_tab.clone();
                 let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
-                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
+                let split_preview_ev = split_preview_enabled.clone();
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *split_preview_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
+                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_split_preview), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
@@ -2361,8 +2379,83 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        // Markdownモード中のキー操作（スクロール等）
-                        if _preview && !is_overlay_active {
+                        // Alt + [ / ] : タブ切り替え（全画面プレビューモード含む全モードで有効）
+                        if modifier_active && (code == "BracketLeft" || code == "BracketRight") && !is_overlay_active {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            let is_bracket_left = code == "BracketLeft";
+                            let current_sheets = (*rs_c.borrow()).clone();
+                            let all_tab_ids: Vec<String> = tab_order_ref_c.borrow().clone();
+                            if all_tab_ids.len() <= 1 { return; }
+                            let current_id = if let Some(ref tid) = *atref_c.borrow() {
+                                tid.clone()
+                            } else if let Some(ref sid) = *aid_ref_c.borrow() {
+                                sid.clone()
+                            } else { return; };
+                            if let Some(cur_idx) = all_tab_ids.iter().position(|id| *id == current_id) {
+                                let new_idx = if is_bracket_left {
+                                    if cur_idx == 0 { all_tab_ids.len() - 1 } else { cur_idx - 1 }
+                                } else {
+                                    if cur_idx == all_tab_ids.len() - 1 { 0 } else { cur_idx + 1 }
+                                };
+                                let new_id = all_tab_ids[new_idx].clone();
+                                if new_id == current_id { return; }
+                                if new_id.starts_with("__TERM__") {
+                                    atid_c.set(Some(new_id));
+                                } else {
+                                    atid_c.set(None);
+                                    if !current_id.starts_with("__TERM__") {
+                                        sp_c.set(true);
+                                        let editor_state = crate::js_interop::get_editor_state();
+                                        let preview_scroll = web_sys::window()
+                                            .and_then(|w| w.document())
+                                            .and_then(|d| d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten())
+                                            .map(|el| el.scroll_top() as f64)
+                                            .unwrap_or(0.0);
+                                        let cur_c_val = get_editor_content();
+                                        if let Some(cur_c) = cur_c_val.as_string() {
+                                            let mut us = current_sheets.clone();
+                                            if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
+                                                sheet.editor_state = Some(editor_state);
+                                                sheet.preview_scroll_top = preview_scroll;
+                                                if sheet.content != cur_c {
+                                                    sheet.content = cur_c.clone();
+                                                    if sheet.drive_id.is_some() || sheet.guid.is_some() { sheet.is_modified = true; }
+                                                }
+                                                if sheet.is_modified {
+                                                    sheet.temp_content = Some(sheet.content.clone());
+                                                    sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
+                                                    let js = sheet.to_js();
+                                                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                                    if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
+                                                }
+                                            }
+                                            *rs_c.borrow_mut() = us.clone();
+                                            sheets_c.set(us);
+                                        }
+                                    }
+                                    let sheets_list = (*rs_c.borrow()).clone();
+                                    if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
+                                        crate::js_interop::load_editor_content_raw(&sheet.content);
+                                        if let Some(ref state) = sheet.editor_state {
+                                            crate::js_interop::set_editor_state(state);
+                                        }
+                                        crate::js_interop::set_editor_mode(&sheet.title);
+                                        if sheet.drive_id.is_none() && sheet.guid.is_none() {
+                                            if sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
+                                        } else if sheet.is_modified { set_gutter_status("unsaved"); } else { set_gutter_status("none"); }
+                                        is_preview_c.set(sheet.is_preview);
+                                    }
+                                    aid_c.set(Some(new_id.clone()));
+                                    *aid_ref_c.borrow_mut() = Some(new_id);
+                                    let sp_inner = sp_c.clone();
+                                    Timeout::new(100, move || { sp_inner.set(false); focus_editor(); }).forget();
+                                }
+                            }
+                            return;
+                        }
+
+                        // Markdownモード中のキー操作（全画面プレビューのみ・分割モードは除く）
+                        if _preview && !is_split_preview && !is_overlay_active {
                             // ESCで編集モードに戻る
                             if key == "Escape" {
                                 e.prevent_default(); e.stop_immediate_propagation();
@@ -2508,87 +2601,6 @@ pub fn app() -> Html {
                                     }
                                 }
                                 crate::js_interop::exec_editor_command("newSheet");
-                                return;
-                            }
-                            // Alt + [ / ] : タブ切り替え（ループ、シート+ターミナル統合）
-                            let is_bracket_left = code == "BracketLeft";
-                            let is_bracket_right = code == "BracketRight";
-                            if is_bracket_left || is_bracket_right {
-                                e.prevent_default(); e.stop_immediate_propagation();
-                                // 表示順のタブIDリスト（tab_order_refの順序を使用）
-                                let current_sheets = (*rs_c.borrow()).clone();
-                                let all_tab_ids: Vec<String> = tab_order_ref_c.borrow().clone();
-                                if all_tab_ids.len() <= 1 { return; }
-                                // 現在のアクティブタブID（RefCellから最新値を取得）
-                                let current_id = if let Some(ref tid) = *atref_c.borrow() {
-                                    tid.clone()
-                                } else if let Some(ref sid) = *aid_ref_c.borrow() {
-                                    sid.clone()
-                                } else { return; };
-                                if let Some(cur_idx) = all_tab_ids.iter().position(|id| *id == current_id) {
-                                    let new_idx = if is_bracket_left {
-                                        if cur_idx == 0 { all_tab_ids.len() - 1 } else { cur_idx - 1 }
-                                    } else {
-                                        if cur_idx == all_tab_ids.len() - 1 { 0 } else { cur_idx + 1 }
-                                    };
-                                    let new_id = all_tab_ids[new_idx].clone();
-                                    if new_id == current_id { return; }
-                                    if new_id.starts_with("__TERM__") {
-                                        // ターミナルタブへ切り替え
-                                        atid_c.set(Some(new_id));
-                                    } else {
-                                        // シートタブへ切り替え
-                                        atid_c.set(None);
-                                        // 現在のシートの状態を保存
-                                        if !current_id.starts_with("__TERM__") {
-                                            sp_c.set(true);
-                                            let editor_state = crate::js_interop::get_editor_state();
-                                            let preview_scroll = web_sys::window()
-                                                .and_then(|w| w.document())
-                                                .and_then(|d| d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten())
-                                                .map(|el| el.scroll_top() as f64)
-                                                .unwrap_or(0.0);
-                                            let cur_c_val = get_editor_content();
-                                            if let Some(cur_c) = cur_c_val.as_string() {
-                                                let mut us = current_sheets.clone();
-                                                if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
-                                                    sheet.editor_state = Some(editor_state);
-                                                    sheet.preview_scroll_top = preview_scroll;
-                                                    if sheet.content != cur_c {
-                                                        sheet.content = cur_c.clone();
-                                                        if sheet.drive_id.is_some() || sheet.guid.is_some() { sheet.is_modified = true; }
-                                                    }
-                                                    if sheet.is_modified {
-                                                        sheet.temp_content = Some(sheet.content.clone());
-                                                        sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
-                                                        let js = sheet.to_js();
-                                                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                                                        if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
-                                                    }
-                                                }
-                                                *rs_c.borrow_mut() = us.clone();
-                                                sheets_c.set(us);
-                                            }
-                                        }
-                                        // 新シートの内容をロード
-                                        let sheets_list = (*rs_c.borrow()).clone();
-                                        if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
-                                            crate::js_interop::load_editor_content_raw(&sheet.content);
-                                            if let Some(ref state) = sheet.editor_state {
-                                                crate::js_interop::set_editor_state(state);
-                                            }
-                                            crate::js_interop::set_editor_mode(&sheet.title);
-                                            if sheet.drive_id.is_none() && sheet.guid.is_none() {
-                                                if sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
-                                            } else if sheet.is_modified { set_gutter_status("unsaved"); } else { set_gutter_status("none"); }
-                                            is_preview_c.set(sheet.is_preview);
-                                        }
-                                        aid_c.set(Some(new_id.clone()));
-                                        *aid_ref_c.borrow_mut() = Some(new_id);
-                                        let sp_inner = sp_c.clone();
-                                        Timeout::new(100, move || { sp_inner.set(false); focus_editor(); }).forget();
-                                    }
-                                }
                                 return;
                             }
                             // Alt + W : タブを閉じる
@@ -3104,6 +3116,74 @@ pub fn app() -> Html {
         });
     }
 
+    // スプリッタードラッグコールバック
+    let on_splitter_mousedown = {
+        let is_dragging = is_splitter_dragging.clone();
+        Callback::from(move |e: MouseEvent| {
+            e.prevent_default();
+            *is_dragging.borrow_mut() = true;
+        })
+    };
+
+    let on_container_mousemove = {
+        let is_dragging = is_splitter_dragging.clone();
+        let ratio = split_ratio.clone();
+        let ratio_ref = split_ratio_ref.clone();
+        Callback::from(move |e: MouseEvent| {
+            if !*is_dragging.borrow() { return; }
+            let target = e.current_target().and_then(|t| t.dyn_into::<web_sys::Element>().ok());
+            if let Some(el) = target {
+                let rect = el.get_bounding_client_rect();
+                let x = e.client_x() as f64;
+                let new_ratio = ((x - rect.left()) / rect.width()).clamp(0.25, 0.75);
+                if (*ratio_ref.borrow() - new_ratio).abs() > 0.002 {
+                    *ratio_ref.borrow_mut() = new_ratio;
+                    ratio.set(new_ratio);
+                }
+            }
+        })
+    };
+
+    let on_container_mouseup = {
+        let is_dragging = is_splitter_dragging.clone();
+        Callback::from(move |_: MouseEvent| {
+            *is_dragging.borrow_mut() = false;
+        })
+    };
+
+    // 分割比率変更時にエディタをリサイズ
+    {
+        let ratio_i = (*split_ratio * 1000.0) as i32;
+        let is_split_i = *is_preview_visible && *split_preview_enabled;
+        use_effect_with((ratio_i, is_split_i), move |_| {
+            crate::js_interop::resize_editor();
+            || ()
+        });
+    }
+
+    // スプリットプレビュー有効時にカーソル同期を設定
+    {
+        let is_split_i = *is_preview_visible && *split_preview_enabled;
+        use_effect_with(is_split_i, move |&is_split| {
+            if is_split {
+                crate::js_interop::setup_cursor_sync();
+            } else {
+                crate::js_interop::teardown_cursor_sync();
+            }
+            move || {
+                crate::js_interop::teardown_cursor_sync();
+            }
+        });
+    }
+
+    let is_split_view = *is_preview_visible && *split_preview_enabled;
+    let left_width_style = if is_split_view {
+        format!("width: {}%", (*split_ratio * 100.0) as i32)
+    } else {
+        "width: 100%".to_string()
+    };
+    let preview_scroll = active_sheet_id.as_ref().and_then(|id| sheets_ref.borrow().iter().find(|s| s.id == *id).map(|s| s.preview_scroll_top)).unwrap_or(0.0);
+
     let inline_preview_content = if *is_preview_visible {
         let aid = (*active_sheet_id).clone();
         if let Some(id) = aid {
@@ -3112,6 +3192,24 @@ pub fn app() -> Html {
             })
         } else { "".to_string() }
     } else { "".to_string() };
+
+    let help_html: Html = if *is_help_visible {
+        let ih = is_help_visible.clone();
+        let on_install: Option<Callback<()>> = if !crate::js_interop::is_tauri() {
+            let is_conf = is_install_confirm_visible.clone();
+            let is_man = is_install_manual_visible.clone();
+            let ih_for_install = ih.clone();
+            Some(Callback::from(move |_: ()| { ih_for_install.set(false); if crate::js_interop::can_install_pwa() { is_conf.set(true); } else { is_man.set(true); } }))
+        } else { None };
+        html! {
+            <div class="pointer-events-auto">
+                <ShortcutHelp
+                    on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })}
+                    on_install={on_install}
+                />
+            </div>
+        }
+    } else { html! {} };
 
     html! {
         <div id="app-root" class="relative h-screen w-screen overflow-hidden bg-gray-950" key="app-root">
@@ -3125,29 +3223,51 @@ pub fn app() -> Html {
                                     on_change_category={on_change_category_cb} 
                                     on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_open_settings={let sv = is_settings_visible.clone(); Callback::from(move |_| sv.set(true))} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} />
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() }} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} on_reorder={on_tab_reorder_cb} on_drag_end={on_tab_drag_end_cb} on_new_tab={Some({ let cb = on_new_sheet_cb.clone(); Callback::from(move |_| cb.emit(())) })} />
-                <div class="flex-1 relative overflow-hidden bg-gray-900">
-                    // エディタ本体（常に表示、プレビュー時はレンダリングが上に重なる）
-                    <div id="editor" key="ace-editor-fixed-node" class="absolute inset-0 z-10 bg-transparent" style="width: 100%; height: 100%;"></div>
+                // 分割プレビューモード
+                {html! {
+                        <div class="flex-1 flex overflow-hidden bg-gray-900"
+                             onmousemove={on_container_mousemove.clone()}
+                             onmouseup={on_container_mouseup.clone()}>
 
-                    // Markdownレンダリング表示（インライン）
-                    if *is_preview_visible {
-                        <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={active_sheet_id.as_ref().and_then(|id| sheets_ref.borrow().iter().find(|s| s.id == *id).map(|s| s.preview_scroll_top)).unwrap_or(0.0)} />
+                            // 左ペイン: エディタ（常に表示）
+                            <div class="relative overflow-hidden" style={left_width_style.clone()}>
+                                // エディタ本体
+                                <div id="editor" key="ace-editor-fixed-node" class="absolute inset-0 z-10 bg-transparent" style="width: 100%; height: 100%;"></div>
+
+                                // オーバーレイプレビュー（非分割モード時のみ）
+                                if !is_split_view && *is_preview_visible {
+                                    <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=false />
+                                }
+
+                                // ターミナル（Tauri版のみ）
+                                if crate::js_interop::is_tauri() {
+                                    <div id="terminal-area" key="terminal-area-fixed" class={classes!("absolute", "inset-0", "z-30", "bg-[#1d2021]", if (*active_terminal_id).is_some() { "" } else { "hidden" })}></div>
+                                }
+
+                                // フォールバック表示
+                                <div class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 bg-gray-900 z-0">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-12 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                    </svg>
+                                    <p class="text-sm font-bold uppercase tracking-widest opacity-40">{ "Editor not loaded (Offline)" }</p>
+                                    <p class="text-[10px] mt-2 opacity-30">{ "Please reconnect to the internet to initialize the editor." }</p>
+                                </div>
+                            </div>
+
+                            // 分割バーと右ペイン（分割モード時のみ）
+                            if is_split_view {
+                                // 分割バー
+                                <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
+                                     onmousedown={on_splitter_mousedown.clone()} />
+
+                                // 右ペイン: プレビュー
+                                <div class="flex-1 overflow-hidden">
+                                    <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=true />
+                                </div>
+                            }
+                        </div>
                     }
-
-                    // ターミナル（Tauri版のみ、固定コンテナ1つ）
-                    if crate::js_interop::is_tauri() {
-                        <div id="terminal-area" key="terminal-area-fixed" class={classes!("absolute", "inset-0", "z-30", "bg-[#1d2021]", if (*active_terminal_id).is_some() { "" } else { "hidden" })}></div>
-                    }
-
-                    // フォールバック表示（エディタがロードできなかった場合用）
-                    <div class="absolute inset-0 flex flex-col items-center justify-center text-gray-600 bg-gray-900 z-0">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-12 mb-4 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <p class="text-sm font-bold uppercase tracking-widest opacity-40">{ "Editor not loaded (Offline)" }</p>
-                        <p class="text-[10px] mt-2 opacity-30">{ "Please reconnect to the internet to initialize the editor." }</p>
-                    </div>
-                </div>
+                }
                                 <StatusBar 
                                     key="bottom-status-bar" 
                                     network_status={*network_connected} 
@@ -3222,17 +3342,7 @@ pub fn app() -> Html {
                         </div>
                     }
                 }
-                if let Some(help_preview) = if *is_help_visible {
-                    let ih = is_help_visible.clone();
-                    let c = i18n::t("help_shortcuts", lang);
-                    let on_install = if !crate::js_interop::is_tauri() {
-                        let is_conf = is_install_confirm_visible.clone();
-                        let is_man = is_install_manual_visible.clone();
-                        let ih_for_install = ih.clone();
-                        Some(Callback::from(move |_: ()| { ih_for_install.set(false); if crate::js_interop::can_install_pwa() { is_conf.set(true); } else { is_man.set(true); } }))
-                    } else { None };
-                    Some(html! { <Preview content={c} lang={"md".to_string()} on_close={Callback::from(move |_| { ih.set(false); focus_editor(); })} on_install={on_install} is_help={true} is_sub_dialog_open={is_sub_overlay_active} font_size={*preview_font_size} on_change_font_size={on_change_font_size.clone()} /> })
-                } else { None } { <div class="pointer-events-auto">{ help_preview }</div> }
+                { help_html }
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if *is_install_manual_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_manual_title", lang)} message={i18n::t("install_manual_message", lang)} ok_label={i18n::t("ok", lang)} on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)} on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)} /></div> }
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category { let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang); let pending = pending_delete_category.clone(); let on_cfm = on_delete_category_cfm.clone(); Some(html! { <ConfirmDialog title={title} message={message} on_confirm={move |_| { on_cfm.emit(1); }} on_cancel={move |_| { pending.set(None); }} /> }) } else { None } { <div class="pointer-events-auto">{ del_diag }</div> }
@@ -3281,6 +3391,15 @@ pub fn app() -> Html {
                         <SettingsDialog
                             vim_mode={*vim_mode}
                             on_toggle_vim={on_toggle_vim}
+                            split_preview_enabled={*split_preview_enabled}
+                            on_toggle_split_preview={{
+                                let sp = split_preview_enabled.clone();
+                                Callback::from(move |_| {
+                                    let new_val = !*sp;
+                                    set_account_storage(SPLIT_PREVIEW_KEY, if new_val { "true" } else { "false" });
+                                    sp.set(new_val);
+                                })
+                            }}
                             current_theme={(*editor_theme).clone()}
                             on_change_theme={let et = editor_theme.clone(); Callback::from(move |theme: String| {
                                 crate::js_interop::set_editor_theme(&theme);
