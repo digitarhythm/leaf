@@ -298,6 +298,9 @@ fn close_tab_direct(
     sp: UseStateHandle<bool>,
     ncid: UseStateHandle<Option<String>>,
     aid_ref: Option<Rc<RefCell<Option<String>>>>,
+    tab_order: Vec<String>,
+    atid_handle: Option<UseStateHandle<Option<String>>>,
+    atref_handle: Option<Rc<RefCell<Option<String>>>>,
 ) {
     sp.set(true);
     let mut us = (*rs.borrow()).clone();
@@ -321,6 +324,8 @@ fn close_tab_direct(
             s_state.set(us);
             aid.set(Some(nid.clone()));
             if let Some(ref r) = aid_ref { *r.borrow_mut() = Some(nid.clone()); }
+            if let Some(ref h) = atid_handle { h.set(None); }
+            if let Some(ref h) = atref_handle { *h.borrow_mut() = None; }
             load_editor_content("");
             set_gutter_status("unsaved");
             let sp_inner = sp.clone();
@@ -331,7 +336,6 @@ fn close_tab_direct(
                 if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
             });
         } else {
-            // 閉じたタブがアクティブだった場合、隣接タブに切り替え（左優先）
             // RefCellから最新のactive_idを取得（UseStateHandleはstaleの可能性がある）
             let was_active = if let Some(ref r) = aid_ref {
                 r.borrow().as_ref() == Some(&close_id)
@@ -342,23 +346,59 @@ fn close_tab_direct(
             s_state.set(us.clone());
 
             if was_active {
-                let new_idx = if pos > 0 { pos - 1 } else { 0 };
-                let new_sheet = &us[new_idx];
-                let new_id = new_sheet.id.clone();
-                load_editor_content(&new_sheet.content);
-                crate::js_interop::set_editor_mode(&new_sheet.title);
-                if new_sheet.drive_id.is_none() && new_sheet.guid.is_none() {
-                    if new_sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
-                } else if new_sheet.is_modified {
-                    set_gutter_status("unsaved");
+                // tab_orderから左隣を取得（ターミナルも含む表示順）
+                let order_idx = tab_order.iter().position(|x| x == &close_id);
+                let next_id = order_idx.and_then(|i| {
+                    if i > 0 { tab_order.get(i - 1).cloned() }
+                    else { tab_order.get(i + 1).cloned() }
+                }).or_else(|| {
+                    let new_idx = if pos > 0 { pos - 1 } else { 0 };
+                    us.get(new_idx).map(|s| s.id.clone())
+                });
+
+                let focus_terminal_id: Option<String> = if let Some(ref next) = next_id {
+                    if next.starts_with("__TERM__") {
+                        // ターミナルをアクティブに
+                        if let Some(ref h) = atid_handle { h.set(Some(next.clone())); }
+                        if let Some(ref h) = atref_handle { *h.borrow_mut() = Some(next.clone()); }
+                        Some(next.clone())
+                    } else {
+                        // シートをアクティブに
+                        if let Some(ref h) = atid_handle { h.set(None); }
+                        if let Some(ref h) = atref_handle { *h.borrow_mut() = None; }
+                        if let Some(sheet) = us.iter().find(|s| s.id == *next) {
+                            load_editor_content(&sheet.content);
+                            crate::js_interop::set_editor_mode(&sheet.title);
+                            if sheet.drive_id.is_none() && sheet.guid.is_none() {
+                                if sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
+                            } else if sheet.is_modified {
+                                set_gutter_status("unsaved");
+                            } else {
+                                set_gutter_status("none");
+                            }
+                        }
+                        aid.set(Some(next.clone()));
+                        if let Some(ref r) = aid_ref { *r.borrow_mut() = Some(next.clone()); }
+                        None
+                    }
                 } else {
-                    set_gutter_status("none");
-                }
-                aid.set(Some(new_id.clone()));
-                if let Some(ref r) = aid_ref { *r.borrow_mut() = Some(new_id); }
+                    None
+                };
+
+                let sp_inner = sp.clone();
+                Timeout::new(100, move || {
+                    sp_inner.set(false);
+                    if let Some(ref tid) = focus_terminal_id {
+                        crate::js_interop::terminal_focus(tid);
+                    } else {
+                        focus_editor();
+                    }
+                }).forget();
+            } else {
+                // 非アクティブタブを閉じた場合: アクティブタブは変更しない
+                let sp_inner = sp.clone();
+                Timeout::new(100, move || { sp_inner.set(false); focus_editor(); }).forget();
             }
-            let sp_inner = sp.clone();
-            Timeout::new(100, move || { sp_inner.set(false); focus_editor(); }).forget();
         }
 
         // IndexedDBから削除
@@ -1185,6 +1225,8 @@ pub fn app() -> Html {
         let is_ld = is_loading.clone();
         let lmk = loading_message_key.clone();
         let ifo = is_fading_out.clone();
+        let atid_new = active_terminal_id.clone();
+        let atref_new = active_terminal_ref.clone();
         Callback::from(move |_| {
             if *is_creating { return; } // 作成中の連打を防止
 
@@ -1233,6 +1275,8 @@ pub fn app() -> Html {
             let is_ld_inner = is_loading_handle.clone();
             let ifo_inner = ifo_handle.clone();
             let is_creating_inner = is_creating_handle.clone();
+            let atid_new_inner = atid_new.clone();
+            let atref_new_inner = atref_new.clone();
             Timeout::new(delay, move || {
                 clear_local_handle();
                 let nid = js_sys::Date::now().to_string();
@@ -1244,6 +1288,9 @@ pub fn app() -> Html {
                 current_sheets.push(ns.clone());
                 *rs.borrow_mut() = current_sheets.clone();
                 s.set(current_sheets);
+                // ターミナルをクリアして新規シートをアクティブに
+                atid_new_inner.set(None);
+                *atref_new_inner.borrow_mut() = None;
                 aid.set(Some(nid.clone()));
                 
                 focus_editor(); 
@@ -2233,12 +2280,15 @@ pub fn app() -> Html {
         let sp = is_suppressing_changes.clone();
         let ncid = no_category_folder_id.clone();
         let aid_ref = active_id_ref.clone();
+        let to = tab_order_ref.clone();
+        let atid = active_terminal_id.clone();
+        let atref = active_terminal_ref.clone();
         use_effect_with(((*saving).clone(), (*psc).clone()), move |deps| {
             let (saving_val, psc_val) = deps;
             if saving_val.is_none() {
                 if let Some(close_id) = psc_val.clone() {
                     psc.set(None);
-                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()));
+                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
                 }
             }
             || ()
@@ -2651,9 +2701,10 @@ pub fn app() -> Html {
                                     tci_c.set(Some(close_id.clone()));
                                     let tci2 = tci_c.clone();
                                     let rs2 = rs_c.clone(); let sc2 = sheets_c.clone(); let ac2 = aid_c.clone(); let sp2 = sp_c.clone(); let nc2 = ncid_c.clone(); let ar2 = aid_ref_c.clone();
+                                    let to2 = tab_order_ref_c.clone(); let atid2 = atid_c.clone(); let atref2 = atref_c.clone();
                                     Timeout::new(100, move || {
                                         tci2.set(None);
-                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2));
+                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), to2.borrow().clone(), Some(atid2.clone()), Some(atref2.clone()));
                                     }).forget();
                                 }
                                 return;
@@ -2947,7 +2998,7 @@ pub fn app() -> Html {
                 }
             }
             // 未保存でなければ直接閉じる
-            close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()));
+            close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to_ref_close.borrow().clone(), Some(atid_close.clone()), Some(atref_close.clone()));
         })
     };
 
@@ -2959,10 +3010,13 @@ pub fn app() -> Html {
         let aid_ref = active_id_ref.clone();
         let sp = is_suppressing_changes.clone();
         let ncid = no_category_folder_id.clone();
+        let to = tab_order_ref.clone();
+        let atid = active_terminal_id.clone();
+        let atref = active_terminal_ref.clone();
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()));
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
             }
         })
     };
@@ -2975,10 +3029,13 @@ pub fn app() -> Html {
         let aid_ref = active_id_ref.clone();
         let sp = is_suppressing_changes.clone();
         let ncid = no_category_folder_id.clone();
+        let to = tab_order_ref.clone();
+        let atid = active_terminal_id.clone();
+        let atref = active_terminal_ref.clone();
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()));
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
             }
         })
     };
@@ -3403,10 +3460,10 @@ pub fn app() -> Html {
                     <div class="pointer-events-auto"><ConfirmDialog
                         title={i18n::t("delete", lang)}
                         message={i18n::t("confirm_delete_empty", lang)}
-                        on_confirm={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); Callback::from(move |_| {
+                        on_confirm={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); Callback::from(move |_| {
                             if let Some(sheet_id) = (*ped).clone() {
                                 ped.set(None);
-                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()));
+                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
                             }
                         })}
                         on_cancel={let ped = pending_empty_delete.clone(); Callback::from(move |_| ped.set(None))}

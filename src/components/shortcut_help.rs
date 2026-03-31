@@ -179,6 +179,11 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
                         { link_privacy }
                         { link_licenses }
                     </div>
+                    // バージョン・メールアドレス
+                    <div class="flex items-center justify-between text-[11px] text-gray-600 font-mono tracking-widest">
+                        <span>{ format!("ver {}", env!("CARGO_PKG_VERSION")) }</span>
+                        <span>{ crate::auth_interop::get_user_email().as_string().unwrap_or_default() }</span>
+                    </div>
                 </div>
             </div>
         </div>
