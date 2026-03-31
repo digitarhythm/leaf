@@ -36,9 +36,11 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
 
                 <span class="mobile:hidden flex items-center space-x-2 border-l border-gray-700 ml-2 pl-2 py-0.5 font-mono">
                     if props.is_terminal_active {
-                        // ターミナルアクティブ時: コンピュータアイコン＋「ターミナル」
+                        // ターミナルアクティブ時: モニター＋キーボードアイコン＋「ターミナル」
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5 text-emerald-400">
-                            <path fill-rule="evenodd" d="M2.25 6a3 3 0 013-3h13.5a3 3 0 013 3v12a3 3 0 01-3 3H5.25a3 3 0 01-3-3V6zm3.97.97a.75.75 0 011.06 0l2.25 2.25a.75.75 0 010 1.06l-2.25 2.25a.75.75 0 01-1.06-1.06l1.72-1.72-1.72-1.72a.75.75 0 010-1.06zm4.28 4.28a.75.75 0 000 1.5h3a.75.75 0 000-1.5h-3z" clip-rule="evenodd" />
+                            <path fill-rule="evenodd" d="M1.5 1A1.5 1.5 0 000 2.5v10A1.5 1.5 0 001.5 14h21A1.5 1.5 0 0024 12.5v-10A1.5 1.5 0 0022.5 1h-21zM2 3h20v9H2V3z" clip-rule="evenodd"/>
+                            <path d="M10 14.5h4V17h-4z"/>
+                            <rect x="0.5" y="18" width="23" height="5.5" rx="1"/>
                         </svg>
                         <span class="text-emerald-400 font-medium">{ i18n::t("terminal", lang) }</span>
                     } else if !props.file_name.is_empty() {
