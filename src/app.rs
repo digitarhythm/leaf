@@ -3383,6 +3383,7 @@ pub fn app() -> Html {
                                         })
                                     }) } else { None }}
                                     is_terminal_open={(*active_terminal_id).is_some()}
+                                    is_terminal_active={(*active_terminal_id).is_some()}
                                     category_name={current_cat_name}
                                     file_name={current_file_name}
                                 />

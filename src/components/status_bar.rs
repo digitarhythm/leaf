@@ -10,6 +10,8 @@ pub struct StatusBarProps {
     pub on_toggle_terminal: Option<Callback<()>>,
     #[prop_or_default]
     pub is_terminal_open: bool,
+    #[prop_or_default]
+    pub is_terminal_active: bool,
     pub category_name: String,
     pub file_name: String,
 }
@@ -32,8 +34,14 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                 </div>
                 
 
-                if !props.file_name.is_empty() {
-                    <span class="mobile:hidden flex items-center space-x-2 border-l border-gray-700 ml-2 pl-2 py-0.5 font-mono">
+                <span class="mobile:hidden flex items-center space-x-2 border-l border-gray-700 ml-2 pl-2 py-0.5 font-mono">
+                    if props.is_terminal_active {
+                        // ターミナルアクティブ時: コンピュータアイコン＋「ターミナル」
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5 text-emerald-400">
+                            <path fill-rule="evenodd" d="M2.25 6a3 3 0 013-3h13.5a3 3 0 013 3v12a3 3 0 01-3 3H5.25a3 3 0 01-3-3V6zm3.97.97a.75.75 0 011.06 0l2.25 2.25a.75.75 0 010 1.06l-2.25 2.25a.75.75 0 01-1.06-1.06l1.72-1.72-1.72-1.72a.75.75 0 010-1.06zm4.28 4.28a.75.75 0 000 1.5h3a.75.75 0 000-1.5h-3z" clip-rule="evenodd" />
+                        </svg>
+                        <span class="text-emerald-400 font-medium">{ i18n::t("terminal", lang) }</span>
+                    } else if !props.file_name.is_empty() {
                         if props.category_name.is_empty() || props.category_name == "__LOCAL__" {
                             if props.category_name.is_empty() && props.file_name == "----" {
                                 // 未保存新規シートアイコン (Red X circle)
@@ -63,8 +71,8 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                             </svg>
                             <span class="text-gray-300 font-medium">{ &props.file_name }</span>
                         }
-                    </span>
-                }
+                    }
+                </span>
             </div>
             
             <div class="flex items-center space-x-6 mobile:space-x-0 mobile:justify-center mobile:pt-1 mobile:w-full mobile:text-[10px]">
