@@ -761,11 +761,11 @@ function ensureGlobalListeners() {
             inst.terminal.write('\r\n[Process exited]\r\n');
             // フェードアウト後にタブを閉じる
             if (inst.wrapper) {
-                inst.wrapper.style.transition = 'opacity 0.5s ease-out';
+                inst.wrapper.style.transition = 'opacity 0.1s ease-out';
                 inst.wrapper.style.opacity = '0';
                 setTimeout(() => {
                     window.dispatchEvent(new CustomEvent('terminal-exit', { detail: { id } }));
-                }, 600);
+                }, 150);
             } else {
                 window.dispatchEvent(new CustomEvent('terminal-exit', { detail: { id } }));
             }
