@@ -590,6 +590,7 @@ pub fn app() -> Html {
     let split_ratio_ref = use_mut_ref(|| 0.5f64);
     let is_splitter_dragging = use_mut_ref(|| false);
     let terminal_split_enabled = use_state(|| false);
+    let terminal_split_ref = use_mut_ref(|| false);
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
@@ -2361,6 +2362,7 @@ pub fn app() -> Html {
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
                 let split_preview_ev = split_preview_enabled.clone();
                 let terminal_split_ev = terminal_split_enabled.clone();
+                let terminal_split_ref_ev = terminal_split_ref.clone();
                 let tci_ev = tab_closing_id.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *split_preview_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_split_preview), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
@@ -2395,6 +2397,7 @@ pub fn app() -> Html {
                     let nc_c = nc_ev.clone();
                     let pending_save_close_c = pending_save_close_tab_ev.clone();
                     let terminal_split_c = terminal_split_ev.clone();
+                    let terminal_split_ref_c = terminal_split_ref_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -2427,7 +2430,9 @@ pub fn app() -> Html {
                             // ターミナルがアクティブな場合: ターミナルスプリット切り替え
                             if atref_c.borrow().is_some() {
                                 if aid_ref_c.borrow().is_some() {
-                                    terminal_split_c.set(!*terminal_split_c);
+                                    let new_val = !*terminal_split_ref_c.borrow();
+                                    *terminal_split_ref_c.borrow_mut() = new_val;
+                                    terminal_split_c.set(new_val);
                                 }
                                 return;
                             }
@@ -3139,6 +3144,8 @@ pub fn app() -> Html {
         let to_ref_exit = tab_order_ref.clone();
         let aid_exit = active_sheet_id.clone();
         let aid_ref_exit = active_id_ref.clone();
+        let terminal_split_ref_exit = terminal_split_ref.clone();
+        let terminal_split_exit = terminal_split_enabled.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let listener = EventListener::new(&window, "terminal-exit", move |e| {
@@ -3161,6 +3168,9 @@ pub fn app() -> Html {
                     if was_active {
                         atid_exit.set(None);
                         *atref_exit.borrow_mut() = None;
+                        // ターミナルスプリットもリセット
+                        *terminal_split_ref_exit.borrow_mut() = false;
+                        terminal_split_exit.set(false);
                         if let Some(ref next) = next_tab {
                             if next.starts_with("__TERM__") {
                                 atid_exit.set(Some(next.clone()));
