@@ -2647,11 +2647,11 @@ pub fn app() -> Html {
                                             return;
                                         }
                                     }
-                                    // 1秒フェードアウト後に閉じる
+                                    // フェードアウト後に閉じる
                                     tci_c.set(Some(close_id.clone()));
                                     let tci2 = tci_c.clone();
                                     let rs2 = rs_c.clone(); let sc2 = sheets_c.clone(); let ac2 = aid_c.clone(); let sp2 = sp_c.clone(); let nc2 = ncid_c.clone(); let ar2 = aid_ref_c.clone();
-                                    Timeout::new(500, move || {
+                                    Timeout::new(100, move || {
                                         tci2.set(None);
                                         close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2));
                                     }).forget();
@@ -2885,7 +2885,7 @@ pub fn app() -> Html {
                         if i > 0 { order.get(i - 1).cloned() } else { order.get(i + 1).cloned() }
                     })
                 } else { None };
-                // 1秒フェードアウト後にターミナルを閉じる
+                // フェードアウト後にターミナルを閉じる
                 tci_close.set(Some(close_id.clone()));
                 let tci2 = tci_close.clone();
                 let close_id2 = close_id.clone();
@@ -2895,7 +2895,7 @@ pub fn app() -> Html {
                 let atref2 = atref_close.clone();
                 let aid2 = aid.clone();
                 let aid_ref2 = aid_ref.clone();
-                Timeout::new(500, move || {
+                Timeout::new(100, move || {
                     tci2.set(None);
                     crate::js_interop::terminal_close(&close_id2);
                     tids2.borrow_mut().retain(|x| x != &close_id2);
@@ -3262,7 +3262,7 @@ pub fn app() -> Html {
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() }} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} on_reorder={on_tab_reorder_cb} on_drag_end={on_tab_drag_end_cb} on_new_tab={Some({ let cb = on_new_sheet_cb.clone(); Callback::from(move |_| cb.emit(())) })} />
                 // 分割プレビューモード
                 {html! {
-                        <div class={classes!("flex-1", "flex", "overflow-hidden", "bg-gray-900", "transition-opacity", "duration-500", if is_content_closing { "opacity-0" } else { "opacity-100" })}
+                        <div class={classes!("flex-1", "flex", "overflow-hidden", "bg-gray-900", "transition-opacity", "duration-100", if is_content_closing { "opacity-0" } else { "opacity-100" })}
                              onmousemove={on_container_mousemove.clone()}
                              onmouseup={on_container_mouseup.clone()}>
 
