@@ -589,6 +589,7 @@ pub fn app() -> Html {
     let split_ratio = use_state(|| 0.5f64);
     let split_ratio_ref = use_mut_ref(|| 0.5f64);
     let is_splitter_dragging = use_mut_ref(|| false);
+    let terminal_split_enabled = use_state(|| false);
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
@@ -2359,6 +2360,7 @@ pub fn app() -> Html {
                 let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
                 let split_preview_ev = split_preview_enabled.clone();
+                let terminal_split_ev = terminal_split_enabled.clone();
                 let tci_ev = tab_closing_id.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *split_preview_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_split_preview), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
@@ -2392,6 +2394,7 @@ pub fn app() -> Html {
                     let pending_close_unsynced_c = pending_close_unsynced_tab_ev.clone();
                     let nc_c = nc_ev.clone();
                     let pending_save_close_c = pending_save_close_tab_ev.clone();
+                    let terminal_split_c = terminal_split_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -2418,9 +2421,16 @@ pub fn app() -> Html {
                         }
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
                         
-                        // Alt + L (エディタ/Markdownレンダリング切り替え)
+                        // Alt + L (エディタ/Markdownレンダリング切り替え、またはターミナルスプリット)
                         if modifier_active && is_l_key && !is_overlay_active {
                             e.prevent_default(); e.stop_immediate_propagation();
+                            // ターミナルがアクティブな場合: ターミナルスプリット切り替え
+                            if atref_c.borrow().is_some() {
+                                if aid_ref_c.borrow().is_some() {
+                                    terminal_split_c.set(!*terminal_split_c);
+                                }
+                                return;
+                            }
                             let new_val = !*is_preview_c;
                             is_preview_c.set(new_val);
                             // アクティブシートのis_previewを更新
@@ -3239,7 +3249,8 @@ pub fn app() -> Html {
     {
         let ratio_i = (*split_ratio * 1000.0) as i32;
         let is_split_i = *is_preview_visible && *split_preview_enabled && (*active_terminal_id).is_none();
-        use_effect_with((ratio_i, is_split_i), move |_| {
+        let is_terminal_split_i = *terminal_split_enabled && (*active_terminal_id).is_some() && (*active_sheet_id).is_some();
+        use_effect_with((ratio_i, is_split_i, is_terminal_split_i), move |_| {
             crate::js_interop::resize_editor();
             || ()
         });
@@ -3261,14 +3272,23 @@ pub fn app() -> Html {
     }
 
     let is_split_view = *is_preview_visible && *split_preview_enabled && (*active_terminal_id).is_none();
+    let is_terminal_split = *terminal_split_enabled && (*active_terminal_id).is_some() && (*active_sheet_id).is_some();
     let active_content_id = if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() };
     let is_content_closing = (*tab_closing_id).is_some() && *tab_closing_id == active_content_id;
     let is_terminal_closing = is_content_closing && (*active_terminal_id).is_some();
-    let left_width_style = if is_split_view {
+    let left_width_style = if is_split_view || is_terminal_split {
         format!("width: {}%", (*split_ratio * 100.0) as i32)
     } else {
         "width: 100%".to_string()
     };
+    let terminal_split_content = if is_terminal_split {
+        let aid = (*active_sheet_id).clone();
+        if let Some(id) = aid {
+            get_editor_content().as_string().unwrap_or_else(|| {
+                sheets.iter().find(|s| s.id == id).map(|s| s.content.clone()).unwrap_or_default()
+            })
+        } else { "".to_string() }
+    } else { "".to_string() };
     let preview_scroll = active_sheet_id.as_ref().and_then(|id| sheets_ref.borrow().iter().find(|s| s.id == *id).map(|s| s.preview_scroll_top)).unwrap_or(0.0);
 
     let inline_preview_content = if *is_preview_visible {
@@ -3349,7 +3369,7 @@ pub fn app() -> Html {
                                 </div>
                             </div>
 
-                            // 分割バーと右ペイン（分割モード時のみ）
+                            // 分割バーと右ペイン（通常スプリット or ターミナルスプリット）
                             if is_split_view {
                                 // 分割バー
                                 <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
@@ -3358,6 +3378,14 @@ pub fn app() -> Html {
                                 // 右ペイン: プレビュー
                                 <div class="flex-1 overflow-hidden">
                                     <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=true />
+                                </div>
+                            }
+                            // ターミナルスプリット: 右ペインに最後のシートをプレビュー表示
+                            if is_terminal_split {
+                                <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
+                                     onmousedown={on_splitter_mousedown.clone()} />
+                                <div class="flex-1 overflow-hidden">
+                                    <InlinePreview content={terminal_split_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=true />
                                 </div>
                             }
                         </div>
