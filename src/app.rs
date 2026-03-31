@@ -3263,6 +3263,7 @@ pub fn app() -> Html {
     let is_split_view = *is_preview_visible && *split_preview_enabled && (*active_terminal_id).is_none();
     let active_content_id = if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() };
     let is_content_closing = (*tab_closing_id).is_some() && *tab_closing_id == active_content_id;
+    let is_terminal_closing = is_content_closing && (*active_terminal_id).is_some();
     let left_width_style = if is_split_view {
         format!("width: {}%", (*split_ratio * 100.0) as i32)
     } else {
@@ -3335,7 +3336,7 @@ pub fn app() -> Html {
 
                                 // ターミナル（Tauri版のみ）
                                 if crate::js_interop::is_tauri() {
-                                    <div id="terminal-area" key="terminal-area-fixed" class={classes!("absolute", "inset-0", "z-30", "bg-[#1d2021]", if (*active_terminal_id).is_some() { "" } else { "hidden" })}></div>
+                                    <div id="terminal-area" key="terminal-area-fixed" class={classes!("absolute", "inset-0", "z-30", "bg-[#1d2021]", "transition-opacity", "duration-100", if (*active_terminal_id).is_none() { "hidden" } else { "" }, if is_terminal_closing { "opacity-0" } else { "opacity-100" })}></div>
                                 }
 
                                 // フォールバック表示
