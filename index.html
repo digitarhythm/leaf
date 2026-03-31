@@ -87,6 +87,14 @@
       height: 100%;
     }
 
+    /* Windowsブラー効果: blur-activeクラス付与時に全bg-gray-*要素を半透明化 */
+    html.blur-active body { background: transparent !important; }
+    html.blur-active #app-root { background-color: rgb(3 7 18 / var(--blur-bg-alpha)) !important; }
+    html.blur-active .bg-gray-950 { background-color: rgb(3 7 18 / var(--blur-bg-alpha)) !important; }
+    html.blur-active .bg-gray-900 { background-color: rgb(17 24 39 / var(--blur-bg-alpha)) !important; }
+    html.blur-active .bg-gray-800 { background-color: rgb(31 41 55 / var(--blur-bg-alpha)) !important; }
+    html.blur-active .bg-gray-700 { background-color: rgb(55 65 81 / var(--blur-bg-alpha)) !important; }
+
     /* --- カーソルスタイル修正：Gruvboxテーマ対応版（極限強化） --- */
 
     /* ノーマル/ビジュアルモード時：ブロックカーソルを維持 */

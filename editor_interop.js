@@ -671,25 +671,18 @@ export function set_window_blur(blur) {
     if (!is_tauri()) return;
     if (window.__TAURI__ && window.__TAURI__.core) {
         window.__TAURI__.core.invoke('set_window_blur', { blur: blur });
-        // ブラーが有効な場合、アプリ背景を半透明にして効果を見せる
+        // CSSカスタムプロパティ＋クラスで制御（動的に追加される要素にも自動適用）
         if (blur > 0) {
-            const bgAlpha = 1.0 - (blur / 100.0) * 0.9;
+            const bgAlpha = (1.0 - (blur / 100.0) * 0.9).toFixed(2);
+            document.documentElement.style.setProperty('--blur-bg-alpha', bgAlpha);
             document.documentElement.style.background = 'transparent';
             document.body.style.background = 'transparent';
-            const appRoot = document.getElementById('app-root');
-            if (appRoot) appRoot.style.backgroundColor = `rgba(2, 6, 23, ${bgAlpha})`;
-            document.querySelectorAll('.bg-gray-800, .bg-gray-900, .bg-gray-950').forEach(el => {
-                el.dataset.origBg = el.style.backgroundColor || '';
-                el.style.backgroundColor = `rgba(31, 41, 55, ${bgAlpha})`;
-            });
+            document.documentElement.classList.add('blur-active');
         } else {
+            document.documentElement.style.removeProperty('--blur-bg-alpha');
             document.documentElement.style.background = '';
             document.body.style.background = '';
-            const appRoot = document.getElementById('app-root');
-            if (appRoot) appRoot.style.backgroundColor = '';
-            document.querySelectorAll('.bg-gray-800, .bg-gray-900, .bg-gray-950').forEach(el => {
-                el.style.backgroundColor = el.dataset.origBg || '';
-            });
+            document.documentElement.classList.remove('blur-active');
         }
     }
 }
