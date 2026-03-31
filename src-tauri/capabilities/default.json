@@ -11,6 +11,7 @@
     "sql:allow-execute",
     "sql:allow-select",
     "dialog:default",
-    "fs:default"
+    "fs:default",
+    "window-state:default"
   ]
 }
