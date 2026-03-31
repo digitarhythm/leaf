@@ -5,10 +5,15 @@
 2. 変更があればバージョンを patch バンプする（Cargo.toml, src-tauri/Cargo.toml, src-tauri/tauri.conf.json, package.json の4ファイルのバージョン文字列を一括置換）
 3. 変更をステージングしてコミットする（コミットメッセージは変更内容を日本語で簡潔に記述）
 4. `git push origin main` でpushする
-5. `./deploy.sh` でデプロイする
-6. Mac ARM版をバックグラウンドでビルドする。必ず以下のコマンドで実行すること（stale dist とキャッシュを確実にクリアするため）:
+5. バージョンタグをpushしてGitHub Releaseを作成する:
+   ```
+   git tag v{バージョン番号} && git push origin v{バージョン番号}
+   ```
+   例: バージョンが0.19.27なら `git tag v0.19.27 && git push origin v0.19.27`
+   ※ このタグpushがGitHub Actionsのリリースビルドをトリガーする
+6. `./deploy.sh` でデプロイする
+7. Mac ARM版をバックグラウンドでビルドする。必ず以下のコマンドで実行すること（stale dist とキャッシュを確実にクリアするため）:
    ```
    cd /Users/kow/Develop/Web/Leaf && rm -rf dist && rm -rf src-tauri/target/aarch64-apple-darwin/release/build/leaf-app-* src-tauri/target/aarch64-apple-darwin/release/.fingerprint/leaf-app-* && npm run tauri build -- --target aarch64-apple-darwin 2>&1
    ```
-7. `gh workflow run "Build Tauri App" --ref main` でGitHub Actionsを起動する
 8. GitHub ActionsのURLとMac ARMビルドの完了をユーザーに伝える

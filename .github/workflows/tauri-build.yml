@@ -79,8 +79,9 @@ jobs:
         if: matrix.platform == 'windows-latest'
         run: npm install -g binaryen
 
-      # Build
-      - name: Build Tauri App
+      # Build (タグpush時のみリリース作成)
+      - name: Build Tauri App (with release)
+        if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,8 +89,17 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Leaf ${{ github.ref_name }}'
           releaseBody: 'Desktop application release for Leaf ${{ github.ref_name }}'
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
+          args: ${{ matrix.args }}
+
+      # Build (手動実行時はリリース作成しない)
+      - name: Build Tauri App (without release)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
           args: ${{ matrix.args }}
 
       # Upload artifacts (手動実行時もダウンロード可能にする)
