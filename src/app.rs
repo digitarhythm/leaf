@@ -2486,7 +2486,10 @@ pub fn app() -> Html {
                                         let editor_state = crate::js_interop::get_editor_state();
                                         let preview_scroll = web_sys::window()
                                             .and_then(|w| w.document())
-                                            .and_then(|d| d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten())
+                                            .and_then(|d| {
+                                                d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten()
+                                                    .or_else(|| d.get_element_by_id("split-preview-scroll"))
+                                            })
                                             .map(|el| el.scroll_top() as f64)
                                             .unwrap_or(0.0);
                                         let cur_c_val = get_editor_content();
@@ -2882,10 +2885,13 @@ pub fn app() -> Html {
                 let editor_state = crate::js_interop::get_editor_state();
                 let cur_c_val = get_editor_content();
                 if let Some(cur_c) = cur_c_val.as_string() {
-                    // プレビュースクロール位置を保存
+                    // プレビュースクロール位置を保存（全画面・スプリット両対応）
                     let preview_scroll = web_sys::window()
                         .and_then(|w| w.document())
-                        .and_then(|d| d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten())
+                        .and_then(|d| {
+                            d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten()
+                                .or_else(|| d.get_element_by_id("split-preview-scroll"))
+                        })
                         .map(|el| el.scroll_top() as f64)
                         .unwrap_or(0.0);
                     let mut us = (*rs.borrow()).clone();
@@ -3436,7 +3442,7 @@ pub fn app() -> Html {
                                 // 右ペイン: opacity トランジションでフェードイン/アウト
                                 <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-300",
                                                      if *split_pane_opacity { "opacity-100" } else { "opacity-0" })}>
-                                    <InlinePreview content={split_right_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=true />
+                                    <InlinePreview content={split_right_content.clone()} file_ext={current_file_ext.clone()} font_size={*font_size} initial_scroll_top={preview_scroll} is_split=true />
                                 </div>
                             }
                         </div>
