@@ -129,6 +129,7 @@ const EMPTY_SAVE_KEY: &str = "leaf_empty_save_behavior";
 const WINDOW_OPACITY_KEY: &str = "leaf_window_opacity";
 const WINDOW_BLUR_KEY: &str = "leaf_window_blur";
 const SPLIT_PREVIEW_KEY: &str = "leaf_split_preview";
+const TERMINAL_FONT_SIZE_KEY: &str = "leaf_terminal_font_size";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -585,6 +586,11 @@ pub fn app() -> Html {
         get_account_storage(SPLIT_PREVIEW_KEY)
             .map(|v| v == "true")
             .unwrap_or(false)
+    });
+    let terminal_font_size = use_state(|| {
+        get_account_storage(TERMINAL_FONT_SIZE_KEY)
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or(14)
     });
     let split_ratio = use_state(|| 0.5f64);
     let split_ratio_ref = use_mut_ref(|| 0.5f64);
@@ -2367,6 +2373,7 @@ pub fn app() -> Html {
                 let terminal_split_ev = terminal_split_enabled.clone();
                 let terminal_split_ref_ev = terminal_split_ref.clone();
                 let tci_ev = tab_closing_id.clone();
+                let tfs_ev = terminal_font_size.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *split_preview_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_split_preview), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -2401,6 +2408,7 @@ pub fn app() -> Html {
                     let pending_save_close_c = pending_save_close_tab_ev.clone();
                     let terminal_split_c = terminal_split_ev.clone();
                     let terminal_split_ref_c = terminal_split_ref_ev.clone();
+                    let tfs_c = tfs_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -2668,6 +2676,17 @@ pub fn app() -> Html {
                                     focus_editor();
                                 }
                             }
+                            return;
+                        }
+
+                        // ターミナルアクティブ時: Alt+=/- でターミナルフォントサイズ変更
+                        if modifier_active && is_font_size_shortcut && !is_overlay_active && atref_c.borrow().is_some() {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            let delta = if is_plus_key { 1 } else { -1 };
+                            let current = *tfs_c;
+                            let new_size = crate::js_interop::terminal_set_font_size(current + delta);
+                            tfs_c.set(new_size);
+                            set_account_storage(TERMINAL_FONT_SIZE_KEY, &new_size.to_string());
                             return;
                         }
 
@@ -3137,6 +3156,7 @@ pub fn app() -> Html {
     // ターミナル表示切替
     {
         let atid = (*active_terminal_id).clone();
+        let tfs_open = *terminal_font_size;
         use_effect_with(atid, move |atid| {
             if let Some(ref tid) = atid {
                 let tid_clone = tid.clone();
@@ -3145,6 +3165,7 @@ pub fn app() -> Html {
                     if !crate::js_interop::terminal_is_open(&tid_clone) {
                         spawn_local(async move {
                             crate::js_interop::terminal_open(&tid_clone, &container_id, 80, 24).await;
+                            crate::js_interop::terminal_set_font_size(tfs_open);
                             crate::js_interop::terminal_focus(&tid_clone);
                         });
                     } else {
@@ -3610,6 +3631,15 @@ pub fn app() -> Html {
                                     crate::js_interop::set_window_blur(blur);
                                     set_account_storage(WINDOW_BLUR_KEY, &blur.to_string());
                                     wb.set(blur);
+                                })
+                            }) } else { None }}
+                            terminal_font_size={*terminal_font_size}
+                            on_change_terminal_font_size={if crate::js_interop::is_tauri() { Some({
+                                let tfs = terminal_font_size.clone();
+                                Callback::from(move |v: i32| {
+                                    let new_size = crate::js_interop::terminal_set_font_size(v);
+                                    set_account_storage(TERMINAL_FONT_SIZE_KEY, &new_size.to_string());
+                                    tfs.set(new_size);
                                 })
                             }) } else { None }}
                             on_close={{

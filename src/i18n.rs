@@ -563,6 +563,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Dekking",
             _ => "Opacity",
         }.to_string(),
+        "terminal_font_size" => match lang {
+            Language::Ja => "ターミナルフォントサイズ",
+            Language::Zh => "终端字体大小",
+            Language::Ko => "터미널 글꼴 크기",
+            Language::Es => "Tamaño de fuente del terminal",
+            Language::De => "Terminal-Schriftgröße",
+            Language::Fr => "Taille de police du terminal",
+            Language::It => "Dimensione font terminale",
+            Language::Nl => "Terminal lettergrootte",
+            _ => "Terminal Font Size",
+        }.to_string(),
         "window_blur" => match lang {
             Language::Ja => "ブラー",
             Language::Zh => "模糊",

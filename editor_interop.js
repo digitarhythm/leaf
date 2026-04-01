@@ -889,6 +889,24 @@ export function terminal_is_open(id) {
     return _terminals.has(id);
 }
 
+export function terminal_set_font_size(size) {
+    const clamped = Math.max(8, Math.min(32, size));
+    for (const [id, inst] of _terminals.entries()) {
+        if (inst.terminal) {
+            inst.terminal.options.fontSize = clamped;
+            if (inst.fitAddon) {
+                inst.fitAddon.fit();
+                window.__TAURI__?.core?.invoke('pty_resize', {
+                    id,
+                    cols: inst.terminal.cols,
+                    rows: inst.terminal.rows,
+                });
+            }
+        }
+    }
+    return clamped;
+}
+
 export function terminal_focus(id) {
     const container = document.getElementById('terminal-area');
     if (!container) return;

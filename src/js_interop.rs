@@ -43,6 +43,7 @@ extern "C" {
     pub fn terminal_close(id: &str);
     pub fn terminal_is_open(id: &str) -> bool;
     pub fn terminal_focus(id: &str);
+    pub fn terminal_set_font_size(size: i32) -> i32;
 
     pub fn can_install_pwa() -> bool;
     pub async fn trigger_pwa_install() -> JsValue;

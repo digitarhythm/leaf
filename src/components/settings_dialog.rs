@@ -66,6 +66,10 @@ pub struct SettingsDialogProps {
     pub window_blur: i32,
     #[prop_or_default]
     pub on_change_blur: Option<Callback<i32>>,
+    #[prop_or(14)]
+    pub terminal_font_size: i32,
+    #[prop_or_default]
+    pub on_change_terminal_font_size: Option<Callback<i32>>,
     pub on_close: Callback<()>,
 }
 
@@ -252,6 +256,27 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                             />
                             <div class="flex justify-between text-[10px] text-gray-600 mt-1">
                                 <span>{ "OFF" }</span><span>{ "50%" }</span><span>{ "100%" }</span>
+                            </div>
+                        </div>
+                    }
+
+                    // Terminal Font Size (Tauri only)
+                    if let Some(ref on_tfs) = props.on_change_terminal_font_size {
+                        <div class="border-t border-[#3c3836]"></div>
+                        <div>
+                            <div class="flex items-center justify-between">
+                                <div class="text-sm font-bold text-[#ebdbb2]">{ i18n::t("terminal_font_size", lang) }</div>
+                                <div class="flex items-center space-x-2">
+                                    <button
+                                        onclick={let cb = on_tfs.clone(); let v = props.terminal_font_size; Callback::from(move |_| cb.emit(v - 1))}
+                                        class="w-7 h-7 flex items-center justify-center rounded bg-[#282828] border border-[#3c3836] text-gray-300 hover:bg-[#3c3836] hover:text-white transition-colors font-bold text-base"
+                                    >{ "-" }</button>
+                                    <span class="text-sm font-mono text-[#ebdbb2] w-8 text-center">{ props.terminal_font_size }</span>
+                                    <button
+                                        onclick={let cb = on_tfs.clone(); let v = props.terminal_font_size; Callback::from(move |_| cb.emit(v + 1))}
+                                        class="w-7 h-7 flex items-center justify-center rounded bg-[#282828] border border-[#3c3836] text-gray-300 hover:bg-[#3c3836] hover:text-white transition-colors font-bold text-base"
+                                    >{ "+" }</button>
+                                </div>
                             </div>
                         </div>
                     }
