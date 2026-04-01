@@ -591,6 +591,9 @@ pub fn app() -> Html {
     let is_splitter_dragging = use_mut_ref(|| false);
     let terminal_split_enabled = use_state(|| false);
     let terminal_split_ref = use_mut_ref(|| false);
+    let split_pane_mounted = use_state(|| false);   // 右ペインをDOMに保持するか
+    let split_pane_opacity = use_state(|| false);   // 右ペインのopacity (true=100, false=0)
+    let split_pane_is_terminal = use_state(|| false); // フェードアウト中のコンテンツ種別
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
@@ -2628,7 +2631,13 @@ pub fn app() -> Html {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let new_val = !settings_open;
                             is_settings_c.set(new_val);
-                            if !new_val { focus_editor(); }
+                            if !new_val {
+                                if let Some(ref tid) = *atref_c.borrow() {
+                                    crate::js_interop::terminal_focus(tid);
+                                } else {
+                                    focus_editor();
+                                }
+                            }
                             return;
                         }
 
@@ -2646,11 +2655,17 @@ pub fn app() -> Html {
                         
                         // Alt + H (Help) のトグル
                         if modifier_active && is_h_key && (!is_overlay_active || *is_help_c) {
-                            e.prevent_default(); e.stop_immediate_propagation(); 
+                            e.prevent_default(); e.stop_immediate_propagation();
                             let val = !*is_help_c;
-                            is_help_c.set(val); 
-                            if !val { focus_editor(); }
-                            return; 
+                            is_help_c.set(val);
+                            if !val {
+                                if let Some(ref tid) = *atref_c.borrow() {
+                                    crate::js_interop::terminal_focus(tid);
+                                } else {
+                                    focus_editor();
+                                }
+                            }
+                            return;
                         }
 
                         if modifier_active && !is_overlay_active {
@@ -3286,7 +3301,34 @@ pub fn app() -> Html {
     let active_content_id = if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() };
     let is_content_closing = (*tab_closing_id).is_some() && *tab_closing_id == active_content_id;
     let is_terminal_closing = is_content_closing && (*active_terminal_id).is_some();
-    let left_width_style = if is_split_view || is_terminal_split {
+
+    // 右ペインのフェードイン／アウト制御
+    {
+        let mounted = split_pane_mounted.clone();
+        let opacity = split_pane_opacity.clone();
+        let is_terminal = split_pane_is_terminal.clone();
+        let showing = is_split_view || is_terminal_split;
+        let is_term = is_terminal_split;
+        use_effect_with(showing, move |&showing| {
+            if showing {
+                is_terminal.set(is_term);
+                mounted.set(true);
+                let opacity2 = opacity.clone();
+                gloo::timers::callback::Timeout::new(10, move || {
+                    opacity2.set(true);
+                }).forget();
+            } else {
+                opacity.set(false);
+                let mounted2 = mounted.clone();
+                gloo::timers::callback::Timeout::new(300, move || {
+                    mounted2.set(false);
+                }).forget();
+            }
+            || ()
+        });
+    }
+
+    let left_width_style = if *split_pane_mounted {
         format!("width: {}%", (*split_ratio * 100.0) as i32)
     } else {
         "width: 100%".to_string()
@@ -3309,6 +3351,13 @@ pub fn app() -> Html {
             })
         } else { "".to_string() }
     } else { "".to_string() };
+
+    // 右ペインに表示するコンテンツ（フェードアウト中は最後に表示したものを維持）
+    let split_right_content = if *split_pane_is_terminal {
+        terminal_split_content.clone()
+    } else {
+        inline_preview_content.clone()
+    };
 
     let help_html: Html = if *is_help_visible {
         let ih = is_help_visible.clone();
@@ -3379,23 +3428,15 @@ pub fn app() -> Html {
                                 </div>
                             </div>
 
-                            // 分割バーと右ペイン（通常スプリット or ターミナルスプリット）
-                            if is_split_view {
+                            // 分割バーと右ペイン（通常スプリット or ターミナルスプリット、フェードイン/アウト付き）
+                            if *split_pane_mounted {
                                 // 分割バー
                                 <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
                                      onmousedown={on_splitter_mousedown.clone()} />
-
-                                // 右ペイン: プレビュー
-                                <div class="flex-1 overflow-hidden">
-                                    <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=true />
-                                </div>
-                            }
-                            // ターミナルスプリット: 右ペインに最後のシートをプレビュー表示
-                            if is_terminal_split {
-                                <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
-                                     onmousedown={on_splitter_mousedown.clone()} />
-                                <div class="flex-1 overflow-hidden">
-                                    <InlinePreview content={terminal_split_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=true />
+                                // 右ペイン: opacity トランジションでフェードイン/アウト
+                                <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-300",
+                                                     if *split_pane_opacity { "opacity-100" } else { "opacity-0" })}>
+                                    <InlinePreview content={split_right_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=true />
                                 </div>
                             }
                         </div>
@@ -3460,7 +3501,7 @@ pub fn app() -> Html {
                     if let Some(ldid) = (*leaf_data_folder_id).clone() {
                         <div class="pointer-events-auto">
                             <FileOpenDialog 
-                                on_close={let iv = is_file_open_dialog_visible.clone(); let sp = is_suppressing_changes.clone(); let aid = active_id_ref.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); move |_| { iv.set(false); sp.set(false); focus_editor(); let aid_val = (*aid.borrow()).clone(); let rs_c = rs.clone(); let s_state_c = s_state.clone(); if let Some(id) = aid_val { let sheets_list = (*rs_c.borrow()).clone(); if let Some(sheet) = sheets_list.iter().find(|s| s.id == id) { if !sheet.category.is_empty() && sheet.category != "__LOCAL__" { if let Some(did) = sheet.drive_id.clone() { let sheet_id = id.clone(); spawn_local(async move { if let Err(_) = crate::drive_interop::get_file_metadata(&did).await { let mut us = (*rs_c.borrow()).clone(); if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) { s.drive_id = None; s.category = "OTHERS".to_string(); s.is_modified = true; set_gutter_status("unsaved"); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } } *rs_c.borrow_mut() = us.clone(); s_state_c.set(us); } }); } } } } } } 
+                                on_close={let iv = is_file_open_dialog_visible.clone(); let sp = is_suppressing_changes.clone(); let aid = active_id_ref.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let atref_fo = active_terminal_ref.clone(); move |_| { iv.set(false); sp.set(false); if let Some(ref tid) = *atref_fo.borrow() { crate::js_interop::terminal_focus(tid); } else { focus_editor(); } let aid_val = (*aid.borrow()).clone(); let rs_c = rs.clone(); let s_state_c = s_state.clone(); if let Some(id) = aid_val { let sheets_list = (*rs_c.borrow()).clone(); if let Some(sheet) = sheets_list.iter().find(|s| s.id == id) { if !sheet.category.is_empty() && sheet.category != "__LOCAL__" { if let Some(did) = sheet.drive_id.clone() { let sheet_id = id.clone(); spawn_local(async move { if let Err(_) = crate::drive_interop::get_file_metadata(&did).await { let mut us = (*rs_c.borrow()).clone(); if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) { s.drive_id = None; s.category = "OTHERS".to_string(); s.is_modified = true; set_gutter_status("unsaved"); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } } *rs_c.borrow_mut() = us.clone(); s_state_c.set(us); } }); } } } } } } 
                                 on_select={on_file_sel_cb} leaf_data_id={ldid} categories={(*categories).clone()} on_refresh={on_refresh_cats_cb} on_delete_category={on_delete_category_cb} on_rename_category={on_rename_category_cb} on_delete_file={on_delete_file_cb} on_move_file={on_move_file_cb} on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} on_preview_toggle={let ifds = is_file_dialog_sub_active.clone(); Callback::from(move |v| ifds.set(v))} 
                                 on_sub_active_change={let ifds = is_file_dialog_sub_active.clone(); Callback::from(move |v| ifds.set(v))}
                                 is_sub_dialog_open={is_sub_overlay_active} is_creating_category={*is_creating_category} on_create_category_toggle={let ic = is_creating_category.clone(); Callback::from(move |v| ic.set(v))} 

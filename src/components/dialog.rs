@@ -50,7 +50,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
             is_fading_out.set(true);
             on_start.emit(());
             let on_confirm = on_confirm.clone();
-            Timeout::new(200, move || { on_confirm.emit(idx); }).forget();
+            Timeout::new(300, move || { on_confirm.emit(idx); }).forget();
         })
     };
 
@@ -61,7 +61,7 @@ pub fn custom_dialog(props: &CustomDialogProps) -> Html {
             if let Some(cb) = &on_cancel_cb {
                 is_fading_out.set(true);
                 let cb = cb.clone();
-                Timeout::new(200, move || { cb.emit(()); }).forget();
+                Timeout::new(300, move || { cb.emit(()); }).forget();
             }
         })
     };
@@ -213,7 +213,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
                 is_fading_out.set(true);
                 let cb = on_confirm_cb.clone();
                 let val = (*text).clone();
-                Timeout::new(200, move || { cb.emit(val); }).forget();
+                Timeout::new(300, move || { cb.emit(val); }).forget();
             }
         })
     };
@@ -224,7 +224,7 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
         Callback::from(move |_: ()| {
             is_fading_out.set(true);
             let cb = on_cancel_cb.clone();
-            Timeout::new(200, move || { cb.emit(()); }).forget();
+            Timeout::new(300, move || { cb.emit(()); }).forget();
         })
     };
 
@@ -359,7 +359,7 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
         Callback::from(move |_: ()| {
             is_fading_out.set(true);
             let cb = on_confirm_cb.clone();
-            Timeout::new(200, move || { cb.emit(()); }).forget();
+            Timeout::new(300, move || { cb.emit(()); }).forget();
         })
     };
 
@@ -369,7 +369,7 @@ pub fn confirm_dialog(props: &ConfirmDialogProps) -> Html {
         Callback::from(move |_: ()| {
             is_fading_out.set(true);
             let cb = on_cancel_cb.clone();
-            Timeout::new(200, move || { cb.emit(()); }).forget();
+            Timeout::new(300, move || { cb.emit(()); }).forget();
         })
     };
 
@@ -485,7 +485,7 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
             let cb = on_confirm_cb.clone();
             let opt = *selected_opt;
             let val = (*input_val).clone();
-            Timeout::new(200, move || { cb.emit((opt, val)); }).forget();
+            Timeout::new(300, move || { cb.emit((opt, val)); }).forget();
         })
     };
 
@@ -495,7 +495,7 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
         Callback::from(move |_: ()| {
             is_fading_out.set(true);
             let cb = on_cancel_cb.clone();
-            Timeout::new(200, move || { cb.emit(()); }).forget();
+            Timeout::new(300, move || { cb.emit(()); }).forget();
         })
     };
 
