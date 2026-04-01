@@ -3360,7 +3360,8 @@ pub fn app() -> Html {
     } else {
         "width: 100%".to_string()
     };
-    let terminal_split_content = if is_terminal_split {
+    // フェードアウト中（split_pane_is_terminal=true かつ is_terminal_split=false）もコンテンツを維持する
+    let terminal_split_content = if is_terminal_split || *split_pane_is_terminal {
         let aid = (*active_sheet_id).clone();
         if let Some(id) = aid {
             get_editor_content().as_string().unwrap_or_else(|| {
