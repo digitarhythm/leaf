@@ -3345,10 +3345,15 @@ pub fn app() -> Html {
                     opacity2.set(true);
                 }).forget();
             } else {
-                opacity.set(false);
+                // ブラウザが opacity-100 を描画した後に opacity-0 へ変更するため
+                // 1フレーム待ってから opacity を下げ、その後 300ms でアンマウント
+                let opacity2 = opacity.clone();
                 let mounted2 = mounted.clone();
-                gloo::timers::callback::Timeout::new(300, move || {
-                    mounted2.set(false);
+                gloo::timers::callback::Timeout::new(16, move || {
+                    opacity2.set(false);
+                    gloo::timers::callback::Timeout::new(300, move || {
+                        mounted2.set(false);
+                    }).forget();
                 }).forget();
             }
             || ()
@@ -3371,7 +3376,8 @@ pub fn app() -> Html {
     } else { "".to_string() };
     let preview_scroll = active_sheet_id.as_ref().and_then(|id| sheets_ref.borrow().iter().find(|s| s.id == *id).map(|s| s.preview_scroll_top)).unwrap_or(0.0);
 
-    let inline_preview_content = if *is_preview_visible {
+    // フェードアウト中（split_pane_mounted=true かつ !split_pane_is_terminal）もコンテンツを維持する
+    let inline_preview_content = if *is_preview_visible || (*split_pane_mounted && !*split_pane_is_terminal) {
         let aid = (*active_sheet_id).clone();
         if let Some(id) = aid {
             get_editor_content().as_string().unwrap_or_else(|| {
