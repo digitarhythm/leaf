@@ -2457,23 +2457,24 @@ pub fn app() -> Html {
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
                         
                         // Alt + L
-                        // Web: フル画面プレビュー切り替え
-                        // Desktop: 分割プレビュー中→閉じる / 未表示→タブ選択ダイアログ
-                        if modifier_active && is_l_key && !is_overlay_active && !*terminal_split_ref_c.borrow() {
+                        // Alt + L
+                        // [シート] 編集 ↔ フル画面プレビュー のトグル
+                        // [ターミナル] フル画面ターミナル ↔ スプリットプレビュー のトグル（フル画面時はタブ選択ダイアログ経由）
+                        if modifier_active && is_l_key && !is_overlay_active {
                             e.prevent_default(); e.stop_immediate_propagation();
-                            if crate::js_interop::is_tauri() {
-                                // デスクトップ版: 分割プレビュー開閉
+                            if atref_c.borrow().is_some() {
+                                // ターミナルがアクティブ
                                 if *terminal_split_ref_c.borrow() {
-                                    // 分割中 → 閉じる
+                                    // スプリット中 → フル画面ターミナルに戻す
                                     *terminal_split_ref_c.borrow_mut() = false;
                                     terminal_split_c.set(false);
                                     split_pane_sheet_id_c.set(None);
                                 } else if aid_ref_c.borrow().is_some() {
-                                    // タブ選択ダイアログを開く
+                                    // フル画面ターミナル → タブ選択ダイアログを開く
                                     is_tab_select_c.set(true);
                                 }
                             } else {
-                                // Web版: フル画面プレビュー切り替え
+                                // シートがアクティブ: フル画面プレビュー切り替え
                                 let new_val = !*is_preview_c;
                                 if new_val {
                                     is_preview_c.set(true);
@@ -2500,18 +2501,19 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        // Alt + E : 分割プレビュー開閉 (Web) / Ace編集モード切り替え (Desktop)
+                        // Alt + E
+                        // [シート] フル画面編集 ↔ スプリット（左:編集、右:プレビュー） のトグル
+                        // [ターミナル] スプリット中のみ、プレビュー ↔ Ace編集モード のトグル
                         if modifier_active && is_e_key && !is_overlay_active && !_preview {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let split_open = *terminal_split_ref_c.borrow();
-                            if crate::js_interop::is_tauri() {
-                                // Desktop版
+                            if atref_c.borrow().is_some() {
+                                // ターミナルがアクティブ: スプリット中のみAce編集モードをトグル
                                 if split_open {
-                                    // 分割中 → Ace編集モードをトグル
                                     let new_val = !*terminal_split_edit_ref_c.borrow();
                                     *terminal_split_edit_ref_c.borrow_mut() = new_val;
                                     if !new_val {
-                                        // 編集モード終了: スプリットエディタ内容をメインエディタに同期して保存
+                                        // 編集モード終了: 内容をメインエディタに同期して保存
                                         crate::js_interop::sync_split_editor_to_main();
                                         let content = crate::js_interop::get_split_editor_content();
                                         let aid = (*aid_ref_c.borrow()).clone();
@@ -2531,20 +2533,16 @@ pub fn app() -> Html {
                                             *rs_c.borrow_mut() = cur.clone();
                                             sheets_c.set(cur);
                                         }
-                                        // ターミナルがあればフォーカスを戻す
+                                        // ターミナルにフォーカスを戻す
                                         if let Some(tid) = atref_c.borrow().as_ref().cloned() {
                                             crate::js_interop::terminal_focus(&tid);
                                         }
                                     }
                                     terminal_split_edit_c.set(new_val);
-                                } else if aid_ref_c.borrow().is_some() {
-                                    // 分割未表示 → 現在のアクティブシートで分割プレビューを開く
-                                    split_pane_sheet_id_c.set(None);
-                                    *terminal_split_ref_c.borrow_mut() = true;
-                                    terminal_split_c.set(true);
                                 }
+                                // スプリット未表示時は何もしない
                             } else {
-                                // Web版: 分割プレビューのトグル（開閉のみ、編集モードなし）
+                                // シートがアクティブ: スプリットプレビューのトグル（Web/Desktop共通）
                                 if split_open {
                                     *terminal_split_ref_c.borrow_mut() = false;
                                     terminal_split_c.set(false);
