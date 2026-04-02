@@ -2457,20 +2457,16 @@ pub fn app() -> Html {
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
                         
                         // Alt + L
-                        // Alt + L
                         // [シート] 編集 ↔ フル画面プレビュー のトグル
                         // [ターミナル] フル画面ターミナル ↔ スプリットプレビュー のトグル（フル画面時はタブ選択ダイアログ経由）
+                        // ※スプリットが開いている場合はブロック（Alt+Eで閉じる）
                         if modifier_active && is_l_key && !is_overlay_active {
                             e.prevent_default(); e.stop_immediate_propagation();
-                            if atref_c.borrow().is_some() {
-                                // ターミナルがアクティブ
-                                if *terminal_split_ref_c.borrow() {
-                                    // スプリット中 → フル画面ターミナルに戻す
-                                    *terminal_split_ref_c.borrow_mut() = false;
-                                    terminal_split_c.set(false);
-                                    split_pane_sheet_id_c.set(None);
-                                } else if aid_ref_c.borrow().is_some() {
-                                    // フル画面ターミナル → タブ選択ダイアログを開く
+                            if *terminal_split_ref_c.borrow() {
+                                // スプリット中 → Alt+L はブロック（何もしない）
+                            } else if atref_c.borrow().is_some() {
+                                // ターミナルがアクティブかつスプリット未表示 → タブ選択ダイアログ
+                                if aid_ref_c.borrow().is_some() {
                                     is_tab_select_c.set(true);
                                 }
                             } else {
