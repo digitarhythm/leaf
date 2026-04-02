@@ -103,7 +103,7 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
         Callback::from(move |_: ()| {
             is_closing.set(true);
             let cb = on_close.clone();
-            gloo::timers::callback::Timeout::new(300, move || { cb.emit(()); }).forget();
+            gloo::timers::callback::Timeout::new(100, move || { cb.emit(()); }).forget();
         })
     };
 
@@ -112,7 +112,7 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
             // Backdrop
             <div
                 class={classes!(
-                    "absolute", "inset-0", "bg-black/60", "transition-opacity", "duration-300",
+                    "absolute", "inset-0", "bg-black/60", "transition-opacity", "duration-100",
                     if *is_closing { "opacity-0" } else { "opacity-100" }
                 )}
                 onclick={let c = on_close.clone(); move |_| c.emit(())}
@@ -121,10 +121,10 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
             <div class={classes!(
                 "relative", "z-10", "w-full", "max-w-md", "mx-4", "bg-[#1d2021]", "rounded-xl",
                 "border", "border-[#3c3836]", "shadow-2xl", "overflow-hidden",
-                "transition-all", "duration-300",
+                "transition-all", "duration-100",
                 if *is_closing { "opacity-0 scale-95" } else { "opacity-100 scale-100" }
             )}
-                style="animation: dialog-in 0.3s ease-out;"
+                style="animation: dialog-in 0.1s ease-out;"
             >
                 // Header
                 <div class="flex items-center justify-between px-6 py-4 border-b border-[#3c3836]">

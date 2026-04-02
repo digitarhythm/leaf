@@ -600,6 +600,11 @@ pub fn app() -> Html {
     let split_pane_mounted = use_state(|| false);   // 右ペインをDOMに保持するか
     let split_pane_opacity = use_state(|| false);   // 右ペインのopacity (true=100, false=0)
     let split_pane_is_terminal = use_state(|| false); // フェードアウト中のコンテンツ種別
+    let split_pane_cached_content = use_mut_ref(|| "".to_string()); // フェードアウト中に保持するコンテンツ
+    let terminal_split_edit_mode = use_state(|| false); // ターミナルスプリット右ペイン編集モード
+    let terminal_split_edit_ref = use_mut_ref(|| false);
+    let split_edit_textarea_ref = use_node_ref();
+    let split_edit_debounce = use_mut_ref(|| None::<Timeout>);
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
     let pending_delete_category = use_state(|| None::<String>);
@@ -2372,6 +2377,8 @@ pub fn app() -> Html {
                 let split_preview_ev = split_preview_enabled.clone();
                 let terminal_split_ev = terminal_split_enabled.clone();
                 let terminal_split_ref_ev = terminal_split_ref.clone();
+                let terminal_split_edit_ev = terminal_split_edit_mode.clone();
+                let terminal_split_edit_ref_ev = terminal_split_edit_ref.clone();
                 let tci_ev = tab_closing_id.clone();
                 let tfs_ev = terminal_font_size.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *split_preview_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
@@ -2408,6 +2415,8 @@ pub fn app() -> Html {
                     let pending_save_close_c = pending_save_close_tab_ev.clone();
                     let terminal_split_c = terminal_split_ev.clone();
                     let terminal_split_ref_c = terminal_split_ref_ev.clone();
+                    let terminal_split_edit_c = terminal_split_edit_ev.clone();
+                    let terminal_split_edit_ref_c = terminal_split_edit_ref_ev.clone();
                     let tfs_c = tfs_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
@@ -2420,6 +2429,7 @@ pub fn app() -> Html {
                         let is_l_key = code == "KeyL" || key_lower == "l" || key_lower == "¬";
                         let is_h_key = code == "KeyH" || key_lower == "h" || key_lower == "˙";
                         let is_m_key = code == "KeyM" || key_lower == "m" || key_lower == "µ";
+                        let is_e_key = code == "KeyE" || key_lower == "e" || key_lower == "´";
                         let is_plus_key = code == "Equal" || key == "=" || key == "+" || key == "≠";
                         let is_minus_key = code == "Minus" || key == "-" || key == "–";
                         let is_toggle_shortcut = modifier_active && (is_l_key || is_h_key || is_m_key);
@@ -2430,7 +2440,7 @@ pub fn app() -> Html {
                             let is_app_key = is_l_key || is_h_key || is_m_key || is_plus_key || is_minus_key
                                 || code == "KeyN" || code == "KeyS" || code == "KeyO" || code == "KeyF" || code == "KeyW"
                                 || code == "BracketLeft" || code == "BracketRight"
-                                || code == "Comma" || code == "KeyT";
+                                || code == "Comma" || code == "KeyT" || code == "KeyE";
                             if is_app_key { e.prevent_default(); e.stop_immediate_propagation(); }
                         }
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
@@ -2462,6 +2472,15 @@ pub fn app() -> Html {
                                 sheets_c.set(us);
                             }
                             if !new_val { focus_editor(); }
+                            return;
+                        }
+
+                        // Alt + E : ターミナルスプリット時の右ペイン編集モード切り替え
+                        if modifier_active && is_e_key && atref_c.borrow().is_some() && *terminal_split_ref_c.borrow() && !is_overlay_active {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            let new_val = !*terminal_split_edit_ref_c.borrow();
+                            *terminal_split_edit_ref_c.borrow_mut() = new_val;
+                            terminal_split_edit_c.set(new_val);
                             return;
                         }
 
@@ -3297,6 +3316,20 @@ pub fn app() -> Html {
         })
     };
 
+    // ターミナルスプリットが解除された時に編集モードをリセット
+    {
+        let edit_mode = terminal_split_edit_mode.clone();
+        let edit_ref = terminal_split_edit_ref.clone();
+        let is_terminal_split_i = *terminal_split_enabled && (*active_terminal_id).is_some() && (*active_sheet_id).is_some();
+        use_effect_with(is_terminal_split_i, move |&active| {
+            if !active {
+                *edit_ref.borrow_mut() = false;
+                edit_mode.set(false);
+            }
+            || ()
+        });
+    }
+
     // 分割比率・ターミナル切り替え時にエディタをリサイズ
     {
         let ratio_i = (*split_ratio * 1000.0) as i32;
@@ -3346,15 +3379,41 @@ pub fn app() -> Html {
                 }).forget();
             } else {
                 // ブラウザが opacity-100 を描画した後に opacity-0 へ変更するため
-                // 1フレーム待ってから opacity を下げ、その後 300ms でアンマウント
+                // 1フレーム待ってから opacity を下げ、その後 100ms でアンマウント
                 let opacity2 = opacity.clone();
                 let mounted2 = mounted.clone();
                 gloo::timers::callback::Timeout::new(16, move || {
                     opacity2.set(false);
-                    gloo::timers::callback::Timeout::new(300, move || {
+                    gloo::timers::callback::Timeout::new(100, move || {
                         mounted2.set(false);
                     }).forget();
                 }).forget();
+            }
+            || ()
+        });
+    }
+
+    // 編集モード開始時にテキストエリアにコンテンツをセットしてフォーカス
+    {
+        let textarea_ref = split_edit_textarea_ref.clone();
+        let sheets_r = sheets_ref.clone();
+        let aid_r = active_id_ref.clone();
+        let edit_mode = *terminal_split_edit_mode;
+        use_effect_with(edit_mode, move |&editing| {
+            if editing {
+                let content = {
+                    let aid = aid_r.borrow().clone();
+                    if let Some(id) = aid {
+                        get_editor_content().as_string().unwrap_or_else(|| {
+                            sheets_r.borrow().iter().find(|s| s.id == id)
+                                .map(|s| s.content.clone()).unwrap_or_default()
+                        })
+                    } else { "".to_string() }
+                };
+                if let Some(ta) = textarea_ref.cast::<web_sys::HtmlTextAreaElement>() {
+                    ta.set_value(&content);
+                    let _ = ta.focus();
+                }
             }
             || ()
         });
@@ -3365,8 +3424,7 @@ pub fn app() -> Html {
     } else {
         "width: 100%".to_string()
     };
-    // フェードアウト中（split_pane_is_terminal=true かつ is_terminal_split=false）もコンテンツを維持する
-    let terminal_split_content = if is_terminal_split || *split_pane_is_terminal {
+    let terminal_split_content = if is_terminal_split {
         let aid = (*active_sheet_id).clone();
         if let Some(id) = aid {
             get_editor_content().as_string().unwrap_or_else(|| {
@@ -3376,8 +3434,7 @@ pub fn app() -> Html {
     } else { "".to_string() };
     let preview_scroll = active_sheet_id.as_ref().and_then(|id| sheets_ref.borrow().iter().find(|s| s.id == *id).map(|s| s.preview_scroll_top)).unwrap_or(0.0);
 
-    // フェードアウト中（split_pane_mounted=true かつ !split_pane_is_terminal）もコンテンツを維持する
-    let inline_preview_content = if *is_preview_visible || (*split_pane_mounted && !*split_pane_is_terminal) {
+    let inline_preview_content = if *is_preview_visible {
         let aid = (*active_sheet_id).clone();
         if let Some(id) = aid {
             get_editor_content().as_string().unwrap_or_else(|| {
@@ -3386,11 +3443,51 @@ pub fn app() -> Html {
         } else { "".to_string() }
     } else { "".to_string() };
 
-    // 右ペインに表示するコンテンツ（フェードアウト中は最後に表示したものを維持）
-    let split_right_content = if *split_pane_is_terminal {
-        terminal_split_content.clone()
+    // 右ペインに表示するコンテンツ
+    // 表示中は最新コンテンツを取得してキャッシュし、フェードアウト中はキャッシュを使用
+    let showing_now = is_split_view || is_terminal_split;
+    let split_right_content = if showing_now {
+        let content = if *split_pane_is_terminal {
+            terminal_split_content.clone()
+        } else {
+            inline_preview_content.clone()
+        };
+        *split_pane_cached_content.borrow_mut() = content.clone();
+        content
     } else {
-        inline_preview_content.clone()
+        // フェードアウト中: キャッシュされたコンテンツを使用（DOM更新なし）
+        split_pane_cached_content.borrow().clone()
+    };
+
+    // ターミナルスプリット編集モード用の入力コールバック
+    let on_split_edit_input = {
+        let sheets_r = sheets_ref.clone();
+        let sheets_s = sheets.clone();
+        let aid_r = active_id_ref.clone();
+        let os = on_save_cb.clone();
+        let debounce = split_edit_debounce.clone();
+        Callback::from(move |e: web_sys::InputEvent| {
+            let content = if let Some(ta) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlTextAreaElement>().ok()) {
+                ta.value()
+            } else { return; };
+            let aid = (*aid_r.borrow()).clone();
+            if let Some(id) = aid {
+                let mut cur_sheets = (*sheets_r.borrow()).clone();
+                if let Some(sheet) = cur_sheets.iter_mut().find(|s| s.id == id) {
+                    let now = js_sys::Date::now() as u64;
+                    sheet.content = content.clone();
+                    sheet.is_modified = true;
+                    sheet.temp_content = Some(content.clone());
+                    sheet.temp_timestamp = Some(now);
+                    let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview };
+                    spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
+                }
+                *sheets_r.borrow_mut() = cur_sheets.clone();
+                sheets_s.set(cur_sheets);
+            }
+            let os_c = os.clone();
+            *debounce.borrow_mut() = Some(Timeout::new(1000, move || { os_c.emit(false); }));
+        })
     };
 
     let help_html: Html = if *is_help_visible {
@@ -3468,9 +3565,17 @@ pub fn app() -> Html {
                                 <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
                                      onmousedown={on_splitter_mousedown.clone()} />
                                 // 右ペイン: opacity トランジションでフェードイン/アウト
-                                <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-300",
+                                <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-100",
                                                      if *split_pane_opacity { "opacity-100" } else { "opacity-0" })}>
-                                    <InlinePreview content={split_right_content.clone()} file_ext={current_file_ext.clone()} font_size={*font_size} initial_scroll_top={preview_scroll} is_split=true />
+                                    if *terminal_split_edit_mode && is_terminal_split {
+                                        <textarea
+                                            ref={split_edit_textarea_ref.clone()}
+                                            oninput={on_split_edit_input.clone()}
+                                            class="w-full h-full bg-[#1a1b26] text-white font-mono text-xs p-4 resize-none outline-none custom-scrollbar"
+                                        />
+                                    } else {
+                                        <InlinePreview content={split_right_content.clone()} file_ext={current_file_ext.clone()} font_size={*font_size} initial_scroll_top={preview_scroll} is_split=true />
+                                    }
                                 </div>
                             }
                         </div>
