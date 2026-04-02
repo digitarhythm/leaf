@@ -53,7 +53,7 @@ pub fn preview(props: &PreviewProps) -> Html {
         Callback::from(move |_: ()| {
             is_closing.set(true);
             let on_close = on_close.clone();
-            Timeout::new(100, move || {
+            Timeout::new(300, move || {
                 on_close.emit(());
             }).forget();
         })
@@ -66,7 +66,7 @@ pub fn preview(props: &PreviewProps) -> Html {
         use_effect_with(content, move |_| {
             if let Some(div) = node_ref.cast::<web_sys::Element>() {
                 let div_c = div.clone();
-                gloo::timers::callback::Timeout::new(100, move || {
+                gloo::timers::callback::Timeout::new(300, move || {
                     let _ = init_mermaid(&div_c);
                     if let Some(html_el) = div_c.dyn_ref::<web_sys::HtmlElement>() {
                         if html_el.get_attribute("tabindex").map(|t| t == "0").unwrap_or(false) {

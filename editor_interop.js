@@ -703,6 +703,65 @@ if (is_tauri() && window.__TAURI__ && window.__TAURI__.core) {
     window.__TAURI__.core.invoke('is_windows').then(v => { window._is_windows_tauri = v; });
 }
 
+// --- スプリット編集エディタ (Ace 第2インスタンス) ---
+let _splitEditor = null;
+let _splitEditorTimer = null;
+
+export function init_split_editor(element_id, content) {
+    if (typeof ace === 'undefined') return;
+    if (_splitEditor) { _splitEditor.destroy(); _splitEditor = null; }
+    _splitEditor = ace.edit(element_id);
+    // メインエディタと同じテーマを適用
+    const theme = editor ? editor.getTheme() : ('ace/theme/' + (localStorage.getItem('leaf_editor_theme') || 'gruvbox'));
+    _splitEditor.setTheme(theme);
+    // Vim モードを同期
+    const isVim = editor && editor.getKeyboardHandler && editor.getKeyboardHandler() && editor.getKeyboardHandler().$id === 'ace/keyboard/vim';
+    if (isVim) _splitEditor.setKeyboardHandler('ace/keyboard/vim');
+    _splitEditor.setOptions({
+        fontSize: localStorage.getItem(getFontSizeKey()) || '14pt',
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
+        showPrintMargin: false, useSoftTabs: true, tabSize: 4, wrap: true, indentedSoftWrap: true,
+        enableBasicAutocompletion: false, enableLiveAutocompletion: false
+    });
+    _splitEditor.setValue(content || '', -1);
+    _splitEditor.clearSelection();
+    _splitEditor.on('change', () => {
+        if (_splitEditorTimer) clearTimeout(_splitEditorTimer);
+        _splitEditorTimer = setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('split-editor-changed'));
+        }, 200);
+    });
+    setTimeout(() => { if (_splitEditor) { _splitEditor.resize(); _splitEditor.focus(); } }, 50);
+}
+
+export function destroy_split_editor() {
+    if (_splitEditorTimer) { clearTimeout(_splitEditorTimer); _splitEditorTimer = null; }
+    if (_splitEditor) { _splitEditor.destroy(); _splitEditor = null; }
+}
+
+export function get_split_editor_content() {
+    if (!_splitEditor) return '';
+    return _splitEditor.getValue();
+}
+
+export function focus_split_editor() {
+    if (_splitEditor) _splitEditor.focus();
+}
+
+// スプリットエディタの内容をメインエディタに同期（edit mode 終了時）
+export function sync_split_editor_to_main() {
+    if (!_splitEditor || !editor) return;
+    const content = _splitEditor.getValue();
+    if (editor.getValue() === content) return;
+    internalChange = true;
+    try {
+        editor.setValue(content, -1);
+        editor.clearSelection();
+    } finally {
+        internalChange = false;
+    }
+}
+
 // --- Terminal (xterm.js) - 複数インスタンス対応 ---
 const _terminals = new Map(); // id -> { terminal, fitAddon, unlisten, exitUnlisten }
 let _ptyOutputUnlisten = null;

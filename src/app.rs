@@ -267,7 +267,7 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
     let container_class = if props.is_split {
         "h-full w-full overflow-y-auto bg-[#1a1b26]"
     } else {
-        "absolute inset-0 z-20 overflow-y-auto bg-[#1a1b26]"
+        "absolute inset-0 overflow-y-auto bg-[#1a1b26]"
     };
     let container_id = if props.is_split { "split-preview-scroll" } else { "" };
     html! {
@@ -582,6 +582,7 @@ pub fn app() -> Html {
     });
     let is_preview_visible = use_state(|| false);
     let is_preview_fading_out = use_state(|| false);
+    let preview_overlay_opacity = use_state(|| false); // プレビューオーバーレイのopacity制御
     let split_preview_enabled = use_state(|| {
         get_account_storage(SPLIT_PREVIEW_KEY)
             .map(|v| v == "true")
@@ -603,7 +604,6 @@ pub fn app() -> Html {
     let split_pane_cached_content = use_mut_ref(|| "".to_string()); // フェードアウト中に保持するコンテンツ
     let terminal_split_edit_mode = use_state(|| false); // ターミナルスプリット右ペイン編集モード
     let terminal_split_edit_ref = use_mut_ref(|| false);
-    let split_edit_textarea_ref = use_node_ref();
     let split_edit_debounce = use_mut_ref(|| None::<Timeout>);
     let is_help_visible = use_state(|| false);
     let is_suppressing_changes = use_state(|| false); 
@@ -1781,11 +1781,13 @@ pub fn app() -> Html {
     let close_preview = {
         let fo = is_preview_fading_out.clone();
         let iv = is_preview_visible.clone();
+        let op = preview_overlay_opacity.clone();
         Callback::from(move |_: ()| {
             fo.set(true);
+            op.set(false); // フェードアウト開始
             let iv = iv.clone();
             let fo = fo.clone();
-            gloo::timers::callback::Timeout::new(100, move || {
+            gloo::timers::callback::Timeout::new(300, move || {
                 iv.set(false);
                 fo.set(false);
                 crate::js_interop::focus_editor();
@@ -1794,12 +1796,19 @@ pub fn app() -> Html {
     };
     let on_preview_cb = {
         let ip = is_preview_visible.clone();
+        let op = preview_overlay_opacity.clone();
         let rs = sheets_ref.clone();
         let s_state = sheets.clone();
         let aid_ref = active_id_ref.clone();
         Callback::from(move |_| {
             let new_val = !*ip;
             ip.set(new_val);
+            if new_val {
+                // フェードイン: opacity-0 で表示してから opacity-100 へ
+                op.set(false);
+                let op_c = op.clone();
+                gloo::timers::callback::Timeout::new(10, move || { op_c.set(true); }).forget();
+            }
             if let Some(id) = (*aid_ref.borrow()).clone() {
                 let mut us = (*rs.borrow()).clone();
                 if let Some(sheet) = us.iter_mut().find(|s| s.id == id) {
@@ -2359,6 +2368,7 @@ pub fn app() -> Html {
                 let aid_ev = active_sheet_id.clone();
                 let file_close_trigger_ev = file_close_trigger.clone();
                 let close_preview_ev = close_preview.clone();
+                let preview_overlay_opacity_ev = preview_overlay_opacity.clone();
                 let sheets_ref_ev = sheets_ref.clone();
                 let active_id_ref_ev = active_id_ref.clone();
                 let saving_id_ref_ev = saving_id_ref.clone();
@@ -2397,6 +2407,7 @@ pub fn app() -> Html {
                     let aid_c = aid_ev.clone();
                     let file_close_trigger_c = file_close_trigger_ev.clone();
                     let _close_preview_c = close_preview_ev.clone();
+                    let preview_overlay_opacity_c = preview_overlay_opacity_ev.clone();
                     let rs_c = sheets_ref_ev.clone();
                     let aid_ref_c = active_id_ref_ev.clone();
                     let saving_ref_c = saving_id_ref_ev.clone();
@@ -2458,7 +2469,18 @@ pub fn app() -> Html {
                                 return;
                             }
                             let new_val = !*is_preview_c;
-                            is_preview_c.set(new_val);
+                            if new_val {
+                                // フェードイン
+                                is_preview_c.set(true);
+                                preview_overlay_opacity_c.set(false);
+                                let op_c = preview_overlay_opacity_c.clone();
+                                gloo::timers::callback::Timeout::new(10, move || { op_c.set(true); }).forget();
+                            } else {
+                                // フェードアウト
+                                preview_overlay_opacity_c.set(false);
+                                let iv_c = is_preview_c.clone();
+                                gloo::timers::callback::Timeout::new(300, move || { iv_c.set(false); focus_editor(); }).forget();
+                            }
                             // アクティブシートのis_previewを更新
                             if let Some(id) = (*aid_ref_c.borrow()).clone() {
                                 let mut us = (*rs_c.borrow()).clone();
@@ -2471,7 +2493,6 @@ pub fn app() -> Html {
                                 *rs_c.borrow_mut() = us.clone();
                                 sheets_c.set(us);
                             }
-                            if !new_val { focus_editor(); }
                             return;
                         }
 
@@ -2480,6 +2501,32 @@ pub fn app() -> Html {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let new_val = !*terminal_split_edit_ref_c.borrow();
                             *terminal_split_edit_ref_c.borrow_mut() = new_val;
+                            if !new_val {
+                                // 編集モード終了: スプリットエディタ内容をメインエディタに同期して保存
+                                crate::js_interop::sync_split_editor_to_main();
+                                let content = crate::js_interop::get_split_editor_content();
+                                let aid = (*aid_ref_c.borrow()).clone();
+                                if let Some(id) = aid {
+                                    let mut cur = (*rs_c.borrow()).clone();
+                                    if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
+                                        if sheet.content != content {
+                                            let now = js_sys::Date::now() as u64;
+                                            sheet.content = content.clone();
+                                            sheet.is_modified = true;
+                                            sheet.temp_content = Some(content.clone());
+                                            sheet.temp_timestamp = Some(now);
+                                            let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview };
+                                            spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
+                                        }
+                                    }
+                                    *rs_c.borrow_mut() = cur.clone();
+                                    sheets_c.set(cur);
+                                }
+                                // ターミナルにフォーカスを戻す
+                                if let Some(tid) = atref_c.borrow().as_ref().cloned() {
+                                    crate::js_interop::terminal_focus(&tid);
+                                }
+                            }
                             terminal_split_edit_c.set(new_val);
                             return;
                         }
@@ -2567,7 +2614,10 @@ pub fn app() -> Html {
                             // ESCで編集モードに戻る
                             if key == "Escape" {
                                 e.prevent_default(); e.stop_immediate_propagation();
-                                is_preview_c.set(false);
+                                // フェードアウト
+                                preview_overlay_opacity_c.set(false);
+                                let iv_esc = is_preview_c.clone();
+                                gloo::timers::callback::Timeout::new(300, move || { iv_esc.set(false); focus_editor(); }).forget();
                                 // アクティブシートのis_previewを更新
                                 if let Some(id) = (*aid_ref_c.borrow()).clone() {
                                     let mut us = (*rs_c.borrow()).clone();
@@ -2580,7 +2630,6 @@ pub fn app() -> Html {
                                     *rs_c.borrow_mut() = us.clone();
                                     sheets_c.set(us);
                                 }
-                                focus_editor();
                                 return;
                             }
 
@@ -2773,7 +2822,7 @@ pub fn app() -> Html {
                                     let tci2 = tci_c.clone();
                                     let rs2 = rs_c.clone(); let sc2 = sheets_c.clone(); let ac2 = aid_c.clone(); let sp2 = sp_c.clone(); let nc2 = ncid_c.clone(); let ar2 = aid_ref_c.clone();
                                     let to2 = tab_order_ref_c.clone(); let atid2 = atid_c.clone(); let atref2 = atref_c.clone();
-                                    Timeout::new(100, move || {
+                                    Timeout::new(300, move || {
                                         tci2.set(None);
                                         close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), to2.borrow().clone(), Some(atid2.clone()), Some(atref2.clone()));
                                     }).forget();
@@ -3020,9 +3069,9 @@ pub fn app() -> Html {
                 let atref2 = atref_close.clone();
                 let aid2 = aid.clone();
                 let aid_ref2 = aid_ref.clone();
-                Timeout::new(100, move || {
-                    tci2.set(None);
-                    crate::js_interop::terminal_close(&close_id2);
+                Timeout::new(300, move || {
+                tci2.set(None);
+                crate::js_interop::terminal_close(&close_id2);
                     tids2.borrow_mut().retain(|x| x != &close_id2);
                     ttids2.set(tids2.borrow().clone());
                     if was_active {
@@ -3384,7 +3433,7 @@ pub fn app() -> Html {
                 let mounted2 = mounted.clone();
                 gloo::timers::callback::Timeout::new(16, move || {
                     opacity2.set(false);
-                    gloo::timers::callback::Timeout::new(100, move || {
+                    gloo::timers::callback::Timeout::new(300, move || {
                         mounted2.set(false);
                     }).forget();
                 }).forget();
@@ -3393,11 +3442,13 @@ pub fn app() -> Html {
         });
     }
 
-    // 編集モード開始時にテキストエリアにコンテンツをセットしてフォーカス
+    // 編集モード: Aceエディタの初期化/破棄 + 変更イベントリスナー
     {
-        let textarea_ref = split_edit_textarea_ref.clone();
         let sheets_r = sheets_ref.clone();
+        let sheets_s = sheets.clone();
         let aid_r = active_id_ref.clone();
+        let os = on_save_cb.clone();
+        let debounce = split_edit_debounce.clone();
         let edit_mode = *terminal_split_edit_mode;
         use_effect_with(edit_mode, move |&editing| {
             if editing {
@@ -3410,12 +3461,41 @@ pub fn app() -> Html {
                         })
                     } else { "".to_string() }
                 };
-                if let Some(ta) = textarea_ref.cast::<web_sys::HtmlTextAreaElement>() {
-                    ta.set_value(&content);
-                    let _ = ta.focus();
-                }
+                // DOMが描画された後にAceエディタを初期化
+                let content_c = content.clone();
+                gloo::timers::callback::Timeout::new(20, move || {
+                    crate::js_interop::init_split_editor("split-edit-editor", &content_c);
+                }).forget();
+                // "split-editor-changed" イベントで自動保存
+                let window = web_sys::window().unwrap();
+                let listener = gloo::events::EventListener::new(&window, "split-editor-changed", move |_| {
+                    let content = crate::js_interop::get_split_editor_content();
+                    let aid = (*aid_r.borrow()).clone();
+                    if let Some(id) = aid {
+                        let mut cur = (*sheets_r.borrow()).clone();
+                        if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
+                            if sheet.content == content { return; }
+                            let now = js_sys::Date::now() as u64;
+                            sheet.content = content.clone();
+                            sheet.is_modified = true;
+                            sheet.temp_content = Some(content.clone());
+                            sheet.temp_timestamp = Some(now);
+                            let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview };
+                            spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
+                        }
+                        *sheets_r.borrow_mut() = cur.clone();
+                        sheets_s.set(cur);
+                    }
+                    let os_c = os.clone();
+                    *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(1000, move || { os_c.emit(false); }));
+                });
+                Box::new(move || {
+                    drop(listener);
+                    crate::js_interop::destroy_split_editor();
+                }) as Box<dyn FnOnce()>
+            } else {
+                Box::new(|| ()) as Box<dyn FnOnce()>
             }
-            || ()
         });
     }
 
@@ -3459,37 +3539,6 @@ pub fn app() -> Html {
         split_pane_cached_content.borrow().clone()
     };
 
-    // ターミナルスプリット編集モード用の入力コールバック
-    let on_split_edit_input = {
-        let sheets_r = sheets_ref.clone();
-        let sheets_s = sheets.clone();
-        let aid_r = active_id_ref.clone();
-        let os = on_save_cb.clone();
-        let debounce = split_edit_debounce.clone();
-        Callback::from(move |e: web_sys::InputEvent| {
-            let content = if let Some(ta) = e.target().and_then(|t| t.dyn_into::<web_sys::HtmlTextAreaElement>().ok()) {
-                ta.value()
-            } else { return; };
-            let aid = (*aid_r.borrow()).clone();
-            if let Some(id) = aid {
-                let mut cur_sheets = (*sheets_r.borrow()).clone();
-                if let Some(sheet) = cur_sheets.iter_mut().find(|s| s.id == id) {
-                    let now = js_sys::Date::now() as u64;
-                    sheet.content = content.clone();
-                    sheet.is_modified = true;
-                    sheet.temp_content = Some(content.clone());
-                    sheet.temp_timestamp = Some(now);
-                    let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview };
-                    spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
-                }
-                *sheets_r.borrow_mut() = cur_sheets.clone();
-                sheets_s.set(cur_sheets);
-            }
-            let os_c = os.clone();
-            *debounce.borrow_mut() = Some(Timeout::new(1000, move || { os_c.emit(false); }));
-        })
-    };
-
     let help_html: Html = if *is_help_visible {
         let ih = is_help_visible.clone();
         let atid_help = active_terminal_id.clone();
@@ -3530,7 +3579,7 @@ pub fn app() -> Html {
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() }} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} on_reorder={on_tab_reorder_cb} on_drag_end={on_tab_drag_end_cb} on_new_tab={Some({ let cb = on_new_sheet_cb.clone(); Callback::from(move |_| cb.emit(())) })} />
                 // 分割プレビューモード
                 {html! {
-                        <div class={classes!("flex-1", "flex", "overflow-hidden", "bg-gray-900", "transition-opacity", "duration-100", if is_content_closing { "opacity-0" } else { "opacity-100" })}
+                        <div class={classes!("flex-1", "flex", "overflow-hidden", "bg-gray-900", "transition-opacity", "duration-300", if is_content_closing { "opacity-0" } else { "opacity-100" })}
                              onmousemove={on_container_mousemove.clone()}
                              onmouseup={on_container_mouseup.clone()}>
 
@@ -3541,12 +3590,15 @@ pub fn app() -> Html {
 
                                 // オーバーレイプレビュー（非分割モード時のみ）
                                 if !is_split_view && *is_preview_visible {
-                                    <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=false />
+                                    <div class={classes!("absolute", "inset-0", "z-20", "transition-opacity", "duration-300",
+                                                         if *preview_overlay_opacity { "opacity-100" } else { "opacity-0" })}>
+                                        <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=false />
+                                    </div>
                                 }
 
                                 // ターミナル（Tauri版のみ）
                                 if crate::js_interop::is_tauri() {
-                                    <div id="terminal-area" key="terminal-area-fixed" class={classes!("absolute", "inset-0", "z-30", "bg-[#1d2021]", "transition-opacity", "duration-100", if (*active_terminal_id).is_none() { "hidden" } else { "" }, if is_terminal_closing { "opacity-0" } else { "opacity-100" })}></div>
+                                    <div id="terminal-area" key="terminal-area-fixed" class={classes!("absolute", "inset-0", "z-30", "bg-[#1d2021]", "transition-opacity", "duration-300", if (*active_terminal_id).is_none() { "hidden" } else { "" }, if is_terminal_closing { "opacity-0" } else { "opacity-100" })}></div>
                                 }
 
                                 // フォールバック表示
@@ -3565,14 +3617,10 @@ pub fn app() -> Html {
                                 <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
                                      onmousedown={on_splitter_mousedown.clone()} />
                                 // 右ペイン: opacity トランジションでフェードイン/アウト
-                                <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-100",
+                                <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-300",
                                                      if *split_pane_opacity { "opacity-100" } else { "opacity-0" })}>
                                     if *terminal_split_edit_mode && is_terminal_split {
-                                        <textarea
-                                            ref={split_edit_textarea_ref.clone()}
-                                            oninput={on_split_edit_input.clone()}
-                                            class="w-full h-full bg-[#1a1b26] text-white font-mono text-xs p-4 resize-none outline-none custom-scrollbar"
-                                        />
+                                        <div id="split-edit-editor" class="w-full h-full" />
                                     } else {
                                         <InlinePreview content={split_right_content.clone()} file_ext={current_file_ext.clone()} font_size={*font_size} initial_scroll_top={preview_scroll} is_split=true />
                                     }

@@ -47,7 +47,7 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
         Callback::from(move |_: ()| {
             is_closing.set(true);
             let cb = on_close.clone();
-            Timeout::new(100, move || { cb.emit(()); }).forget();
+            Timeout::new(300, move || { cb.emit(()); }).forget();
         })
     };
 
@@ -104,7 +104,7 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
             // Backdrop
             <div
                 class={classes!(
-                    "absolute", "inset-0", "bg-black/60", "transition-opacity", "duration-100",
+                    "absolute", "inset-0", "bg-black/60", "transition-opacity", "duration-300",
                     if *is_closing { "opacity-0" } else { "opacity-100" }
                 )}
                 onclick={{let hc = handle_close.clone(); move |_| hc.emit(())}}
@@ -114,7 +114,7 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
             <div class={classes!(
                 "relative", "z-10", "w-full", "max-w-2xl", "mx-4",
                 "bg-[#1d2021]", "rounded-xl", "border", "border-[#3c3836]", "shadow-2xl",
-                "transition-all", "duration-100", anim_class
+                "transition-all", "duration-300", anim_class
             )}>
                 // Header
                 <div class="flex items-center justify-between px-6 py-4 border-b border-[#3c3836]">

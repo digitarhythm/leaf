@@ -45,6 +45,12 @@ extern "C" {
     pub fn terminal_focus(id: &str);
     pub fn terminal_set_font_size(size: i32) -> i32;
 
+    pub fn init_split_editor(element_id: &str, content: &str);
+    pub fn destroy_split_editor();
+    pub fn get_split_editor_content() -> String;
+    pub fn focus_split_editor();
+    pub fn sync_split_editor_to_main();
+
     pub fn can_install_pwa() -> bool;
     pub async fn trigger_pwa_install() -> JsValue;
     pub fn is_webkit_or_safari() -> bool;

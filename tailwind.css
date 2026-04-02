@@ -719,9 +719,6 @@
   .resize {
     resize: both;
   }
-  .resize-none {
-    resize: none;
-  }
   .appearance-none {
     appearance: none;
   }
