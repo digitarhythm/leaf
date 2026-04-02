@@ -52,8 +52,6 @@ pub const LIGHT_THEMES: &[(&str, &str)] = &[
 pub struct SettingsDialogProps {
     pub vim_mode: bool,
     pub on_toggle_vim: Callback<()>,
-    pub split_preview_enabled: bool,
-    pub on_toggle_split_preview: Callback<()>,
     pub current_theme: String,
     pub on_change_theme: Callback<String>,
     pub empty_save_behavior: EmptySaveBehavior,
@@ -164,27 +162,6 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                                 "absolute", "top-0.5", "w-5", "h-5", "bg-white", "rounded-full", "shadow",
                                 "transition-transform", "duration-200",
                                 if props.vim_mode { "translate-x-[22px]" } else { "translate-x-0.5" }
-                            )}></div>
-                        </button>
-                    </div>
-
-                    // Split Preview
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <div class="text-sm font-bold text-[#ebdbb2]">{ i18n::t("split_preview", lang) }</div>
-                            <div class="text-xs text-gray-500 mt-0.5">{ i18n::t("split_preview_desc", lang) }</div>
-                        </div>
-                        <button
-                            onclick={props.on_toggle_split_preview.reform(|_| ())}
-                            class={classes!(
-                                "relative", "w-11", "h-6", "rounded-full", "transition-colors", "duration-200", "cursor-pointer", "shrink-0",
-                                if props.split_preview_enabled { "bg-emerald-500" } else { "bg-gray-600" }
-                            )}
-                        >
-                            <div class={classes!(
-                                "absolute", "top-0.5", "w-5", "h-5", "bg-white", "rounded-full", "shadow",
-                                "transition-transform", "duration-200",
-                                if props.split_preview_enabled { "translate-x-[22px]" } else { "translate-x-0.5" }
                             )}></div>
                         </button>
                     </div>

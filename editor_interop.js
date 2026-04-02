@@ -707,13 +707,19 @@ if (is_tauri() && window.__TAURI__ && window.__TAURI__.core) {
 let _splitEditor = null;
 let _splitEditorTimer = null;
 
-export function init_split_editor(element_id, content) {
+export function init_split_editor(element_id, content, filename) {
     if (typeof ace === 'undefined') return;
     if (_splitEditor) { _splitEditor.destroy(); _splitEditor = null; }
     _splitEditor = ace.edit(element_id);
     // メインエディタと同じテーマを適用
     const theme = editor ? editor.getTheme() : ('ace/theme/' + (localStorage.getItem('leaf_editor_theme') || 'gruvbox'));
     _splitEditor.setTheme(theme);
+    // ファイルモード（コードハイライト）を設定
+    if (filename) {
+        const modelist = ace.require("ace/ext/modelist");
+        const mode = modelist.getModeForPath(filename).mode;
+        _splitEditor.session.setMode(mode);
+    }
     // Vim モードを同期
     const isVim = editor && editor.getKeyboardHandler && editor.getKeyboardHandler() && editor.getKeyboardHandler().$id === 'ace/keyboard/vim';
     if (isVim) _splitEditor.setKeyboardHandler('ace/keyboard/vim');

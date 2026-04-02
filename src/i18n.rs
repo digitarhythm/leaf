@@ -926,6 +926,29 @@ pub fn t(key: &str, lang: Language) -> String {
         "ext_sql" => match lang { Language::Ja => "SQL", _ => "SQL" }.to_string(),
         "ext_yaml" => match lang { Language::Ja => "YAML", _ => "YAML" }.to_string(),
 
+        "select_tab_to_preview" => match lang {
+            Language::Ja => "プレビューするタブを選択",
+            Language::Zh => "选择要预览的标签",
+            Language::Ko => "미리볼 탭 선택",
+            Language::Es => "Seleccionar pestaña para previsualizar",
+            Language::De => "Tab zum Vorschau auswählen",
+            Language::Fr => "Sélectionner l'onglet à prévisualiser",
+            Language::It => "Seleziona scheda da visualizzare",
+            Language::Nl => "Selecteer tabblad voor voorbeeld",
+            _ => "Select Tab to Preview",
+        }.to_string(),
+        "no_tabs_open" => match lang {
+            Language::Ja => "開いているタブがありません",
+            Language::Zh => "没有打开的标签",
+            Language::Ko => "열린 탭이 없습니다",
+            Language::Es => "No hay pestañas abiertas",
+            Language::De => "Keine Tabs geöffnet",
+            Language::Fr => "Aucun onglet ouvert",
+            Language::It => "Nessuna scheda aperta",
+            Language::Nl => "Geen tabbladen geopend",
+            _ => "No tabs open",
+        }.to_string(),
+
         _ => key.to_string(),
     }
 }

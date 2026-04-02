@@ -45,7 +45,7 @@ extern "C" {
     pub fn terminal_focus(id: &str);
     pub fn terminal_set_font_size(size: i32) -> i32;
 
-    pub fn init_split_editor(element_id: &str, content: &str);
+    pub fn init_split_editor(element_id: &str, content: &str, filename: &str);
     pub fn destroy_split_editor();
     pub fn get_split_editor_content() -> String;
     pub fn focus_split_editor();
