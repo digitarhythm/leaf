@@ -1,5 +1,5 @@
 use tauri_plugin_sql::{Builder as SqlBuilder, Migration, MigrationKind};
-use std::time::Duration;
+use std::time::Duration; // v0.19.42j
 use std::sync::{Arc, Mutex};
 use serde_json::Value;
 use tauri_plugin_dialog::DialogExt;
@@ -451,6 +451,28 @@ fn open_url_in_browser(url: String) -> Result<(), String> {
     open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
 }
 
+#[tauri::command]
+fn open_local_page(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let label = format!("local-page-{}", js_sys_date_now_approx());
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        &label,
+        tauri::WebviewUrl::App(path.into()),
+    )
+    .title("Leaf")
+    .inner_size(960.0, 720.0)
+    .build()
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn js_sys_date_now_approx() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // .env ファイルから環境変数を読み込む
@@ -522,6 +544,7 @@ pub fn run() {
             open_local_file_native,
             save_local_file_native,
             open_url_in_browser,
+            open_local_page,
             set_window_opacity,
             set_window_blur,
             is_macos,

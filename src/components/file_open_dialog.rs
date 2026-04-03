@@ -87,8 +87,6 @@ pub struct FileOpenDialogProps {
     pub font_size: i32,
     pub on_change_font_size: Callback<i32>,
     pub is_processing: bool,
-    #[prop_or(true)]
-    pub show_ads: bool,
     #[prop_or(0)]
     pub close_trigger: u32,
     #[prop_or_default]
@@ -150,24 +148,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let preview_modal_scroll_ref = use_node_ref();
 
     let _is_sub_dialog_open = props.is_sub_dialog_open;
-
-    // 広告ライフサイクル管理
-    {
-        let show_ads = props.show_ads;
-        use_effect_with(show_ads, move |show| {
-            if *show {
-                let handle = Timeout::new(100, || {
-                    crate::adsense_interop::render_ad("leaf-ad-file-dialog");
-                });
-                handle.forget();
-            } else {
-                crate::adsense_interop::remove_ad("leaf-ad-file-dialog");
-            }
-            || {
-                crate::adsense_interop::remove_ad("leaf-ad-file-dialog");
-            }
-        });
-    }
 
     // ウィンドウサイズ監視
     {
@@ -1434,23 +1414,17 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 // カテゴリー一覧
-                <div class={classes!("overflow-hidden", "min-h-0", "border-b", "border-white/5", "bg-gray-900", "p-1", if props.show_ads { "panel-cat" } else { "flex-1" })}>
+                <div class={classes!("overflow-hidden", "min-h-0", "border-b", "border-white/5", "bg-gray-900", "p-1", "flex-1")}>
                     <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
                         { categories_html }
                     </div>
                 </div>
                 // シート一覧
-                <div class={classes!("flex", "flex-col", "overflow-hidden", "min-h-0", "bg-gray-950", "p-1", if props.show_ads { "panel-files" } else { "flex-1" })}>
+                <div class={classes!("flex", "flex-col", "overflow-hidden", "min-h-0", "bg-gray-950", "p-1", "flex-1")}>
                     <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
                         { files_html }
                     </div>
                 </div>
-                // 広告バナーエリア
-                if props.show_ads {
-                    <div id="leaf-ad-file-dialog" class="panel-ad min-h-0 overflow-hidden mx-1 mb-1">
-                    </div>
-                }
-
                 // フッターエリア
                 <div class="bg-gray-950/50 border-t border-white/5 flex items-center justify-between p-3">
                     <div class={classes!("flex", if *is_wide_layout { vec!["flex-row", "space-x-2", "w-full", "items-center"] } else { vec!["flex-col", "space-y-2", "w-full"] })}>

@@ -590,6 +590,11 @@ pub fn app() -> Html {
             .and_then(|v| v.parse::<i32>().ok())
             .unwrap_or(14)
     });
+    let terminal_font_size_ref = use_mut_ref(|| {
+        get_account_storage(TERMINAL_FONT_SIZE_KEY)
+            .and_then(|v| v.parse::<i32>().ok())
+            .unwrap_or(14)
+    });
     let split_ratio = use_state(|| 0.5f64);
     let split_ratio_ref = use_mut_ref(|| 0.5f64);
     let is_splitter_dragging = use_mut_ref(|| false);
@@ -598,6 +603,7 @@ pub fn app() -> Html {
     let split_pane_mounted = use_state(|| false);   // 右ペインをDOMに保持するか
     let split_pane_opacity = use_state(|| false);   // 右ペインのopacity (true=100, false=0)
     let split_pane_is_terminal = use_state(|| false); // フェードアウト中のコンテンツ種別
+    let split_content_opacity = use_state(|| true); // 右ペイン内コンテンツのopacity（編集モードトグル時フェード用）
     let split_pane_cached_content = use_mut_ref(|| "".to_string()); // フェードアウト中に保持するコンテンツ
     let terminal_split_edit_mode = use_state(|| false); // ターミナルスプリット右ペイン編集モード
     let terminal_split_edit_ref = use_mut_ref(|| false);
@@ -648,16 +654,6 @@ pub fn app() -> Html {
     let is_preview_ref = use_mut_ref(|| false);
     let is_file_open_ref = use_mut_ref(|| false);
     let is_help_ref = use_mut_ref(|| false);
-
-    // AdSenseスクリプト読み込み（Tauri以外）
-    {
-        use_effect_with((), |_| {
-            if !crate::js_interop::is_tauri() {
-                crate::adsense_interop::load_adsense_script();
-            }
-            || ()
-        });
-    }
 
     {
         use_effect_with((), move |_| {
@@ -2383,12 +2379,14 @@ pub fn app() -> Html {
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
                 let is_tab_select_ev = is_tab_select_dialog_visible.clone();
                 let split_pane_sheet_id_ev = split_pane_sheet_id.clone();
+                let split_content_opacity_ev = split_content_opacity.clone();
                 let terminal_split_ev = terminal_split_enabled.clone();
                 let terminal_split_ref_ev = terminal_split_ref.clone();
                 let terminal_split_edit_ev = terminal_split_edit_mode.clone();
                 let terminal_split_edit_ref_ev = terminal_split_edit_ref.clone();
                 let tci_ev = tab_closing_id.clone();
                 let tfs_ev = terminal_font_size.clone();
+                let tfs_ref_ev = terminal_font_size_ref.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -2429,6 +2427,8 @@ pub fn app() -> Html {
                     let terminal_split_edit_c = terminal_split_edit_ev.clone();
                     let terminal_split_edit_ref_c = terminal_split_edit_ref_ev.clone();
                     let tfs_c = tfs_ev.clone();
+                    let tfs_ref_c = tfs_ref_ev.clone();
+                    let split_content_opacity_c = split_content_opacity_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -2457,17 +2457,25 @@ pub fn app() -> Html {
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
                         
                         // Alt + L
-                        // [シート] 編集 ↔ フル画面プレビュー のトグル
+                        // [シート] 編集 ↔ フル画面プレビュー のトグル（スプリット状態は変えない）
                         // [ターミナル] フル画面ターミナル ↔ スプリットプレビュー のトグル（フル画面時はタブ選択ダイアログ経由）
-                        // ※スプリットが開いている場合はブロック（Alt+Eで閉じる）
+                        // ターミナルスプリットの判定: split_pane_sheet_id が Some = ターミナルから開いたスプリット
                         if modifier_active && is_l_key && !is_overlay_active {
                             e.prevent_default(); e.stop_immediate_propagation();
-                            if *terminal_split_ref_c.borrow() {
-                                // スプリット中 → Alt+L はブロック（何もしない）
-                            } else if atref_c.borrow().is_some() {
-                                // ターミナルがアクティブかつスプリット未表示 → タブ選択ダイアログ
-                                if aid_ref_c.borrow().is_some() {
-                                    is_tab_select_c.set(true);
+                            let split_open = *terminal_split_ref_c.borrow();
+                            let is_terminal_ctx = atref_c.borrow().is_some()
+                                || (split_open && (*split_pane_sheet_id_c).is_some());
+                            if is_terminal_ctx {
+                                if split_open {
+                                    // ターミナルスプリット中 → 閉じる
+                                    *terminal_split_ref_c.borrow_mut() = false;
+                                    terminal_split_c.set(false);
+                                    split_pane_sheet_id_c.set(None);
+                                } else {
+                                    // スプリット未表示 → タブ選択ダイアログ
+                                    if aid_ref_c.borrow().is_some() {
+                                        is_tab_select_c.set(true);
+                                    }
                                 }
                             } else {
                                 // シートがアクティブ: フル画面プレビュー切り替え
@@ -2504,12 +2512,12 @@ pub fn app() -> Html {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let split_open = *terminal_split_ref_c.borrow();
                             if atref_c.borrow().is_some() {
-                                // ターミナルがアクティブ: スプリット中のみAce編集モードをトグル
+                                // ターミナルがアクティブ: スプリット中のみAce編集モードをトグル（300msフェード）
                                 if split_open {
                                     let new_val = !*terminal_split_edit_ref_c.borrow();
                                     *terminal_split_edit_ref_c.borrow_mut() = new_val;
                                     if !new_val {
-                                        // 編集モード終了: 内容をメインエディタに同期して保存
+                                        // 編集モード終了: フェード前に内容を同期保存
                                         crate::js_interop::sync_split_editor_to_main();
                                         let content = crate::js_interop::get_split_editor_content();
                                         let aid = (*aid_ref_c.borrow()).clone();
@@ -2529,12 +2537,24 @@ pub fn app() -> Html {
                                             *rs_c.borrow_mut() = cur.clone();
                                             sheets_c.set(cur);
                                         }
-                                        // ターミナルにフォーカスを戻す
-                                        if let Some(tid) = atref_c.borrow().as_ref().cloned() {
-                                            crate::js_interop::terminal_focus(&tid);
-                                        }
                                     }
-                                    terminal_split_edit_c.set(new_val);
+                                    // フェードアウト → モード切替 → フェードイン
+                                    split_content_opacity_c.set(false);
+                                    let tse_c2 = terminal_split_edit_c.clone();
+                                    let atref_c2 = atref_c.clone();
+                                    let sco_c = split_content_opacity_c.clone();
+                                    gloo::timers::callback::Timeout::new(300, move || {
+                                        tse_c2.set(new_val);
+                                        if !new_val {
+                                            if let Some(tid) = atref_c2.borrow().as_ref().cloned() {
+                                                crate::js_interop::terminal_focus(&tid);
+                                            }
+                                        }
+                                        let sco_c2 = sco_c.clone();
+                                        gloo::timers::callback::Timeout::new(10, move || {
+                                            sco_c2.set(true);
+                                        }).forget();
+                                    }).forget();
                                 }
                                 // スプリット未表示時は何もしない
                             } else {
@@ -2772,8 +2792,9 @@ pub fn app() -> Html {
                         if modifier_active && is_font_size_shortcut && !is_overlay_active && atref_c.borrow().is_some() {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let delta = if is_plus_key { 1 } else { -1 };
-                            let current = *tfs_c;
+                            let current = *tfs_ref_c.borrow();
                             let new_size = crate::js_interop::terminal_set_font_size(current + delta);
+                            *tfs_ref_c.borrow_mut() = new_size;
                             tfs_c.set(new_size);
                             set_account_storage(TERMINAL_FONT_SIZE_KEY, &new_size.to_string());
                             return;
@@ -2887,7 +2908,12 @@ pub fn app() -> Html {
                                 else if settings_open { is_settings_c.set(false); }
                                 else if help { is_help_c.set(false); }
                                 else if file_open { is_file_open_c.set(false); sp_c.set(false); }
-                                focus_editor(); return;
+                                if let Some(ref tid) = *atref_c.borrow() {
+                                    crate::js_interop::terminal_focus(tid);
+                                } else {
+                                    focus_editor();
+                                }
+                                return;
                             }
                         }
                     });
@@ -3339,20 +3365,6 @@ pub fn app() -> Html {
         });
     }
 
-    // ログインページ広告
-    {
-        let is_auth = *is_authenticated;
-        let nc = *network_connected;
-        use_effect_with((is_auth, nc), move |deps| {
-            let (auth, online) = *deps;
-            if !auth && online {
-                crate::adsense_interop::load_adsense_script();
-                Timeout::new(500, || { crate::adsense_interop::render_ad("login-ad"); }).forget();
-            }
-            || ()
-        });
-    }
-
     // スプリッタードラッグコールバック
     let on_splitter_mousedown = {
         let is_dragging = is_splitter_dragging.clone();
@@ -3662,11 +3674,14 @@ pub fn app() -> Html {
                                 // 右ペイン: opacity トランジションでフェードイン/アウト
                                 <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-300",
                                                      if *split_pane_opacity { "opacity-100" } else { "opacity-0" })}>
-                                    if *terminal_split_edit_mode && (is_terminal_split || is_split_view) {
-                                        <div id="split-edit-editor" class="w-full h-full" />
-                                    } else {
-                                        <InlinePreview content={split_right_content.clone()} file_ext={split_pane_ext.clone()} font_size={*font_size} initial_scroll_top={preview_scroll} is_split=true />
-                                    }
+                                    <div class={classes!("w-full", "h-full", "transition-opacity", "duration-300",
+                                                         if *split_content_opacity { "opacity-100" } else { "opacity-0" })}>
+                                        if *terminal_split_edit_mode && (is_terminal_split || is_split_view) {
+                                            <div id="split-edit-editor" class="w-full h-full" />
+                                        } else {
+                                            <InlinePreview content={split_right_content.clone()} file_ext={split_pane_ext.clone()} font_size={*font_size} initial_scroll_top={preview_scroll} is_split=true />
+                                        }
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -3704,8 +3719,6 @@ pub fn app() -> Html {
                             <img src="icon.svg" class="mx-auto mb-8 shadow-2xl" style="width: 15vmin; height: 15vmin;" alt="Leaf Icon" />
                             <h1 class="text-4xl font-extrabold text-white mb-6 tracking-tight">{ i18n::t("welcome_headline", lang) }</h1>
                             <div class="mb-10 text-gray-300 text-sm leading-relaxed whitespace-pre-wrap opacity-80 bg-gray-800/30 p-6 rounded-lg border border-white/5 shadow-inner text-left">{ Html::from_html_unchecked(i18n::t("app_policy_description", lang).into()) }</div>
-                                                                                                                // 広告枠（ログインページ）
-                                                                                                                <div id="login-ad" class="mb-8 w-full max-w-2xl mx-auto"></div>
                                                                                                                 <button onclick={on_login} class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
                                                                                                                     { i18n::t("signin_with_google", lang) }
                                                                                                                 </button>
@@ -3739,7 +3752,6 @@ pub fn app() -> Html {
                                 on_network_status_change={let nc = network_connected.clone(); Callback::from(move |v| nc.set(v))}
                                 font_size={*preview_font_size} on_change_font_size={on_change_preview_font_size.clone()}
                                 is_processing={*is_processing_dialog}
-                                show_ads={!*is_ad_free && !crate::js_interop::is_tauri()}
                                 close_trigger={*file_close_trigger}
                                 active_category_id={current_cat.clone()}
                                 active_drive_id={active_sheet_id.as_ref().and_then(|id| sheets.iter().find(|s| s.id == *id).and_then(|s| s.drive_id.clone()))}
@@ -3830,9 +3842,11 @@ pub fn app() -> Html {
                             terminal_font_size={*terminal_font_size}
                             on_change_terminal_font_size={if crate::js_interop::is_tauri() { Some({
                                 let tfs = terminal_font_size.clone();
+                                let tfs_ref = terminal_font_size_ref.clone();
                                 Callback::from(move |v: i32| {
                                     let new_size = crate::js_interop::terminal_set_font_size(v);
                                     set_account_storage(TERMINAL_FONT_SIZE_KEY, &new_size.to_string());
+                                    *tfs_ref.borrow_mut() = new_size;
                                     tfs.set(new_size);
                                 })
                             }) } else { None }}
@@ -3855,22 +3869,38 @@ pub fn app() -> Html {
                 if *is_tab_select_dialog_visible {
                     <div class="pointer-events-auto">
                         <TabSelectDialog
-                            tabs={sheets.iter().filter(|s| (*active_sheet_id).as_ref().map(|a| a != &s.id).unwrap_or(true)).map(|s| TabSelectItem { id: s.id.clone(), title: s.title.clone(), tab_color: s.tab_color.clone() }).collect::<Vec<_>>()}
+                            tabs={sheets.iter().map(|s| TabSelectItem { id: s.id.clone(), title: s.title.clone(), tab_color: s.tab_color.clone(), content: s.content.clone() }).collect::<Vec<_>>()}
                             on_select={{
                                 let sp_sheet = split_pane_sheet_id.clone();
                                 let ts_enabled = terminal_split_enabled.clone();
                                 let ts_ref = terminal_split_ref.clone();
                                 let itsd = is_tab_select_dialog_visible.clone();
+                                let atref_sel = active_terminal_ref.clone();
                                 Callback::from(move |id: String| {
                                     sp_sheet.set(Some(id));
                                     *ts_ref.borrow_mut() = true;
                                     ts_enabled.set(true);
                                     itsd.set(false);
+                                    // スプリット表示後にターミナルへフォーカスを戻す
+                                    let atref_sel2 = atref_sel.clone();
+                                    gloo::timers::callback::Timeout::new(50, move || {
+                                        if let Some(tid) = atref_sel2.borrow().as_ref().cloned() {
+                                            crate::js_interop::terminal_focus(&tid);
+                                        }
+                                    }).forget();
                                 })
                             }}
                             on_close={{
                                 let itsd = is_tab_select_dialog_visible.clone();
-                                Callback::from(move |_| { itsd.set(false); })
+                                let atref_close = active_terminal_ref.clone();
+                                Callback::from(move |_| {
+                                    itsd.set(false);
+                                    if let Some(tid) = atref_close.borrow().as_ref().cloned() {
+                                        gloo::timers::callback::Timeout::new(50, move || {
+                                            crate::js_interop::terminal_focus(&tid);
+                                        }).forget();
+                                    }
+                                })
                             }}
                         />
                     </div>

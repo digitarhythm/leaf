@@ -25,7 +25,13 @@ export function is_tauri() {
 
 export async function open_url_in_browser(url) {
     if (is_tauri()) {
-        await window.__TAURI__.core.invoke('open_url_in_browser', { url });
+        const isAbsolute = url.startsWith('http://') || url.startsWith('https://');
+        if (isAbsolute) {
+            await window.__TAURI__.core.invoke('open_url_in_browser', { url });
+        } else {
+            // ローカルHTMLはTauri WebviewWindowで開く
+            await window.__TAURI__.core.invoke('open_local_page', { path: url });
+        }
     } else {
         window.open(url, '_blank', 'noopener,noreferrer');
     }

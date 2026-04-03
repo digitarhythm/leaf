@@ -45,8 +45,8 @@
     --spacing: 0.25rem;
     --container-sm: 24rem;
     --container-md: 28rem;
-    --container-lg: 32rem;
     --container-2xl: 42rem;
+    --container-3xl: 48rem;
     --container-4xl: 56rem;
     --container-5xl: 64rem;
     --container-6xl: 72rem;
@@ -546,18 +546,6 @@
   .max-h-full {
     max-height: 100%;
   }
-  .panel-ad {
-    flex: 2 1 0%;
-    min-height: 0;
-  }
-  .panel-cat {
-    flex: 9 1 0%;
-    min-height: 0;
-  }
-  .panel-files {
-    flex: 9 1 0%;
-    min-height: 0;
-  }
   .min-h-0 {
     min-height: calc(var(--spacing) * 0);
   }
@@ -624,6 +612,9 @@
   .max-w-2xl {
     max-width: var(--container-2xl);
   }
+  .max-w-3xl {
+    max-width: var(--container-3xl);
+  }
   .max-w-4xl {
     max-width: var(--container-4xl);
   }
@@ -632,9 +623,6 @@
   }
   .max-w-\[120px\] {
     max-width: 120px;
-  }
-  .max-w-lg {
-    max-width: var(--container-lg);
   }
   .max-w-md {
     max-width: var(--container-md);
@@ -1777,6 +1765,13 @@
       }
     }
   }
+  .hover\:bg-\[\#282828\]\/60 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: color-mix(in oklab, #282828 60%, transparent);
+      }
+    }
+  }
   .hover\:bg-\[\#504945\] {
     &:hover {
       @media (hover: hover) {
@@ -1937,6 +1932,16 @@
     &:focus {
       --tw-outline-style: none;
       outline-style: none;
+    }
+  }
+  .disabled\:cursor-not-allowed {
+    &:disabled {
+      cursor: not-allowed;
+    }
+  }
+  .disabled\:opacity-40 {
+    &:disabled {
+      opacity: 40%;
     }
   }
   .sm\:p-8 {
