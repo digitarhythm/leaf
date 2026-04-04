@@ -604,8 +604,10 @@ pub fn app() -> Html {
     let is_splitter_dragging = use_mut_ref(|| false);
     let terminal_split_enabled = use_state(|| false);
     let terminal_split_ref = use_mut_ref(|| false);
+    let terminal_split_map = use_mut_ref(|| std::collections::HashMap::<String, bool>::new());
     let split_pane_mounted = use_state(|| false);   // 右ペインをDOMに保持するか
     let split_pane_opacity = use_state(|| false);   // 右ペインのopacity (true=100, false=0)
+    let skip_split_fade = use_mut_ref(|| false);    // タブ切り替え時はフェードをスキップ
     let split_pane_is_terminal = use_state(|| false); // フェードアウト中のコンテンツ種別
     let split_content_opacity = use_state(|| true); // 右ペイン内コンテンツのopacity（編集モードトグル時フェード用）
     let split_pane_cached_content = use_mut_ref(|| "".to_string()); // フェードアウト中に保持するコンテンツ
@@ -1240,6 +1242,9 @@ pub fn app() -> Html {
         let ifo = is_fading_out.clone();
         let atid_new = active_terminal_id.clone();
         let atref_new = active_terminal_ref.clone();
+        let ts_new = terminal_split_enabled.clone();
+        let ts_ref_new = terminal_split_ref.clone();
+        let ssf_new = skip_split_fade.clone();
         Callback::from(move |_| {
             if *is_creating { return; } // 作成中の連打を防止
 
@@ -1290,6 +1295,9 @@ pub fn app() -> Html {
             let is_creating_inner = is_creating_handle.clone();
             let atid_new_inner = atid_new.clone();
             let atref_new_inner = atref_new.clone();
+            let ts_new_inner = ts_new.clone();
+            let ts_ref_new_inner = ts_ref_new.clone();
+            let ssf_new_inner = ssf_new.clone();
             Timeout::new(delay, move || {
                 clear_local_handle();
                 let nid = js_sys::Date::now().to_string();
@@ -1304,6 +1312,10 @@ pub fn app() -> Html {
                 // ターミナルをクリアして新規シートをアクティブに
                 atid_new_inner.set(None);
                 *atref_new_inner.borrow_mut() = None;
+                // スプリット状態をリセット（フェードなし）
+                *ssf_new_inner.borrow_mut() = true;
+                ts_new_inner.set(false);
+                *ts_ref_new_inner.borrow_mut() = false;
                 aid.set(Some(nid.clone()));
                 
                 focus_editor(); 
@@ -2409,6 +2421,8 @@ pub fn app() -> Html {
                 let split_content_opacity_ev = split_content_opacity.clone();
                 let terminal_split_ev = terminal_split_enabled.clone();
                 let terminal_split_ref_ev = terminal_split_ref.clone();
+                let terminal_split_map_ev = terminal_split_map.clone();
+                let skip_split_fade_ev = skip_split_fade.clone();
                 let terminal_split_edit_ev = terminal_split_edit_mode.clone();
                 let terminal_split_edit_ref_ev = terminal_split_edit_ref.clone();
                 let tci_ev = tab_closing_id.clone();
@@ -2452,6 +2466,8 @@ pub fn app() -> Html {
                     let split_pane_sheet_id_c = split_pane_sheet_id_ev.clone();
                     let terminal_split_c = terminal_split_ev.clone();
                     let terminal_split_ref_c = terminal_split_ref_ev.clone();
+                    let ts_map_c = terminal_split_map_ev.clone();
+                    let ssf_c = skip_split_fade_ev.clone();
                     let terminal_split_edit_c = terminal_split_edit_ev.clone();
                     let terminal_split_edit_ref_c = terminal_split_edit_ref_ev.clone();
                     let tfs_c = tfs_ev.clone();
@@ -2621,14 +2637,30 @@ pub fn app() -> Html {
                                 let new_id = all_tab_ids[new_idx].clone();
                                 if new_id == current_id { return; }
                                 if new_id.starts_with("__TERM__") {
-                                    // ターミナルへ切り替え: スプリット状態をリセット
-                                    terminal_split_c.set(false);
-                                    *terminal_split_ref_c.borrow_mut() = false;
+                                    // 現在のタブのスプリット状態を保存
+                                    if current_id.starts_with("__TERM__") {
+                                        ts_map_c.borrow_mut().insert(current_id.clone(), *terminal_split_ref_c.borrow());
+                                    } else {
+                                        let mut us = current_sheets.clone();
+                                        if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
+                                            sheet.is_split = *terminal_split_ref_c.borrow();
+                                        }
+                                        *rs_c.borrow_mut() = us;
+                                    }
+                                    // ターミナルのスプリット状態を復元（フェードなし）
+                                    let terminal_split = *ts_map_c.borrow().get(&new_id).unwrap_or(&false);
+                                    *ssf_c.borrow_mut() = true;
+                                    terminal_split_c.set(terminal_split);
+                                    *terminal_split_ref_c.borrow_mut() = terminal_split;
                                     atid_c.set(Some(new_id));
                                 } else {
+                                    let was_on_terminal = current_id.starts_with("__TERM__");
+                                    if was_on_terminal {
+                                        ts_map_c.borrow_mut().insert(current_id.clone(), *terminal_split_ref_c.borrow());
+                                    }
                                     atid_c.set(None);
-                                    if !current_id.starts_with("__TERM__") {
-                                        sp_c.set(true);
+                                    sp_c.set(true);
+                                    if !was_on_terminal {
                                         let editor_state = crate::js_interop::get_editor_state();
                                         let preview_scroll = web_sys::window()
                                             .and_then(|w| w.document())
@@ -2672,7 +2704,8 @@ pub fn app() -> Html {
                                             if sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
                                         } else if sheet.is_modified { set_gutter_status("unsaved"); } else { set_gutter_status("none"); }
                                         is_preview_c.set(sheet.is_preview);
-                                        // シートのスプリット状態を復元
+                                        // シートのスプリット状態を復元（フェードなし）
+                                        *ssf_c.borrow_mut() = true;
                                         terminal_split_c.set(sheet.is_split);
                                         *terminal_split_ref_c.borrow_mut() = sheet.is_split;
                                     }
@@ -2864,8 +2897,8 @@ pub fn app() -> Html {
                             let is_w = code == "KeyW";
                             if is_w {
                                 e.prevent_default(); e.stop_immediate_propagation();
-                                // ターミナルスプリット中はどちらを閉じるか選択ダイアログを表示
-                                if *terminal_split_ref_c.borrow() {
+                                // ターミナルタブがアクティブかつスプリット中はどちらを閉じるか選択ダイアログを表示
+                                if *terminal_split_ref_c.borrow() && atref_c.borrow().is_some() {
                                     is_split_close_c.set(true);
                                     return;
                                 }
@@ -3050,60 +3083,93 @@ pub fn app() -> Html {
         let atid = active_terminal_id.clone();
         let ts = terminal_split_enabled.clone();
         let ts_ref = terminal_split_ref.clone();
+        let ts_map = terminal_split_map.clone();
+        let ssf = skip_split_fade.clone();
         Callback::from(move |new_id: String| {
             // ターミナルタブ選択
             if new_id.starts_with("__TERM__") {
-                // 現在のシートのスプリット状態を保存してリセット
-                // (ターミナルタブではシートのスプリットプレビューは非表示にする)
-                ts.set(false);
-                *ts_ref.borrow_mut() = false;
+                // 現在のシートのスプリット状態を保存
+                let current_sheet_id = (*aid_ref.borrow()).clone();
+                if let Some(sheet_id) = current_sheet_id {
+                    let mut us = (*rs.borrow()).clone();
+                    if let Some(sheet) = us.iter_mut().find(|x| x.id == sheet_id) {
+                        sheet.is_split = *ts_ref.borrow();
+                    }
+                    *rs.borrow_mut() = us;
+                }
+                // ターミナルのスプリット状態を復元（フェードなし）
+                let terminal_split = *ts_map.borrow().get(&new_id).unwrap_or(&false);
+                *ssf.borrow_mut() = true;
+                ts.set(terminal_split);
+                *ts_ref.borrow_mut() = terminal_split;
                 atid.set(Some(new_id));
                 return;
             }
-            // シートタブ選択 → ターミナルを非アクティブに
+            // シートタブ選択
+            let was_on_terminal = (*atid).is_some();
+            let leaving_terminal_id = (*atid).clone();
             atid.set(None);
+            // ターミナルから来た場合はそのスプリット状態を保存
+            if let Some(ref tid) = leaving_terminal_id {
+                ts_map.borrow_mut().insert(tid.clone(), *ts_ref.borrow());
+            }
             // RefCellから最新のactive_idを取得
             let current_aid = (*aid_ref.borrow()).clone();
-            if current_aid.as_ref() == Some(&new_id) { return; }
+            if current_aid.as_ref() == Some(&new_id) {
+                // ターミナルから同じシートに戻る場合: スプリット状態を復元（フェードなし）
+                if was_on_terminal {
+                    let sheets_list = (*rs.borrow()).clone();
+                    if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
+                        *ssf.borrow_mut() = true;
+                        ts.set(sheet.is_split);
+                        *ts_ref.borrow_mut() = sheet.is_split;
+                    }
+                }
+                return;
+            }
             // 現在のエディタ状態を保存し、変更があればIndexedDBに直接保存
             sp.set(true);
             if let Some(old_id) = current_aid {
-                let editor_state = crate::js_interop::get_editor_state();
-                let cur_c_val = get_editor_content();
-                if let Some(cur_c) = cur_c_val.as_string() {
-                    // プレビュースクロール位置を保存（全画面・スプリット両対応）
-                    let preview_scroll = web_sys::window()
-                        .and_then(|w| w.document())
-                        .and_then(|d| {
-                            d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten()
-                                .or_else(|| d.get_element_by_id("split-preview-scroll"))
-                        })
-                        .map(|el| el.scroll_top() as f64)
-                        .unwrap_or(0.0);
-                    let mut us = (*rs.borrow()).clone();
-                    if let Some(sheet) = us.iter_mut().find(|x| x.id == old_id) {
-                        sheet.editor_state = Some(editor_state);
-                        sheet.preview_scroll_top = preview_scroll;
-                        sheet.is_split = *ts_ref.borrow(); // スプリット状態を保存
-                        if sheet.content != cur_c {
-                            sheet.content = cur_c.clone();
-                            if sheet.drive_id.is_some() || sheet.guid.is_some() {
-                                sheet.is_modified = true;
+                if was_on_terminal {
+                    // ターミナルから来た場合: エディタ内容は変わっていないので保存不要
+                } else {
+                    let editor_state = crate::js_interop::get_editor_state();
+                    let cur_c_val = get_editor_content();
+                    if let Some(cur_c) = cur_c_val.as_string() {
+                        // プレビュースクロール位置を保存（全画面・スプリット両対応）
+                        let preview_scroll = web_sys::window()
+                            .and_then(|w| w.document())
+                            .and_then(|d| {
+                                d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten()
+                                    .or_else(|| d.get_element_by_id("split-preview-scroll"))
+                            })
+                            .map(|el| el.scroll_top() as f64)
+                            .unwrap_or(0.0);
+                        let mut us = (*rs.borrow()).clone();
+                        if let Some(sheet) = us.iter_mut().find(|x| x.id == old_id) {
+                            sheet.editor_state = Some(editor_state);
+                            sheet.preview_scroll_top = preview_scroll;
+                            sheet.is_split = *ts_ref.borrow(); // スプリット状態を保存
+                            if sheet.content != cur_c {
+                                sheet.content = cur_c.clone();
+                                if sheet.drive_id.is_some() || sheet.guid.is_some() {
+                                    sheet.is_modified = true;
+                                }
+                            }
+                            // IndexedDBにtemp保存（on_save_cbを使わず直接保存）
+                            if sheet.is_modified {
+                                sheet.temp_content = Some(sheet.content.clone());
+                                sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
+                                let js = sheet.to_js();
+                                let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                if let Ok(v) = js.serialize(&ser) {
+                                    spawn_local(async move { let _ = save_sheet(v).await; });
+                                }
                             }
                         }
-                        // IndexedDBにtemp保存（on_save_cbを使わず直接保存）
-                        if sheet.is_modified {
-                            sheet.temp_content = Some(sheet.content.clone());
-                            sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
-                            let js = sheet.to_js();
-                            let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                            if let Ok(v) = js.serialize(&ser) {
-                                spawn_local(async move { let _ = save_sheet(v).await; });
-                            }
-                        }
+                        *rs.borrow_mut() = us.clone();
+                        s_state.set(us);
                     }
-                    *rs.borrow_mut() = us.clone();
-                    s_state.set(us);
                 }
             }
             // 新タブの内容をロード
@@ -3121,8 +3187,9 @@ pub fn app() -> Html {
                 } else {
                     set_gutter_status("none");
                 }
-                // タブ毎の表示モードを復元
+                // タブ毎の表示モードを復元（フェードなし）
                 ip.set(sheet.is_preview);
+                *ssf.borrow_mut() = true;
                 ts.set(sheet.is_split);
                 *ts_ref.borrow_mut() = sheet.is_split;
             }
@@ -3581,8 +3648,16 @@ pub fn app() -> Html {
         let is_terminal = split_pane_is_terminal.clone();
         let showing = is_split_view || is_terminal_split;
         let is_term = is_terminal_split;
+        let skip_fade = skip_split_fade.clone();
         use_effect_with(showing, move |&showing| {
-            if showing {
+            let no_fade = *skip_fade.borrow();
+            *skip_fade.borrow_mut() = false;
+            if no_fade {
+                // タブ切り替え時: フェードなしで即座に表示/非表示
+                is_terminal.set(is_term);
+                mounted.set(showing);
+                opacity.set(showing);
+            } else if showing {
                 is_terminal.set(is_term);
                 mounted.set(true);
                 let opacity2 = opacity.clone();
