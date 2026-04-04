@@ -12,6 +12,8 @@
     --color-red-400: oklch(70.4% 0.191 22.216);
     --color-red-500: oklch(63.7% 0.237 25.331);
     --color-red-600: oklch(57.7% 0.245 27.325);
+    --color-red-700: oklch(50.5% 0.213 27.518);
+    --color-red-800: oklch(44.4% 0.177 26.899);
     --color-red-900: oklch(39.6% 0.141 25.723);
     --color-amber-400: oklch(82.8% 0.189 84.429);
     --color-lime-400: oklch(84.1% 0.238 128.85);
@@ -428,6 +430,9 @@
   }
   .mb-4 {
     margin-bottom: calc(var(--spacing) * 4);
+  }
+  .mb-5 {
+    margin-bottom: calc(var(--spacing) * 5);
   }
   .mb-6 {
     margin-bottom: calc(var(--spacing) * 6);
@@ -1052,6 +1057,9 @@
   .bg-\[\#3c3836\] {
     background-color: #3c3836;
   }
+  .bg-\[\#665c54\] {
+    background-color: #665c54;
+  }
   .bg-\[\#282828\] {
     background-color: #282828;
   }
@@ -1201,6 +1209,9 @@
   }
   .bg-red-600 {
     background-color: var(--color-red-600);
+  }
+  .bg-red-800 {
+    background-color: var(--color-red-800);
   }
   .bg-red-900\/40 {
     background-color: color-mix(in srgb, oklch(39.6% 0.141 25.723) 40%, transparent);
@@ -1617,6 +1628,9 @@
       --tw-shadow-color: color-mix(in oklab, color-mix(in oklab, var(--color-emerald-900) 20%, transparent) var(--tw-shadow-alpha), transparent);
     }
   }
+  .ring-\[\#928374\] {
+    --tw-ring-color: #928374;
+  }
   .ring-emerald-500\/30 {
     --tw-ring-color: color-mix(in srgb, oklch(69.6% 0.17 162.48) 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -1631,6 +1645,19 @@
   }
   .ring-lime-400 {
     --tw-ring-color: var(--color-lime-400);
+  }
+  .ring-red-400 {
+    --tw-ring-color: var(--color-red-400);
+  }
+  .ring-transparent {
+    --tw-ring-color: transparent;
+  }
+  .ring-offset-2 {
+    --tw-ring-offset-width: 2px;
+    --tw-ring-offset-shadow: var(--tw-ring-inset,) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color);
+  }
+  .ring-offset-\[\#1d2021\] {
+    --tw-ring-offset-color: #1d2021;
   }
   .outline {
     outline-style: var(--tw-outline-style);
@@ -1741,6 +1768,13 @@
     &:hover {
       @media (hover: hover) {
         background-color: #3c3836;
+      }
+    }
+  }
+  .hover\:bg-\[\#665c54\] {
+    &:hover {
+      @media (hover: hover) {
+        background-color: #665c54;
       }
     }
   }
@@ -1868,6 +1902,13 @@
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-red-500) 40%, transparent);
         }
+      }
+    }
+  }
+  .hover\:bg-red-700 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-red-700);
       }
     }
   }

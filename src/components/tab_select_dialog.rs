@@ -40,6 +40,7 @@ fn scroll_item_into_view(index: usize) {
 pub fn tab_select_dialog(props: &TabSelectDialogProps) -> Html {
     let lang = Language::detect();
     let is_closing = use_state(|| false);
+    let is_visible = use_state(|| false); // フェードイン用
     // use_state: 再レンダー用。use_mut_ref: クロージャ内での最新値アクセス用（stale closure対策）
     let selected_index = use_state(|| 0usize);
     let selected_index_ref = use_mut_ref(|| 0usize);
@@ -54,14 +55,17 @@ pub fn tab_select_dialog(props: &TabSelectDialogProps) -> Html {
         })
     };
 
-    // ダイアログにフォーカスを移してターミナルへのキーイベントをブロック
+    // ダイアログにフォーカスを移してターミナルへのキーイベントをブロック＋フェードイン
     {
+        let iv = is_visible.clone();
         use_effect_with((), move |_| {
             if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
                 if let Some(el) = doc.get_element_by_id("tab-select-dialog") {
                     let _ = el.unchecked_ref::<web_sys::HtmlElement>().focus();
                 }
             }
+            // 次フレームでopacity-100に切り替えてフェードイン
+            Timeout::new(10, move || { iv.set(true); }).forget();
             || ()
         });
     }
@@ -132,7 +136,7 @@ pub fn tab_select_dialog(props: &TabSelectDialogProps) -> Html {
         String::new()
     };
 
-    let anim_class = if *is_closing { "opacity-0 scale-95" } else { "opacity-100 scale-100" };
+    let anim_class = if *is_closing || !*is_visible { "opacity-0 scale-95" } else { "opacity-100 scale-100" };
     let title = i18n::t("select_tab_to_preview", lang);
 
     html! {
@@ -141,7 +145,7 @@ pub fn tab_select_dialog(props: &TabSelectDialogProps) -> Html {
             <div
                 class={classes!(
                     "absolute", "inset-0", "bg-black/60", "transition-opacity", "duration-300",
-                    if *is_closing { "opacity-0" } else { "opacity-100" }
+                    if *is_closing || !*is_visible { "opacity-0" } else { "opacity-100" }
                 )}
                 onclick={{let hc = handle_close.clone(); move |_| hc.emit(())}}
             ></div>

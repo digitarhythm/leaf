@@ -129,3 +129,45 @@ jobs:
           path: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage
+
+      # タグpush時: 固定ファイル名でリリースアセットを追加アップロード
+      - name: Upload fixed-name release asset (macOS aarch64)
+        if: startsWith(github.ref, 'refs/tags/') && matrix.target == 'aarch64-apple-darwin'
+        run: |
+          dmg=$(ls src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          cp "$dmg" Leaf_aarch64.dmg
+          gh release upload ${{ github.ref_name }} Leaf_aarch64.dmg --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload fixed-name release asset (macOS x86_64)
+        if: startsWith(github.ref, 'refs/tags/') && matrix.target == 'x86_64-apple-darwin'
+        run: |
+          dmg=$(ls src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg | head -1)
+          cp "$dmg" Leaf_x64.dmg
+          gh release upload ${{ github.ref_name }} Leaf_x64.dmg --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload fixed-name release asset (Windows)
+        if: startsWith(github.ref, 'refs/tags/') && matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
+          Copy-Item $exe.FullName Leaf_x64-setup.exe
+          $msi = Get-ChildItem src-tauri/target/release/bundle/msi/*.msi | Select-Object -First 1
+          Copy-Item $msi.FullName Leaf_x64_en-US.msi
+          gh release upload ${{ github.ref_name }} Leaf_x64-setup.exe Leaf_x64_en-US.msi --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload fixed-name release asset (Linux)
+        if: startsWith(github.ref, 'refs/tags/') && matrix.platform == 'ubuntu-22.04'
+        run: |
+          appimage=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -1)
+          cp "$appimage" Leaf_amd64.AppImage
+          deb=$(ls src-tauri/target/release/bundle/deb/*.deb | head -1)
+          cp "$deb" Leaf_amd64.deb
+          gh release upload ${{ github.ref_name }} Leaf_amd64.AppImage Leaf_amd64.deb --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

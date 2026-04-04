@@ -1,0 +1,964 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Leaf - 機能ガイド。タブ管理、エディタ、Markdownプレビュー、Google Drive同期、ターミナルなどすべての機能を詳しく解説します。">
+    <meta property="og:title" content="Leaf - 機能ガイド / Feature Guide">
+    <meta property="og:description" content="Leafの全機能をスクリーンショット付きで解説。">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://leaf.digitarhythm.net/guide">
+    <meta property="og:image" content="https://leaf.digitarhythm.net/img/leaf_ogp_optimized.jpg">
+    <link rel="icon" type="image/svg+xml" href="/icon.svg">
+    <title>Leaf - 機能ガイド / Feature Guide</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0f172a;
+            --bg-deep: #020617;
+            --surface: #1e293b;
+            --surface-hover: #334155;
+            --emerald: #10b981;
+            --emerald-dim: #059669;
+            --emerald-glow: rgba(16, 185, 129, 0.15);
+            --text: #f1f5f9;
+            --text-dim: #94a3b8;
+            --text-muted: #64748b;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-light: rgba(255, 255, 255, 0.15);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Noto Sans JP', 'Inter', -apple-system, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            line-height: 1.8;
+        }
+
+        /* NAV */
+        nav {
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(15,23,42,0.9);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            display: flex; align-items: center; justify-content: space-between;
+            height: 56px;
+        }
+        .nav-logo { font-size: 1.2rem; font-weight: 700; color: var(--emerald); text-decoration: none; letter-spacing: 0.05em; }
+        .nav-links { display: flex; align-items: center; gap: 1.5rem; }
+        .nav-links a { color: var(--text-dim); text-decoration: none; font-size: 0.85rem; transition: color 0.2s; }
+        .nav-links a:hover { color: var(--emerald); }
+        .nav-cta { background: var(--emerald); color: #fff !important; padding: 0.35rem 1rem; border-radius: 6px; font-weight: 600; transition: background 0.2s !important; }
+        .nav-cta:hover { background: var(--emerald-dim) !important; color: #fff !important; }
+
+        /* HERO */
+        .hero {
+            text-align: center;
+            padding: 4rem 2rem 3rem;
+            background: linear-gradient(180deg, rgba(16,185,129,0.06) 0%, transparent 100%);
+        }
+        .hero-badge {
+            display: inline-block;
+            background: var(--emerald-glow);
+            border: 1px solid rgba(16,185,129,0.3);
+            color: var(--emerald);
+            padding: 0.25rem 1rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            margin-bottom: 1.5rem;
+        }
+        .hero h1 { font-size: clamp(1.8rem, 4vw, 3rem); font-weight: 700; margin-bottom: 1rem; }
+        .hero h1 span { color: var(--emerald); }
+        .hero p { color: var(--text-dim); font-size: 1rem; max-width: 600px; margin: 0 auto; }
+
+        /* LANG TOGGLE */
+        .lang-toggle {
+            display: flex; justify-content: center; gap: 0.5rem; margin-top: 2rem;
+        }
+        .lang-btn {
+            padding: 0.3rem 1rem; border-radius: 6px; border: 1px solid var(--border-light);
+            background: transparent; color: var(--text-dim); font-size: 0.8rem;
+            cursor: pointer; transition: all 0.2s; font-family: inherit;
+        }
+        .lang-btn.active { background: var(--emerald); color: #fff; border-color: var(--emerald); }
+
+        /* CONTENT */
+        .container { max-width: 900px; margin: 0 auto; padding: 0 1.5rem; }
+        .section { padding: 3rem 0; border-bottom: 1px solid var(--border); }
+        .section:last-of-type { border-bottom: none; }
+        .section-header {
+            display: flex; align-items: center; gap: 0.75rem;
+            margin-bottom: 2rem;
+        }
+        .section-num {
+            width: 2rem; height: 2rem; border-radius: 50%;
+            background: var(--emerald-glow); border: 1px solid rgba(16,185,129,0.3);
+            color: var(--emerald); font-weight: 700; font-size: 0.85rem;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+        }
+        .section h2 { font-size: 1.4rem; font-weight: 700; }
+        .section-sub { color: var(--text-muted); font-size: 0.82rem; margin-left: auto; }
+        p.lead { color: var(--text-dim); margin-bottom: 1.5rem; font-size: 0.95rem; }
+
+        /* UI MOCKUP */
+        .mockup-wrap {
+            background: #0a0f1e;
+            border: 1px solid var(--border-light);
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 2rem;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .mock-titlebar {
+            background: #1a1f2e; height: 28px;
+            display: flex; align-items: center; padding: 0 12px; gap: 6px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+        .mock-title { margin: 0 auto; font-size: 0.7rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+        .mock-toolbar {
+            background: #1e2535; height: 36px;
+            display: flex; align-items: center; gap: 4px; padding: 0 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .mock-btn {
+            width: 28px; height: 24px; border-radius: 4px;
+            background: rgba(255,255,255,0.07);
+            display: flex; align-items: center; justify-content: center;
+            cursor: default;
+        }
+        .mock-btn svg { width: 13px; height: 13px; stroke: #94a3b8; fill: none; stroke-width: 1.5; }
+        .mock-cat {
+            margin-left: 4px; padding: 0 8px; height: 24px; border-radius: 4px;
+            background: rgba(255,255,255,0.07); color: #94a3b8;
+            font-size: 0.65rem; display: flex; align-items: center; gap: 4px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .mock-tabbar {
+            background: #151b28; height: 34px;
+            display: flex; align-items: flex-end; padding: 0 4px; gap: 2px;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .mock-tab {
+            height: 28px; border-radius: 6px 6px 0 0;
+            display: flex; align-items: center; gap: 6px; padding: 0 10px;
+            font-size: 0.65rem; font-family: 'JetBrains Mono', monospace;
+            white-space: nowrap;
+        }
+        .mock-tab.active { background: #1e2535; color: #e2e8f0; }
+        .mock-tab.inactive { background: rgba(255,255,255,0.04); color: #64748b; }
+        .mock-tab-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .mock-tab-close { width: 14px; height: 14px; border-radius: 2px; background: rgba(255,255,255,0.1); margin-left: 2px;
+            display: flex; align-items: center; justify-content: center; font-size: 8px; color: #64748b; }
+        .mock-body { display: flex; height: 180px; }
+        .mock-editor {
+            flex: 1; background: #0f1520; padding: 12px 16px;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.65rem; color: #c9d1d9;
+            overflow: hidden; position: relative;
+        }
+        .mock-gutter {
+            width: 32px; background: #0a0f1a; padding: 12px 6px;
+            font-family: 'JetBrains Mono', monospace; font-size: 0.65rem;
+            color: #3d4f63; text-align: right; line-height: 1.6;
+            border-right: 1px solid rgba(255,255,255,0.04);
+        }
+        .mock-line { line-height: 1.6; white-space: pre; }
+        .ml-kw { color: #ff7b72; }
+        .ml-str { color: #a5d6ff; }
+        .ml-fn { color: #d2a8ff; }
+        .ml-cmt { color: #6e7681; }
+        .ml-num { color: #79c0ff; }
+        .mock-preview {
+            width: 45%; background: #0f1520; border-left: 1px solid rgba(255,255,255,0.06);
+            padding: 12px 14px; overflow: hidden;
+        }
+        .mock-preview h3 { font-size: 0.75rem; color: #c9d1d9; font-weight: 700; margin-bottom: 4px; }
+        .mock-preview p { font-size: 0.6rem; color: #8b949e; line-height: 1.5; }
+        .mock-preview code { font-size: 0.58rem; background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 3px; color: #a5d6ff; font-family: 'JetBrains Mono', monospace; }
+        .mock-preview hr { border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 6px 0; }
+        .mock-statusbar {
+            background: #0d1117; height: 22px;
+            display: flex; align-items: center; padding: 0 12px; gap: 12px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; color: #3d4f63;
+        }
+        .mock-status-ok { color: var(--emerald); }
+        .mock-status-warn { color: #fb923c; }
+
+        /* ANNOTATION */
+        .annot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 1rem; }
+        @media (max-width: 600px) { .annot-grid { grid-template-columns: 1fr; } }
+        .annot-item {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px; padding: 0.75rem 1rem;
+            display: flex; gap: 0.75rem; align-items: flex-start;
+        }
+        .annot-num {
+            width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+            background: var(--emerald); color: #fff;
+            font-weight: 700; font-size: 0.7rem;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .annot-label { font-size: 0.82rem; font-weight: 600; color: var(--text); margin-bottom: 0.2rem; }
+        .annot-desc { font-size: 0.75rem; color: var(--text-muted); }
+
+        /* FEATURE CARDS */
+        .feature-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+        .feature-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px; padding: 1.25rem;
+            transition: border-color 0.2s;
+        }
+        .feature-card:hover { border-color: rgba(16,185,129,0.3); }
+        .feature-icon {
+            width: 36px; height: 36px; border-radius: 8px;
+            background: var(--emerald-glow); border: 1px solid rgba(16,185,129,0.2);
+            display: flex; align-items: center; justify-content: center; margin-bottom: 0.75rem;
+        }
+        .feature-icon svg { width: 18px; height: 18px; stroke: var(--emerald); fill: none; stroke-width: 1.5; }
+        .feature-card h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.4rem; }
+        .feature-card p { font-size: 0.78rem; color: var(--text-dim); }
+
+        /* SHORTCUT TABLE */
+        .shortcut-table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; font-size: 0.82rem; }
+        .shortcut-table th {
+            text-align: left; padding: 0.6rem 1rem;
+            background: var(--surface); color: var(--text-dim);
+            font-weight: 600; font-size: 0.75rem;
+            border-bottom: 1px solid var(--border-light);
+        }
+        .shortcut-table td { padding: 0.55rem 1rem; border-bottom: 1px solid var(--border); }
+        .shortcut-table tr:hover td { background: rgba(255,255,255,0.02); }
+        kbd {
+            display: inline-block; background: var(--surface); border: 1px solid var(--border-light);
+            border-radius: 4px; padding: 0.15rem 0.4rem; font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem; color: #d4be98; white-space: nowrap;
+        }
+        .shortcut-group { color: var(--emerald); font-size: 0.72rem; font-weight: 700;
+            padding: 0.4rem 1rem; background: var(--emerald-glow); }
+
+        /* STEP BOX */
+        .step-list { display: flex; flex-direction: column; gap: 1rem; margin-top: 1.5rem; }
+        .step-item {
+            display: flex; gap: 1rem; align-items: flex-start;
+            background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+            padding: 1rem 1.25rem;
+        }
+        .step-n {
+            width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+            background: var(--emerald-glow); border: 1px solid rgba(16,185,129,0.3);
+            color: var(--emerald); font-weight: 700; font-size: 0.85rem;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .step-item h4 { font-size: 0.88rem; font-weight: 700; margin-bottom: 0.25rem; }
+        .step-item p { font-size: 0.78rem; color: var(--text-dim); }
+
+        /* TAG BADGE */
+        .badge {
+            display: inline-block; font-size: 0.68rem; padding: 0.1rem 0.5rem;
+            border-radius: 4px; font-weight: 600; vertical-align: middle; margin-left: 0.4rem;
+        }
+        .badge-desktop { background: rgba(139,92,246,0.2); color: #a78bfa; border: 1px solid rgba(139,92,246,0.3); }
+        .badge-web { background: rgba(59,130,246,0.2); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+
+        /* TIP BOX */
+        .tip {
+            background: rgba(16,185,129,0.07); border: 1px solid rgba(16,185,129,0.2);
+            border-radius: 8px; padding: 0.9rem 1.1rem; margin: 1rem 0;
+            font-size: 0.82rem; color: var(--text-dim);
+        }
+        .tip strong { color: var(--emerald); }
+
+        /* LANG VISIBILITY */
+        .ja-only { display: block; }
+        .en-only { display: none; }
+        body.lang-en .ja-only { display: none; }
+        body.lang-en .en-only { display: block; }
+
+        /* FOOTER */
+        footer {
+            background: var(--bg-deep); border-top: 1px solid var(--border);
+            padding: 2rem; text-align: center; color: var(--text-muted); font-size: 0.8rem;
+        }
+        footer a { color: var(--text-muted); text-decoration: none; margin: 0 0.5rem; }
+        footer a:hover { color: var(--emerald); }
+
+        /* PREVIEW MOCKUP (split) */
+        .mock-split-body { display: flex; height: 200px; }
+        .mock-split-editor { width: 55%; background: #0f1520; padding: 10px 14px; overflow: hidden; }
+        .mock-split-preview { flex: 1; background: #0a1020; border-left: 1px solid rgba(255,255,255,0.06); padding: 10px 14px; overflow: hidden; }
+    </style>
+</head>
+<body>
+    <!-- NAV -->
+    <nav>
+        <a href="/login" class="nav-logo">Leaf</a>
+        <div class="nav-links">
+            <a href="/about">About</a>
+            <a href="/guide">Guide</a>
+            <a href="/login" class="nav-cta">アプリを開く</a>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <div class="hero">
+        <div class="hero-badge">機能ガイド / Feature Guide</div>
+        <h1>Leafの<span>すべての機能</span>を使いこなす</h1>
+        <p>タブ管理、エディタ、プレビュー、Google Drive同期、ターミナルまで — 全機能をスクリーンショットと解説で紹介します。</p>
+        <div class="lang-toggle">
+            <button class="lang-btn active" onclick="setLang('ja')">日本語</button>
+            <button class="lang-btn" onclick="setLang('en')">English</button>
+        </div>
+    </div>
+
+    <div class="container">
+
+        <!-- ─── 1. インターフェース概要 ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">1</div>
+                <h2 class="ja-only">インターフェース概要</h2>
+                <h2 class="en-only">Interface Overview</h2>
+            </div>
+            <p class="lead ja-only">Leafの画面は上から「ツールバー」「タブバー」「エディタ」「ステータスバー」で構成されています。</p>
+            <p class="lead en-only">The Leaf interface consists of (from top to bottom): Toolbar, Tab Bar, Editor, and Status Bar.</p>
+
+            <!-- UI MOCKUP -->
+            <div class="mockup-wrap">
+                <!-- タイトルバー (デスクトップ) -->
+                <div class="mock-titlebar">
+                    <div class="mock-dot" style="background:#ff5f57"></div>
+                    <div class="mock-dot" style="background:#ffbd2e"></div>
+                    <div class="mock-dot" style="background:#28c840"></div>
+                    <span class="mock-title">Leaf — notes.md</span>
+                </div>
+                <!-- ① ツールバー -->
+                <div class="mock-toolbar" style="position:relative;">
+                    <span style="position:absolute;left:6px;top:-8px;font-size:0.6rem;color:var(--emerald);font-weight:700;">①</span>
+                    <div class="mock-btn"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg></div>
+                    <div class="mock-btn"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.06-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg></div>
+                    <div class="mock-btn"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75"/></svg></div>
+                    <div class="mock-cat">📁 Work</div>
+                    <div style="flex:1"></div>
+                    <div class="mock-btn" style="margin-right:2px;"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z"/></svg></div>
+                    <div class="mock-btn"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div>
+                    <div class="mock-btn"><svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/></svg></div>
+                </div>
+                <!-- ② タブバー -->
+                <div class="mock-tabbar" style="position:relative;">
+                    <span style="position:absolute;left:6px;top:-8px;font-size:0.6rem;color:var(--emerald);font-weight:700;">②</span>
+                    <div class="mock-tab active">
+                        <div class="mock-tab-dot" style="background:#10b981"></div>
+                        notes.md
+                        <div class="mock-tab-close">×</div>
+                    </div>
+                    <div class="mock-tab inactive">
+                        <div class="mock-tab-dot" style="background:#818cf8"></div>
+                        todo.md
+                        <div class="mock-tab-close">×</div>
+                    </div>
+                    <div class="mock-tab inactive">
+                        <div class="mock-tab-dot" style="background:#f472b6"></div>
+                        main.rs
+                        <div class="mock-tab-close">×</div>
+                    </div>
+                </div>
+                <!-- ③ エディタ + ガター -->
+                <div class="mock-body" style="position:relative;">
+                    <span style="position:absolute;left:36px;top:4px;font-size:0.6rem;color:var(--emerald);font-weight:700;z-index:10;">③</span>
+                    <div class="mock-gutter">1<br>2<br>3<br>4<br>5<br>6<br>7</div>
+                    <div class="mock-editor">
+                        <div class="mock-line"><span class="ml-kw"># </span><span style="color:#f0f6f0;font-weight:600;">Leaf メモ帳</span></div>
+                        <div class="mock-line"></div>
+                        <div class="mock-line"><span class="ml-kw">## </span>今日のタスク</div>
+                        <div class="mock-line"></div>
+                        <div class="mock-line">- [x] ドキュメント作成</div>
+                        <div class="mock-line">- [ ] レビュー依頼</div>
+                        <div class="mock-line"><span class="ml-cmt"><!-- コード例 --></span></div>
+                    </div>
+                </div>
+                <!-- ④ ステータスバー -->
+                <div class="mock-statusbar" style="position:relative;">
+                    <span style="position:absolute;left:6px;top:-8px;font-size:0.6rem;color:var(--emerald);font-weight:700;">④</span>
+                    <span class="mock-status-ok">● Saved</span>
+                    <span>Markdown</span>
+                    <span style="margin-left:auto;">UTF-8</span>
+                    <span>Ln 6, Col 18</span>
+                    <span style="color:#818cf8;">VIM</span>
+                </div>
+            </div>
+
+            <div class="annot-grid">
+                <div class="annot-item">
+                    <div class="annot-num">①</div>
+                    <div>
+                        <div class="annot-label ja-only">ツールバー</div>
+                        <div class="annot-label en-only">Toolbar</div>
+                        <div class="annot-desc ja-only">新規作成・ファイルを開く・インポート・カテゴリ選択・プレビューなどの操作ボタン群</div>
+                        <div class="annot-desc en-only">Buttons for new sheet, open file, import, category select, preview, and more</div>
+                    </div>
+                </div>
+                <div class="annot-item">
+                    <div class="annot-num">②</div>
+                    <div>
+                        <div class="annot-label ja-only">タブバー</div>
+                        <div class="annot-label en-only">Tab Bar</div>
+                        <div class="annot-desc ja-only">開いているシートをタブで管理。色分けされたドットで識別。ダブルクリックで新規作成</div>
+                        <div class="annot-desc en-only">Manage open sheets as tabs. Color-coded dots for identification. Double-click empty area to create new</div>
+                    </div>
+                </div>
+                <div class="annot-item">
+                    <div class="annot-num">③</div>
+                    <div>
+                        <div class="annot-label ja-only">エディタ</div>
+                        <div class="annot-label en-only">Editor</div>
+                        <div class="annot-desc ja-only">Ace Editorベース。シンタックスハイライト・Vimキーバインド・自動保存に対応</div>
+                        <div class="annot-desc en-only">Ace Editor-based. Supports syntax highlighting, Vim keybindings, and auto-save</div>
+                    </div>
+                </div>
+                <div class="annot-item">
+                    <div class="annot-num">④</div>
+                    <div>
+                        <div class="annot-label ja-only">ステータスバー</div>
+                        <div class="annot-label en-only">Status Bar</div>
+                        <div class="annot-desc ja-only">保存状態・ファイル種別・文字コード・カーソル位置・Vimモード状態を表示</div>
+                        <div class="annot-desc en-only">Shows save status, file type, encoding, cursor position, and Vim mode</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 2. タブ管理 ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">2</div>
+                <h2 class="ja-only">タブ管理</h2>
+                <h2 class="en-only">Tab Management</h2>
+            </div>
+            <p class="lead ja-only">複数のシートをタブで管理できます。タブには色付きドットが表示され、ひと目で区別できます。</p>
+            <p class="lead en-only">Manage multiple sheets as tabs. Each tab has a colored dot for easy identification.</p>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                    </div>
+                    <h3 class="ja-only">新規シート作成</h3>
+                    <h3 class="en-only">New Sheet</h3>
+                    <p class="ja-only">ツールバーの「＋」ボタン、またはタブバーの空き領域を<strong>ダブルクリック</strong>で新規シートを作成。<kbd>Alt+N</kbd> でも可。</p>
+                    <p class="en-only">Click the "+" button in the toolbar, or <strong>double-click</strong> the empty area in the tab bar. Also <kbd>Alt+N</kbd>.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5"/></svg>
+                    </div>
+                    <h3 class="ja-only">タブ切り替え</h3>
+                    <h3 class="en-only">Switch Tabs</h3>
+                    <p class="ja-only">タブをクリックで切り替え。<kbd>Alt+[</kbd> で左、<kbd>Alt+]</kbd> で右のタブへ移動できます。</p>
+                    <p class="en-only">Click a tab to switch. <kbd>Alt+[</kbd> for left, <kbd>Alt+]</kbd> for right.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </div>
+                    <h3 class="ja-only">タブを閉じる</h3>
+                    <h3 class="en-only">Close Tab</h3>
+                    <p class="ja-only">タブの「×」ボタン、または <kbd>Alt+W</kbd> でアクティブなタブを閉じます。未保存の場合は確認ダイアログが表示されます。</p>
+                    <p class="en-only">Click the "×" on a tab, or press <kbd>Alt+W</kbd>. Unsaved changes will prompt a confirmation dialog.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/></svg>
+                    </div>
+                    <h3 class="ja-only">タブカラー</h3>
+                    <h3 class="en-only">Tab Colors</h3>
+                    <p class="ja-only">各シートには自動的にランダムな色が割り当てられます。タブのドットで視覚的に区別できます。</p>
+                    <p class="en-only">Each sheet is automatically assigned a random color, shown as a dot on the tab for visual identification.</p>
+                </div>
+            </div>
+
+            <div class="tip">
+                <strong class="ja-only">💡 ヒント：</strong>
+                <strong class="en-only">💡 Tip:</strong>
+                <span class="ja-only"><kbd>Alt+M</kbd> を押すと、全シートの一覧ダイアログが表示され、プレビューを確認しながらシートを選択できます。</span>
+                <span class="en-only">Press <kbd>Alt+M</kbd> to open the sheet selection dialog, where you can preview each sheet's content before switching.</span>
+            </div>
+        </div>
+
+        <!-- ─── 3. ツールバー ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">3</div>
+                <h2 class="ja-only">ツールバーのボタン</h2>
+                <h2 class="en-only">Toolbar Buttons</h2>
+            </div>
+            <p class="lead ja-only">ツールバーには主要な操作ボタンが並んでいます。各ボタンにカーソルを乗せるとツールチップが表示されます。</p>
+            <p class="lead en-only">The toolbar contains all major action buttons. Hover over each button to see its tooltip.</p>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/></svg>
+                    </div>
+                    <h3 class="ja-only">新規シート <kbd>Alt+N</kbd></h3>
+                    <h3 class="en-only">New Sheet <kbd>Alt+N</kbd></h3>
+                    <p class="ja-only">新しい空のシートを作成します。ローカルファイルとして作成するには <kbd>Alt+Shift+N</kbd>。</p>
+                    <p class="en-only">Create a new empty sheet. Use <kbd>Alt+Shift+N</kbd> to create a local file.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.06-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z"/></svg>
+                    </div>
+                    <h3 class="ja-only">Google Driveを開く <kbd>Alt+O</kbd></h3>
+                    <h3 class="en-only">Open from Drive <kbd>Alt+O</kbd></h3>
+                    <p class="ja-only">Google Driveに保存されているファイルをカテゴリ別に閲覧・開けます。</p>
+                    <p class="en-only">Browse and open files stored in Google Drive, organized by category.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375"/></svg>
+                    </div>
+                    <h3 class="ja-only">ローカルファイルを開く</h3>
+                    <h3 class="en-only">Open Local File</h3>
+                    <p class="ja-only">デバイス上のローカルファイルを開いて編集できます。保存後は元のファイルに上書きされます。</p>
+                    <p class="en-only">Open local files from your device. Saving overwrites the original file.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg>
+                    </div>
+                    <h3 class="ja-only">カテゴリ（フォルダ）</h3>
+                    <h3 class="en-only">Category (Folder)</h3>
+                    <p class="ja-only">Google Drive上のフォルダに対応。シートをカテゴリで分類して管理できます。</p>
+                    <p class="en-only">Corresponds to Google Drive folders. Organize sheets by category.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </div>
+                    <h3 class="ja-only">プレビュー <kbd>Alt+L</kbd></h3>
+                    <h3 class="en-only">Preview <kbd>Alt+L</kbd></h3>
+                    <p class="ja-only">Markdownのプレビュー表示に切り替えます。全画面プレビューとスプリット表示を切り替え可能。</p>
+                    <p class="en-only">Switch to Markdown preview. Toggle between full-screen and split view.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                    </div>
+                    <h3 class="ja-only">設定 <kbd>Alt+,</kbd></h3>
+                    <h3 class="en-only">Settings <kbd>Alt+,</kbd></h3>
+                    <p class="ja-only">Vimモード・エディタテーマ・フォントサイズ・保存動作などを変更できます。</p>
+                    <p class="en-only">Configure Vim mode, editor theme, font size, save behavior, and more.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 4. エディタ ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">4</div>
+                <h2 class="ja-only">テキストエディタ</h2>
+                <h2 class="en-only">Text Editor</h2>
+            </div>
+            <p class="lead ja-only">LeafのエディタはAce Editorをベースに構築されています。多彩なファイル形式と強力な編集機能をサポートします。</p>
+            <p class="lead en-only">Leaf's editor is built on Ace Editor, supporting a wide range of file formats and powerful editing features.</p>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+                    </div>
+                    <h3 class="ja-only">Vimモード</h3>
+                    <h3 class="en-only">Vim Mode</h3>
+                    <p class="ja-only">Vimキーバインドに完全対応。ノーマル・インサート・ビジュアルモードを切り替えながら高速編集できます。設定から無効化可能。</p>
+                    <p class="en-only">Full Vim keybinding support. Switch between Normal, Insert, and Visual modes. Can be disabled in Settings.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 00-5.78 1.128 2.25 2.25 0 01-2.4 2.245 4.5 4.5 0 008.4-2.245c0-.399-.078-.78-.22-1.128zm0 0a15.998 15.998 0 003.388-1.62m-5.043-.025a15.994 15.994 0 011.622-3.395m3.42 3.42a15.995 15.995 0 004.764-4.648l3.876-5.814a1.151 1.151 0 00-1.597-1.597L14.146 6.32a15.996 15.996 0 00-4.649 4.763m3.42 3.42a6.776 6.776 0 00-3.42-3.42"/></svg>
+                    </div>
+                    <h3 class="ja-only">シンタックスハイライト</h3>
+                    <h3 class="en-only">Syntax Highlighting</h3>
+                    <p class="ja-only">Markdown, Rust, JavaScript, TypeScript, Python, C/C++など25種類以上のファイル形式に対応。ファイル拡張子で自動判別。</p>
+                    <p class="en-only">Supports 25+ file types including Markdown, Rust, JavaScript, TypeScript, Python, C/C++. Auto-detected by extension.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z"/></svg>
+                    </div>
+                    <h3 class="ja-only">検索・置換 <kbd>Alt+F</kbd></h3>
+                    <h3 class="en-only">Search & Replace <kbd>Alt+F</kbd></h3>
+                    <p class="ja-only">インライン検索ダイアログ。正規表現・大文字小文字区別・全置換に対応。画面中央に表示されます。</p>
+                    <p class="en-only">Inline search dialog with regex, case-sensitive, and replace-all support. Appears centered on screen.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">
+                        <svg viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                    <h3 class="ja-only">自動保存</h3>
+                    <h3 class="en-only">Auto Save</h3>
+                    <p class="ja-only">入力が止まると自動的にGoogle Driveへ保存されます。ステータスバーで保存状態を確認できます。</p>
+                    <p class="en-only">Auto-saves to Google Drive when you stop typing. Check the status bar for save state.</p>
+                </div>
+            </div>
+
+            <div class="tip">
+                <strong>💡</strong>
+                <span class="ja-only">ステータスバー右端の拡張子（例：<code style="color:var(--emerald);font-size:0.8rem;">.md</code>）をクリックすると、ファイル種別を変更できます。シンタックスハイライトがリアルタイムで切り替わります。</span>
+                <span class="en-only">Click the file extension in the status bar (e.g., <code style="color:var(--emerald);font-size:0.8rem;">.md</code>) to change the file type. Syntax highlighting updates in real time.</span>
+            </div>
+        </div>
+
+        <!-- ─── 5. Markdown プレビュー ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">5</div>
+                <h2>Markdown プレビュー</h2>
+            </div>
+            <p class="lead ja-only">Markdownファイルのリアルタイムプレビューを表示できます。3つの表示モードを状況に応じて切り替えられます。</p>
+            <p class="lead en-only">Display real-time Markdown preview. Switch between three display modes as needed.</p>
+
+            <!-- SPLIT MOCKUP -->
+            <div class="mockup-wrap">
+                <div class="mock-titlebar">
+                    <div class="mock-dot" style="background:#ff5f57"></div>
+                    <div class="mock-dot" style="background:#ffbd2e"></div>
+                    <div class="mock-dot" style="background:#28c840"></div>
+                    <span class="mock-title">Leaf — Split Preview Mode</span>
+                </div>
+                <div class="mock-toolbar">
+                    <div class="mock-btn"><svg viewBox="0 0 24 24" style="stroke:var(--emerald);"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg></div>
+                    <span style="font-size:0.65rem;color:var(--emerald);margin-left:4px;font-family:'JetBrains Mono',monospace;">SPLIT</span>
+                </div>
+                <div class="mock-split-body">
+                    <div class="mock-split-editor" style="font-family:'JetBrains Mono',monospace;font-size:0.65rem;color:#c9d1d9;">
+                        <div class="mock-line"><span class="ml-kw"># </span>プロジェクト概要</div>
+                        <div class="mock-line"></div>
+                        <div class="mock-line"><span class="ml-kw">## </span>技術スタック</div>
+                        <div class="mock-line"></div>
+                        <div class="mock-line">- Rust / Yew (WASM)</div>
+                        <div class="mock-line">- Tailwind CSS</div>
+                        <div class="mock-line">- Google Drive API</div>
+                        <div class="mock-line"></div>
+                        <div class="mock-line"><span class="ml-cmt">```rust</span></div>
+                        <div class="mock-line"><span class="ml-kw">fn </span><span class="ml-fn">main</span>() {</div>
+                    </div>
+                    <div class="mock-split-preview">
+                        <div style="font-size:0.8rem;font-weight:700;color:#f0f6f0;border-bottom:1px solid rgba(255,255,255,0.1);padding-bottom:4px;margin-bottom:6px;">プロジェクト概要</div>
+                        <div style="font-size:0.7rem;font-weight:600;color:#c9d1d9;margin-bottom:4px;">技術スタック</div>
+                        <div style="font-size:0.62rem;color:#8b949e;line-height:1.6;">
+                            • Rust / Yew (WASM)<br>
+                            • Tailwind CSS<br>
+                            • Google Drive API
+                        </div>
+                        <div style="margin-top:6px;background:#0d1117;border-radius:4px;padding:4px 6px;font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#a5d6ff;">
+                            fn main() {
+                        </div>
+                    </div>
+                </div>
+                <div class="mock-statusbar">
+                    <span class="mock-status-ok">● Saved</span>
+                    <span>Markdown</span>
+                    <span style="color:var(--emerald);margin-left:auto;">◫ Split Preview</span>
+                </div>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3 class="ja-only">全画面プレビュー <kbd>Alt+L</kbd></h3>
+                    <h3 class="en-only">Full Preview <kbd>Alt+L</kbd></h3>
+                    <p class="ja-only">エディタを隠してプレビューを全画面表示。読み取り専用で内容を確認したい時に便利。</p>
+                    <p class="en-only">Hide the editor and display the full-screen preview. Great for reading without editing.</p>
+                </div>
+                <div class="feature-card">
+                    <h3 class="ja-only">スプリットプレビュー <kbd>Alt+E</kbd></h3>
+                    <h3 class="en-only">Split Preview <kbd>Alt+E</kbd></h3>
+                    <p class="ja-only">エディタとプレビューを左右に並べて同時表示。編集しながらリアルタイムでレンダリングを確認できます。</p>
+                    <p class="en-only">Show the editor and preview side by side. See real-time rendering while you edit.</p>
+                </div>
+                <div class="feature-card">
+                    <h3 class="ja-only">Mermaidダイアグラム</h3>
+                    <h3 class="en-only">Mermaid Diagrams</h3>
+                    <p class="ja-only">コードブロックに <code style="font-size:0.78rem;color:var(--emerald);">```mermaid</code> と書くと、フローチャートやシーケンス図を自動描画します。</p>
+                    <p class="en-only">Write <code style="font-size:0.78rem;color:var(--emerald);">```mermaid</code> in a code block to automatically render flowcharts and sequence diagrams.</p>
+                </div>
+                <div class="feature-card">
+                    <h3 class="ja-only">コードハイライト</h3>
+                    <h3 class="en-only">Code Highlighting</h3>
+                    <p class="ja-only">コードブロックのシンタックスハイライトにhighlight.jsを使用。Tokyo Night Darkテーマで表示されます。</p>
+                    <p class="en-only">Uses highlight.js for code block syntax highlighting with the Tokyo Night Dark theme.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 6. Google Drive 同期 ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">6</div>
+                <h2 class="ja-only">Google Drive 同期</h2>
+                <h2 class="en-only">Google Drive Sync</h2>
+            </div>
+            <p class="lead ja-only">ログイン後はすべてのシートが自動的にGoogle Driveに同期されます。どのデバイスからでも同じデータにアクセスできます。</p>
+            <p class="lead en-only">After login, all sheets automatically sync to Google Drive. Access the same data from any device.</p>
+
+            <div class="step-list">
+                <div class="step-item">
+                    <div class="step-n">1</div>
+                    <div>
+                        <h4 class="ja-only">Googleアカウントでログイン</h4>
+                        <h4 class="en-only">Sign in with Google</h4>
+                        <p class="ja-only">「Googleでサインイン」ボタンをクリックしてGoogleアカウントを認証します。Google Driveへのアクセス権限を許可してください。</p>
+                        <p class="en-only">Click "Sign in with Google" and authenticate your Google account. Grant access to Google Drive.</p>
+                    </div>
+                </div>
+                <div class="step-item">
+                    <div class="step-n">2</div>
+                    <div>
+                        <h4 class="ja-only">自動でフォルダ作成</h4>
+                        <h4 class="en-only">Automatic Folder Creation</h4>
+                        <p class="ja-only">初回ログイン時、Google Drive上に「Leaf」フォルダが自動作成されます。すべてのシートはこのフォルダ（またはサブフォルダ）に保存されます。</p>
+                        <p class="en-only">On first login, a "Leaf" folder is automatically created in Google Drive. All sheets are saved here (or in subfolders).</p>
+                    </div>
+                </div>
+                <div class="step-item">
+                    <div class="step-n">3</div>
+                    <div>
+                        <h4 class="ja-only">カテゴリでフォルダ管理</h4>
+                        <h4 class="en-only">Folder Management via Categories</h4>
+                        <p class="ja-only">シートをカテゴリ（フォルダ）に分類できます。カテゴリはGoogle Drive上のサブフォルダとして作成されます。ファイルを開くダイアログからカテゴリの作成・削除・名前変更が可能です。</p>
+                        <p class="en-only">Organize sheets into categories (folders), which become subfolders in Google Drive. Create, delete, and rename categories from the file open dialog.</p>
+                    </div>
+                </div>
+                <div class="step-item">
+                    <div class="step-n">4</div>
+                    <div>
+                        <h4 class="ja-only">オフラインでも使える</h4>
+                        <h4 class="en-only">Works Offline Too</h4>
+                        <p class="ja-only">インターネット接続がない場合もローカルDBにデータが保持されます。再接続時に自動的にDriveと同期されます。</p>
+                        <p class="en-only">Data is kept in a local DB even without internet. Automatically syncs with Drive when reconnected.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 7. ターミナル ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">7</div>
+                <h2 class="ja-only">ターミナル <span class="badge badge-desktop">デスクトップ版のみ</span></h2>
+                <h2 class="en-only">Terminal <span class="badge badge-desktop">Desktop Only</span></h2>
+            </div>
+            <p class="lead ja-only">デスクトップ版（macOS・Windows・Linux）ではターミナルをタブとして開けます。エディタとターミナルを同じウィンドウで使えます。</p>
+            <p class="lead en-only">The desktop app (macOS, Windows, Linux) lets you open a terminal as a tab alongside your editor.</p>
+
+            <!-- TERMINAL MOCKUP -->
+            <div class="mockup-wrap">
+                <div class="mock-titlebar">
+                    <div class="mock-dot" style="background:#ff5f57"></div>
+                    <div class="mock-dot" style="background:#ffbd2e"></div>
+                    <div class="mock-dot" style="background:#28c840"></div>
+                    <span class="mock-title">Leaf — Terminal</span>
+                </div>
+                <div class="mock-tabbar">
+                    <div class="mock-tab inactive">
+                        <div class="mock-tab-dot" style="background:#10b981"></div>
+                        notes.md
+                    </div>
+                    <div class="mock-tab active">
+                        <div class="mock-tab-dot" style="background:#f59e0b"></div>
+                        Terminal
+                        <div class="mock-tab-close">×</div>
+                    </div>
+                </div>
+                <div class="mock-body">
+                    <div style="flex:1;background:#0a0e1a;padding:12px 16px;font-family:'JetBrains Mono',monospace;font-size:0.65rem;line-height:1.7;">
+                        <div style="color:#6e7681;">Last login: Fri Apr  4 12:00:00 on ttys001</div>
+                        <div><span style="color:#10b981;">user@MacBook</span><span style="color:#94a3b8;"> ~/projects/leaf </span><span style="color:#818cf8;">main</span><span style="color:#f1f5f9;"> $ </span><span style="color:#f1f5f9;">cargo build --release</span></div>
+                        <div style="color:#6e7681;">   Compiling leaf v0.19.43</div>
+                        <div style="color:#10b981;">    Finished `release` profile in 28.5s</div>
+                        <div><span style="color:#10b981;">user@MacBook</span><span style="color:#94a3b8;"> ~/projects/leaf </span><span style="color:#818cf8;">main</span><span style="color:#f1f5f9;"> $ </span><span style="color:#f1f5f9;border-right:2px solid #f1f5f9;animation:blink 1s step-end infinite;">█</span></div>
+                    </div>
+                </div>
+                <div class="mock-statusbar">
+                    <span class="mock-status-ok">● bash</span>
+                    <span style="margin-left:auto;color:#f59e0b;">⬛ Terminal</span>
+                </div>
+            </div>
+
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <h3 class="ja-only">新規ターミナル <kbd>Alt+T</kbd></h3>
+                    <h3 class="en-only">New Terminal <kbd>Alt+T</kbd></h3>
+                    <p class="ja-only">新しいターミナルタブを開きます。複数のターミナルを並行して使えます。</p>
+                    <p class="en-only">Open a new terminal tab. Multiple terminals can run in parallel.</p>
+                </div>
+                <div class="feature-card">
+                    <h3 class="ja-only">スプリット表示 <kbd>Alt+L</kbd></h3>
+                    <h3 class="en-only">Split View <kbd>Alt+L</kbd></h3>
+                    <p class="ja-only">ターミナルタブでAlt+Lを押すと、右側にMarkdownプレビューを表示するスプリットモードになります。</p>
+                    <p class="en-only">Press Alt+L in a terminal tab to show a Markdown preview split on the right.</p>
+                </div>
+                <div class="feature-card">
+                    <h3 class="ja-only">スプリット時の操作</h3>
+                    <h3 class="en-only">Split Controls</h3>
+                    <p class="ja-only">スプリット時に<kbd>Alt+W</kbd>を押すと「どちらを閉じますか？」ダイアログが表示されます。左右キーで選択、Enterで確定。</p>
+                    <p class="en-only">Press <kbd>Alt+W</kbd> in split mode to choose which pane to close. Use arrow keys and Enter to confirm.</p>
+                </div>
+                <div class="feature-card">
+                    <h3 class="ja-only">フォーカス管理</h3>
+                    <h3 class="en-only">Focus Management</h3>
+                    <p class="ja-only">ダイアログを閉じると自動的にターミナルにフォーカスが戻ります。キーボードで操作を続けられます。</p>
+                    <p class="en-only">Focus automatically returns to the terminal when dialogs are closed. Continue working with the keyboard.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 8. 設定 ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">8</div>
+                <h2 class="ja-only">設定ダイアログ <kbd>Alt+,</kbd></h2>
+                <h2 class="en-only">Settings Dialog <kbd>Alt+,</kbd></h2>
+            </div>
+            <p class="lead ja-only">設定ダイアログから各種オプションをカスタマイズできます。設定はアカウントごとにローカルに保存されます。</p>
+            <p class="lead en-only">Customize various options from the settings dialog. Settings are saved locally per account.</p>
+
+            <div class="annot-grid">
+                <div class="annot-item">
+                    <div class="annot-num" style="background:var(--emerald-glow);border:1px solid rgba(16,185,129,0.3);color:var(--emerald);">Vi</div>
+                    <div>
+                        <div class="annot-label ja-only">Vimモード</div>
+                        <div class="annot-label en-only">Vim Mode</div>
+                        <div class="annot-desc ja-only">オン/オフ切り替え。オフにすると通常のテキストエリアのように動作します</div>
+                        <div class="annot-desc en-only">Toggle on/off. When off, the editor behaves like a normal text area</div>
+                    </div>
+                </div>
+                <div class="annot-item">
+                    <div class="annot-num" style="background:var(--emerald-glow);border:1px solid rgba(16,185,129,0.3);color:var(--emerald);">🎨</div>
+                    <div>
+                        <div class="annot-label ja-only">エディタテーマ</div>
+                        <div class="annot-label en-only">Editor Theme</div>
+                        <div class="annot-desc ja-only">Gruvbox・Monokai・Draculaなど複数テーマから選択可能</div>
+                        <div class="annot-desc en-only">Choose from multiple themes including Gruvbox, Monokai, Dracula, and more</div>
+                    </div>
+                </div>
+                <div class="annot-item">
+                    <div class="annot-num" style="background:var(--emerald-glow);border:1px solid rgba(16,185,129,0.3);color:var(--emerald);">Aa</div>
+                    <div>
+                        <div class="annot-label ja-only">フォントサイズ</div>
+                        <div class="annot-label en-only">Font Size</div>
+                        <div class="annot-desc ja-only">エディタとプレビューのフォントサイズを個別に設定。<kbd>Alt+=</kbd> / <kbd>Alt+-</kbd> でも変更可</div>
+                        <div class="annot-desc en-only">Set font size separately for editor and preview. Also via <kbd>Alt+=</kbd> / <kbd>Alt+-</kbd></div>
+                    </div>
+                </div>
+                <div class="annot-item">
+                    <div class="annot-num" style="background:var(--emerald-glow);border:1px solid rgba(16,185,129,0.3);color:var(--emerald);">💾</div>
+                    <div>
+                        <div class="annot-label ja-only">空シートの保存動作</div>
+                        <div class="annot-label en-only">Empty Sheet Behavior</div>
+                        <div class="annot-desc ja-only">内容が空のシートを閉じる時の動作（確認・自動削除・保持）を設定</div>
+                        <div class="annot-desc en-only">Configure behavior when closing empty sheets (confirm, auto-delete, or keep)</div>
+                    </div>
+                </div>
+                <div class="annot-item">
+                    <div class="annot-num" style="background:var(--emerald-glow);border:1px solid rgba(16,185,129,0.3);color:var(--emerald);">◻</div>
+                    <div>
+                        <div class="annot-label ja-only">ウィンドウ透過 <span class="badge badge-desktop">デスクトップ版</span></div>
+                        <div class="annot-label en-only">Window Opacity <span class="badge badge-desktop">Desktop</span></div>
+                        <div class="annot-desc ja-only">デスクトップ版のウィンドウ不透明度を調整。背景を透かして使えます</div>
+                        <div class="annot-desc en-only">Adjust window opacity in the desktop app. See through the window background</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─── 9. ショートカット ─── -->
+        <div class="section">
+            <div class="section-header">
+                <div class="section-num">9</div>
+                <h2 class="ja-only">キーボードショートカット一覧</h2>
+                <h2 class="en-only">Keyboard Shortcuts</h2>
+            </div>
+            <p class="lead ja-only">Leafはキーボードだけで全操作が可能です。<kbd>Alt+H</kbd> でいつでもヘルプを表示できます。</p>
+            <p class="lead en-only">All operations in Leaf can be performed with the keyboard. Press <kbd>Alt+H</kbd> anytime to show help.</p>
+
+            <table class="shortcut-table">
+                <thead>
+                    <tr>
+                        <th class="ja-only">キー</th>
+                        <th class="en-only">Key</th>
+                        <th class="ja-only">機能</th>
+                        <th class="en-only">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="2" class="shortcut-group ja-only">シート操作</td></tr>
+                    <tr><td colspan="2" class="shortcut-group en-only">Sheet Operations</td></tr>
+                    <tr><td><kbd>Alt + N</kbd></td><td class="ja-only">新規シート作成（Google Drive）</td><td class="en-only">New sheet (Google Drive)</td></tr>
+                    <tr><td><kbd>Alt + Shift + N</kbd></td><td class="ja-only">新規ローカルファイル作成</td><td class="en-only">New local file</td></tr>
+                    <tr><td><kbd>Alt + O</kbd></td><td class="ja-only">ローカルファイルを開く</td><td class="en-only">Open local file</td></tr>
+                    <tr><td><kbd>Alt + S</kbd></td><td class="ja-only">強制保存（新規シートはDriveへ）</td><td class="en-only">Force save (new sheets to Drive)</td></tr>
+                    <tr><td><kbd>Alt + W</kbd></td><td class="ja-only">現在のタブを閉じる</td><td class="en-only">Close current tab</td></tr>
+                    <tr><td><kbd>Alt + [</kbd></td><td class="ja-only">左のタブへ切り替え</td><td class="en-only">Switch to left tab</td></tr>
+                    <tr><td><kbd>Alt + ]</kbd></td><td class="ja-only">右のタブへ切り替え</td><td class="en-only">Switch to right tab</td></tr>
+                    <tr><td><kbd>Alt + M</kbd></td><td class="ja-only">編集シート選択ダイアログ</td><td class="en-only">Sheet selection dialog</td></tr>
+
+                    <tr><td colspan="2" class="shortcut-group ja-only">表示・プレビュー</td></tr>
+                    <tr><td colspan="2" class="shortcut-group en-only">View & Preview</td></tr>
+                    <tr><td><kbd>Alt + L</kbd></td><td class="ja-only">全画面プレビュー切り替え（シート）/ スプリット切り替え（ターミナル）</td><td class="en-only">Full preview toggle (Sheet) / Split toggle (Terminal)</td></tr>
+                    <tr><td><kbd>Alt + E</kbd></td><td class="ja-only">スプリットプレビュー切り替え（シート）/ 右ペイン編集モード（ターミナルスプリット中）</td><td class="en-only">Split preview (Sheet) / Right-pane edit mode (Terminal split)</td></tr>
+                    <tr><td><kbd>Alt + F</kbd></td><td class="ja-only">検索ダイアログを開く</td><td class="en-only">Open search dialog</td></tr>
+
+                    <tr><td colspan="2" class="shortcut-group ja-only">フォント・設定</td></tr>
+                    <tr><td colspan="2" class="shortcut-group en-only">Font & Settings</td></tr>
+                    <tr><td><kbd>Alt + =</kbd></td><td class="ja-only">フォントサイズを大きくする</td><td class="en-only">Increase font size</td></tr>
+                    <tr><td><kbd>Alt + -</kbd></td><td class="ja-only">フォントサイズを小さくする</td><td class="en-only">Decrease font size</td></tr>
+                    <tr><td><kbd>Alt + ,</kbd></td><td class="ja-only">設定ダイアログを開く</td><td class="en-only">Open settings dialog</td></tr>
+                    <tr><td><kbd>Alt + H</kbd></td><td class="ja-only">ショートカットヘルプを表示</td><td class="en-only">Show shortcut help</td></tr>
+
+                    <tr><td colspan="2" class="shortcut-group ja-only">ターミナル（デスクトップ版）</td></tr>
+                    <tr><td colspan="2" class="shortcut-group en-only">Terminal (Desktop only)</td></tr>
+                    <tr><td><kbd>Alt + T</kbd></td><td class="ja-only">新規ターミナルを開く</td><td class="en-only">Open new terminal</td></tr>
+
+                    <tr><td colspan="2" class="shortcut-group ja-only">その他</td></tr>
+                    <tr><td colspan="2" class="shortcut-group en-only">Other</td></tr>
+                    <tr><td><kbd>Esc</kbd></td><td class="ja-only">ダイアログ / プレビュー / ドロップダウンを閉じる</td><td class="en-only">Close dialog / preview / dropdown</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div><!-- /container -->
+
+    <footer>
+        <div style="margin-bottom:0.75rem;">
+            <a href="/">About</a>
+            <a href="/about_ja">日本語</a>
+            <a href="/terms">Terms</a>
+            <a href="/privacy">Privacy</a>
+            <a href="/licenses">Licenses</a>
+        </div>
+        <div>© 2024 digitarhythm. All rights reserved.</div>
+    </footer>
+
+    <script>
+        function setLang(lang) {
+            document.body.className = lang === 'en' ? 'lang-en' : '';
+            document.querySelectorAll('.lang-btn').forEach(function(b) {
+                b.classList.toggle('active', b.textContent.includes(lang === 'en' ? 'English' : '日本語'));
+            });
+            document.documentElement.lang = lang === 'en' ? 'en' : 'ja';
+            localStorage.setItem('leaf_guide_lang', lang);
+        }
+        // 保存された言語設定を復元
+        var savedLang = localStorage.getItem('leaf_guide_lang');
+        if (savedLang) setLang(savedLang);
+    </script>
+</body>
+</html>

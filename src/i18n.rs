@@ -949,6 +949,40 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "No tabs open",
         }.to_string(),
 
+        "split_close_which" => match lang {
+            Language::Ja => "どちらを閉じますか？",
+            Language::Zh => "您要关闭哪个？",
+            Language::Ko => "어느 쪽을 닫으시겠습니까?",
+            Language::Es => "¿Cuál desea cerrar?",
+            Language::De => "Was möchten Sie schließen?",
+            Language::Fr => "Lequel souhaitez-vous fermer ?",
+            Language::It => "Quale vuoi chiudere?",
+            Language::Nl => "Welke wilt u sluiten?",
+            _ => "Which would you like to close?",
+        }.to_string(),
+        "split_close_terminal" => match lang {
+            Language::Ja => "ターミナル",
+            Language::Zh => "终端",
+            Language::Ko => "터미널",
+            Language::Es => "Terminal",
+            Language::De => "Terminal",
+            Language::Fr => "Terminal",
+            Language::It => "Terminale",
+            Language::Nl => "Terminal",
+            _ => "Terminal",
+        }.to_string(),
+        "split_close_preview" => match lang {
+            Language::Ja => "プレビュー",
+            Language::Zh => "预览",
+            Language::Ko => "미리보기",
+            Language::Es => "Vista previa",
+            Language::De => "Vorschau",
+            Language::Fr => "Aperçu",
+            Language::It => "Anteprima",
+            Language::Nl => "Voorbeeld",
+            _ => "Preview",
+        }.to_string(),
+
         _ => key.to_string(),
     }
 }

@@ -62,5 +62,19 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# 5. Deploy nginx config and reload
+NGINX_CONF="nginx/leaf.digitarhythm.net.conf"
+NGINX_SITE="leaf.digitarhythm.net"
+if [ -f "$NGINX_CONF" ]; then
+    echo "🚚 Deploying nginx config..."
+    scp -P $PORT $NGINX_CONF $USER@$SERVER:/tmp/$NGINX_SITE.conf
+    ssh -p $PORT $USER@$SERVER "sudo cp /tmp/$NGINX_SITE.conf /etc/nginx/sites-available/$NGINX_SITE && sudo nginx -t && sudo systemctl reload nginx"
+    if [ $? -ne 0 ]; then
+        echo "❌ nginx reload failed. Check config manually."
+        exit 1
+    fi
+    echo "✅ nginx config deployed and reloaded."
+fi
+
 echo "✅ Deployment successful!"
 say "デプロイが正常に完了しました。"

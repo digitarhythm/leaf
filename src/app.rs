@@ -585,6 +585,9 @@ pub fn app() -> Html {
     let preview_overlay_opacity = use_state(|| false); // プレビューオーバーレイのopacity制御
     let split_pane_sheet_id: UseStateHandle<Option<String>> = use_state(|| None); // 分割ペインに表示するシートID (None=アクティブシート)
     let is_tab_select_dialog_visible = use_state(|| false); // タブ選択ダイアログ（デスクトップ版）
+    let is_split_close_dialog_visible = use_state(|| false); // スプリットクローズ選択ダイアログ
+    let split_close_selected = use_state(|| 0usize); // 0=ターミナル, 1=プレビュー
+    let split_close_selected_ref = use_mut_ref(|| 0usize);
     let terminal_font_size = use_state(|| {
         get_account_storage(TERMINAL_FONT_SIZE_KEY)
             .and_then(|v| v.parse::<i32>().ok())
@@ -1934,6 +1937,17 @@ pub fn app() -> Html {
                 if !is_online_init {
                     gloo::console::log!("[Leaf-SYSTEM] Offline startup. revealing editor UI.");
                     is_auth_init.set(true);
+                    // Web版: URLを /editor に更新
+                    if !crate::js_interop::is_tauri() {
+                        if let Some(win) = web_sys::window() {
+                            if let Ok(hist) = win.history() {
+                                let path = win.location().pathname().unwrap_or_default();
+                                if path == "/login" {
+                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                                }
+                            }
+                        }
+                    }
                     is_fo_init.set(true);
                     let ild = is_ld_init.clone(); let isi = is_in_init.clone(); let ifo = is_fo_init.clone();
                     Timeout::new(300, move || {
@@ -2003,6 +2017,17 @@ pub fn app() -> Html {
                 *auth_flag_cb.borrow_mut() = true; // RefCell: タイムアウトからも即座に参照可能
                 if !*is_auth_inner {
                     is_auth_inner.set(true);
+                    // Web版: URLを /editor に更新
+                    if !crate::js_interop::is_tauri() {
+                        if let Some(win) = web_sys::window() {
+                            if let Ok(hist) = win.history() {
+                                let path = win.location().pathname().unwrap_or_default();
+                                if path == "/login" {
+                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                                }
+                            }
+                        }
+                    }
                     let ncid_i = ncid_cb.clone(); let ldid_i = ldid_cb.clone(); let cats_i = cats_cb.clone();
                     let s_inner = s_state_cb.clone(); let rs_inner = rs_cb.clone();
                     let ild_inner = ild_cb.clone(); let ifo_inner = ifo_cb.clone(); let is_init_inner = is_init_cb.clone();
@@ -2378,6 +2403,7 @@ pub fn app() -> Html {
                 let nc_ev = network_connected.clone();
                 let pending_save_close_tab_ev = pending_save_close_tab.clone();
                 let is_tab_select_ev = is_tab_select_dialog_visible.clone();
+                let is_split_close_ev = is_split_close_dialog_visible.clone();
                 let split_pane_sheet_id_ev = split_pane_sheet_id.clone();
                 let split_content_opacity_ev = split_content_opacity.clone();
                 let terminal_split_ev = terminal_split_enabled.clone();
@@ -2387,8 +2413,8 @@ pub fn app() -> Html {
                 let tci_ev = tab_closing_id.clone();
                 let tfs_ev = terminal_font_size.clone();
                 let tfs_ref_ev = terminal_font_size_ref.clone();
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
-                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
+                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
@@ -2421,6 +2447,7 @@ pub fn app() -> Html {
                     let nc_c = nc_ev.clone();
                     let pending_save_close_c = pending_save_close_tab_ev.clone();
                     let is_tab_select_c = is_tab_select_ev.clone();
+                    let is_split_close_c = is_split_close_ev.clone();
                     let split_pane_sheet_id_c = split_pane_sheet_id_ev.clone();
                     let terminal_split_c = terminal_split_ev.clone();
                     let terminal_split_ref_c = terminal_split_ref_ev.clone();
@@ -2434,7 +2461,7 @@ pub fn app() -> Html {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                         let key = ke.key(); let code = ke.code();
                         let modifier_active = ke.alt_key();
-                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open || is_tab_select;
+                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open || is_tab_select || is_split_close_dialog;
                         let is_overlay_active = is_dialog_open || imp_lock;
                         let key_lower = key.to_lowercase();
                         let is_l_key = code == "KeyL" || key_lower == "l" || key_lower == "¬";
@@ -2829,6 +2856,16 @@ pub fn app() -> Html {
                             let is_w = code == "KeyW";
                             if is_w {
                                 e.prevent_default(); e.stop_immediate_propagation();
+                                // ターミナルスプリット中はどちらを閉じるか選択ダイアログを表示
+                                if *terminal_split_ref_c.borrow() {
+                                    is_split_close_c.set(true);
+                                    return;
+                                }
+                                // 非スプリットのターミナルがアクティブな場合は何もしない
+                                // （ターミナルを閉じるにはタブの×ボタンを使う）
+                                if atref_c.borrow().is_some() {
+                                    return;
+                                }
                                 let close_id = (*aid_ref_c.borrow()).clone();
                                 if let Some(close_id) = close_id {
                                     // 現在のエディタ内容を反映
@@ -2908,6 +2945,7 @@ pub fn app() -> Html {
                                 else if settings_open { is_settings_c.set(false); }
                                 else if help { is_help_c.set(false); }
                                 else if file_open { is_file_open_c.set(false); sp_c.set(false); }
+                                else if is_split_close_dialog { is_split_close_c.set(false); }
                                 if let Some(ref tid) = *atref_c.borrow() {
                                     crate::js_interop::terminal_focus(tid);
                                 } else {
@@ -2939,7 +2977,7 @@ pub fn app() -> Html {
     } else { ("".to_string(), "".to_string(), "txt".to_string()) };
 
     let is_current_new_sheet = if let Some(aid) = active_sheet_id.as_ref() { let rs = sheets_ref.borrow(); rs.iter().find(|s| s.id == *aid).map(|s| s.title.starts_with("Untitled.txt")).unwrap_or(false) } else { false };
-    let is_sub_overlay_active = *is_creating_category || (*pending_delete_category).is_some() || !(*conflict_queue).is_empty() || !(*fallback_queue).is_empty() || !(*name_conflict_queue).is_empty() || *is_logout_confirm_visible || *is_install_confirm_visible || *is_install_manual_visible || (*pending_close_tab).is_some() || (*pending_close_unsynced_tab).is_some() || (*pending_save_close_tab).is_some() || (*pending_empty_delete).is_some();
+    let is_sub_overlay_active = *is_creating_category || (*pending_delete_category).is_some() || !(*conflict_queue).is_empty() || !(*fallback_queue).is_empty() || !(*name_conflict_queue).is_empty() || *is_logout_confirm_visible || *is_install_confirm_visible || *is_install_manual_visible || (*pending_close_tab).is_some() || (*pending_close_unsynced_tab).is_some() || (*pending_save_close_tab).is_some() || (*pending_empty_delete).is_some() || *is_split_close_dialog_visible;
 
     // --- Tab Bar ---
     // tab_order_stateの順序でtab_infosを構築（シート+ターミナル統合）
@@ -3171,6 +3209,77 @@ pub fn app() -> Html {
             close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to_ref_close.borrow().clone(), Some(atid_close.clone()), Some(atref_close.clone()));
         })
     };
+
+    // スプリットクローズダイアログのキーボードハンドラ
+    {
+        let is_open = *is_split_close_dialog_visible;
+        let sel_state = split_close_selected.clone();
+        let sel_ref = split_close_selected_ref.clone();
+        let d = is_split_close_dialog_visible.clone();
+        let atref = active_terminal_ref.clone();
+        let tab_close = on_tab_close_cb.clone();
+        let ts_enabled = terminal_split_enabled.clone();
+        let ts_ref = terminal_split_ref.clone();
+        let sp_sheet = split_pane_sheet_id.clone();
+        use_effect_with(is_open, move |&open| {
+            if !open {
+                return Box::new(|| ()) as Box<dyn FnOnce()>;
+            }
+            // ダイアログ表示時に選択をリセット
+            *sel_ref.borrow_mut() = 0;
+            sel_state.set(0);
+            let window = web_sys::window().unwrap();
+            let mut opts = gloo::events::EventListenerOptions::run_in_capture_phase();
+            opts.passive = false;
+            let listener = gloo::events::EventListener::new_with_options(&window, "keydown", opts, move |e| {
+                let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
+                match ke.key().as_str() {
+                    "ArrowLeft" | "ArrowRight" => {
+                        e.stop_immediate_propagation(); e.prevent_default();
+                        let cur = *sel_ref.borrow();
+                        let new_sel = if cur == 0 { 1 } else { 0 };
+                        *sel_ref.borrow_mut() = new_sel;
+                        sel_state.set(new_sel);
+                    }
+                    "Enter" => {
+                        e.stop_immediate_propagation(); e.prevent_default();
+                        let sel = *sel_ref.borrow();
+                        d.set(false);
+                        if sel == 0 {
+                            // ターミナルを閉じる
+                            if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                *ts_ref.borrow_mut() = false;
+                                ts_enabled.set(false);
+                                sp_sheet.set(None);
+                                tab_close.emit(tid);
+                            }
+                        } else {
+                            // プレビューを閉じる
+                            *ts_ref.borrow_mut() = false;
+                            ts_enabled.set(false);
+                            sp_sheet.set(None);
+                            if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                gloo::timers::callback::Timeout::new(50, move || {
+                                    crate::js_interop::terminal_focus(&tid);
+                                }).forget();
+                            }
+                        }
+                    }
+                    "Escape" => {
+                        e.stop_immediate_propagation(); e.prevent_default();
+                        d.set(false);
+                        if let Some(tid) = atref.borrow().as_ref().cloned() {
+                            gloo::timers::callback::Timeout::new(50, move || {
+                                crate::js_interop::terminal_focus(&tid);
+                            }).forget();
+                        }
+                    }
+                    _ => {}
+                }
+            });
+            Box::new(move || drop(listener)) as Box<dyn FnOnce()>
+        });
+    }
 
     let on_close_tab_confirm = {
         let pending = pending_close_tab.clone();
@@ -3723,16 +3832,16 @@ pub fn app() -> Html {
                                                                                                                     { i18n::t("signin_with_google", lang) }
                                                                                                                 </button>
                                                                                                                 <div class="mt-6 flex flex-row items-center justify-center space-x-4">
-                                                                                                                    <a href={if lang == Language::Ja { "about_ja.html" } else { "about.html" }} target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                    <a href={if lang == Language::Ja { "/about_ja" } else { "/about" }} target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { i18n::t("about", lang) }
                                                                                                                     </a>
-                                                                                                                    <a href="terms.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                    <a href="/terms" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { "Terms / 利用規約" }
                                                                                                                     </a>
-                                                                                                                    <a href="privacy.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                    <a href="/privacy" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { "Privacy / ポリシー" }
                                                                                                                     </a>
-                                                                                                                    <a href="licenses.html" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                    <a href="/licenses" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { i18n::t("oss_licenses", lang) }
                                                                                                                     </a>
                                                                                                                 </div>
@@ -3768,7 +3877,7 @@ pub fn app() -> Html {
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() { let conflict = name_conflict_queue.first().unwrap(); let title = i18n::t("filename_conflict", lang); let message = i18n::t("filename_conflict_message", lang).replace("{}", &conflict.filename); let on_cfm = on_name_conflict_cfm.clone(); let ncq = name_conflict_queue.clone(); let labels = vec![i18n::t("opt_nc_overwrite", lang), i18n::t("opt_nc_new_guid", lang), i18n::t("opt_nc_rename", lang)]; Some(html! { <NameConflictDialog title={title} message={message} current_name={conflict.filename.clone()} labels={labels} on_confirm={on_cfm} on_cancel={move |_| { ncq.set(Vec::new()); }} /> }) } else { None } { <div class="pointer-events-auto">{ nc_diag }</div> }
                 <LoadingOverlay is_visible={*is_import_lock} message={i18n::t("synchronizing", lang)} is_fading_out={*is_import_fading_out} z_index="z-[90]" />
                 if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
-                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
+                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/login").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if (*pending_close_tab).is_some() { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("close_tab", lang)} message={i18n::t("confirm_close_unsaved_tab", lang)} on_confirm={on_close_tab_confirm} on_cancel={let pc = pending_close_tab.clone(); move |_| pc.set(None)} /></div> }
                 if (*pending_close_unsynced_tab).is_some() { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("close_tab", lang)} message={i18n::t("confirm_close_unsynced_tab", lang)} ok_label={i18n::t("close_anyway", lang)} cancel_label={i18n::t("cancel", lang)} on_confirm={on_close_unsynced_tab_confirm} on_cancel={let pc = pending_close_unsynced_tab.clone(); move |_| pc.set(None)} /></div> }
                 if (*pending_save_close_tab).is_some() {
@@ -3863,6 +3972,98 @@ pub fn app() -> Html {
                                 })
                             }}
                         />
+                    </div>
+                }
+                // スプリットクローズ選択ダイアログ
+                if *is_split_close_dialog_visible {
+                    <div class="pointer-events-auto fixed inset-0 z-[250] flex items-center justify-center">
+                        // Backdrop
+                        <div
+                            class="absolute inset-0 bg-black/60"
+                            onclick={{let d = is_split_close_dialog_visible.clone(); let atref = active_terminal_ref.clone(); move |_| {
+                                d.set(false);
+                                if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                    gloo::timers::callback::Timeout::new(50, move || { crate::js_interop::terminal_focus(&tid); }).forget();
+                                }
+                            }}}
+                        ></div>
+                        // Dialog
+                        <div class="relative z-10 bg-[#1d2021] rounded-xl border border-[#3c3836] shadow-2xl w-full max-w-sm mx-4 p-6">
+                            <p class="text-[#ebdbb2] text-base font-bold mb-5 text-center">{ i18n::t("split_close_which", lang) }</p>
+                            <div class="flex gap-3 mb-4">
+                                // ターミナルを閉じる
+                                <button
+                                    onclick={{
+                                        let d = is_split_close_dialog_visible.clone();
+                                        let atref = active_terminal_ref.clone();
+                                        let tab_close = on_tab_close_cb.clone();
+                                        let ts_enabled = terminal_split_enabled.clone();
+                                        let ts_ref = terminal_split_ref.clone();
+                                        let sp_sheet = split_pane_sheet_id.clone();
+                                        move |_| {
+                                            d.set(false);
+                                            if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                                *ts_ref.borrow_mut() = false;
+                                                ts_enabled.set(false);
+                                                sp_sheet.set(None);
+                                                tab_close.emit(tid);
+                                            }
+                                        }
+                                    }}
+                                    class={classes!(
+                                        "flex-1", "py-2", "px-3", "rounded-lg", "text-sm", "font-bold", "text-white", "transition-colors",
+                                        "ring-2", "ring-offset-2", "ring-offset-[#1d2021]",
+                                        if *split_close_selected == 0 { "bg-red-500 ring-red-400" } else { "bg-red-800 ring-transparent hover:bg-red-700" }
+                                    )}
+                                >
+                                    { i18n::t("split_close_terminal", lang) }
+                                </button>
+                                // プレビューを閉じる
+                                <button
+                                    onclick={{
+                                        let d = is_split_close_dialog_visible.clone();
+                                        let ts_enabled = terminal_split_enabled.clone();
+                                        let ts_ref = terminal_split_ref.clone();
+                                        let sp_sheet = split_pane_sheet_id.clone();
+                                        let atref = active_terminal_ref.clone();
+                                        move |_| {
+                                            d.set(false);
+                                            *ts_ref.borrow_mut() = false;
+                                            ts_enabled.set(false);
+                                            sp_sheet.set(None);
+                                            if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                                gloo::timers::callback::Timeout::new(50, move || { crate::js_interop::terminal_focus(&tid); }).forget();
+                                            }
+                                        }
+                                    }}
+                                    class={classes!(
+                                        "flex-1", "py-2", "px-3", "rounded-lg", "text-sm", "font-bold", "text-[#ebdbb2]", "transition-colors",
+                                        "ring-2", "ring-offset-2", "ring-offset-[#1d2021]",
+                                        if *split_close_selected == 1 { "bg-[#665c54] ring-[#928374]" } else { "bg-[#504945] ring-transparent hover:bg-[#665c54]" }
+                                    )}
+                                >
+                                    { i18n::t("split_close_preview", lang) }
+                                </button>
+                            </div>
+                            // キャンセルボタン（右下）
+                            <div class="flex justify-end">
+                                <button
+                                    onclick={{
+                                        let d = is_split_close_dialog_visible.clone();
+                                        let atref = active_terminal_ref.clone();
+                                        move |_| {
+                                            d.set(false);
+                                            if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                                gloo::timers::callback::Timeout::new(50, move || { crate::js_interop::terminal_focus(&tid); }).forget();
+                                            }
+                                        }
+                                    }}
+                                    class="px-4 py-1.5 rounded text-sm text-gray-400 hover:bg-[#3c3836] hover:text-white transition-colors"
+                                >
+                                    { i18n::t("cancel", lang) }
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 }
                 // タブ選択ダイアログ（デスクトップ版）
