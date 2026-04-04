@@ -16,25 +16,84 @@ struct ShortcutRow {
     action_en: &'static str,
 }
 
-const SHORTCUTS: &[ShortcutRow] = &[
-    ShortcutRow { key: "Opt/Alt + s",       action_ja: "強制保存（新規シートはドライブへ保存）", action_en: "Force Save (new sheets saved to Drive)" },
-    ShortcutRow { key: "Opt/Alt + n",       action_ja: "新規シート作成",                         action_en: "New Sheet" },
-    ShortcutRow { key: "Opt/Alt + Shift + n", action_ja: "新規ローカルファイル作成",              action_en: "New Local File" },
-    ShortcutRow { key: "Opt/Alt + f",       action_ja: "検索ダイアログ表示",                     action_en: "Show Search Dialog" },
-    ShortcutRow { key: "Opt/Alt + o",       action_ja: "ローカルファイルを開く",                  action_en: "Open Local File" },
-    ShortcutRow { key: "Opt/Alt + m",       action_ja: "編集シート選択ダイアログ",               action_en: "Sheet Selection Dialog" },
-    ShortcutRow { key: "Opt/Alt + l",       action_ja: "編集↔全画面プレビュー（シート）/ 全画面↔スプリット（ターミナル）", action_en: "Toggle Full Preview (Sheet) / Toggle Split (Terminal)" },
-    ShortcutRow { key: "Opt/Alt + e",       action_ja: "全画面編集↔スプリット（シート）/ プレビュー↔Ace編集（ターミナルスプリット中）", action_en: "Toggle Split Preview (Sheet) / Toggle Ace Edit in Split (Terminal)" },
-    ShortcutRow { key: "Opt/Alt + h",       action_ja: "このヘルプを表示",                       action_en: "Show This Help" },
-    ShortcutRow { key: "Opt/Alt + ,",       action_ja: "設定を開く",                             action_en: "Open Settings" },
-    ShortcutRow { key: "Opt/Alt + t",       action_ja: "新規ターミナルを開く",                   action_en: "New Terminal" },
-    ShortcutRow { key: "Opt/Alt + [",       action_ja: "左のタブに切り替え",                     action_en: "Switch to Left Tab" },
-    ShortcutRow { key: "Opt/Alt + ]",       action_ja: "右のタブに切り替え",                     action_en: "Switch to Right Tab" },
-    ShortcutRow { key: "Opt/Alt + w",       action_ja: "現在のタブを閉じる",                     action_en: "Close Current Tab" },
-    ShortcutRow { key: "Opt/Alt + =",       action_ja: "フォントサイズを大きくする",              action_en: "Increase Font Size" },
-    ShortcutRow { key: "Opt/Alt + -",       action_ja: "フォントサイズを小さくする",              action_en: "Decrease Font Size" },
-    ShortcutRow { key: "Esc",               action_ja: "ダイアログ / プレビュー / ドロップダウンを閉じる", action_en: "Close Dialog / Preview / Dropdown" },
+struct ShortcutCategory {
+    label_ja: &'static str,
+    label_en: &'static str,
+    rows: &'static [ShortcutRow],
+}
+
+// ── カラム 1 ──────────────────────────────────────
+
+const CAT_SHEET: &[ShortcutRow] = &[
+    ShortcutRow { key: "Opt/Alt + n",         action_ja: "新規シート作成",          action_en: "New Sheet" },
+    ShortcutRow { key: "Opt/Alt + Shift + n", action_ja: "新規ローカルファイル作成",  action_en: "New Local File" },
+    ShortcutRow { key: "Opt/Alt + o",         action_ja: "ローカルファイルを開く",    action_en: "Open Local File" },
+    ShortcutRow { key: "Opt/Alt + s",         action_ja: "強制保存",                action_en: "Force Save" },
+    ShortcutRow { key: "Opt/Alt + w",         action_ja: "現在のタブを閉じる",        action_en: "Close Current Tab" },
+    ShortcutRow { key: "Opt/Alt + [",         action_ja: "左のタブに切り替え",        action_en: "Switch to Left Tab" },
+    ShortcutRow { key: "Opt/Alt + ]",         action_ja: "右のタブに切り替え",        action_en: "Switch to Right Tab" },
+    ShortcutRow { key: "Opt/Alt + m",         action_ja: "シート選択ダイアログ",      action_en: "Sheet Selection Dialog" },
 ];
+
+const COL1: &[ShortcutCategory] = &[
+    ShortcutCategory { label_ja: "シート操作", label_en: "Sheet", rows: CAT_SHEET },
+];
+
+// ── カラム 2 ──────────────────────────────────────
+
+const CAT_VIEW: &[ShortcutRow] = &[
+    ShortcutRow { key: "Opt/Alt + l", action_ja: "プレビュー切り替え（シート）/ スプリット切り替え（ターミナル）", action_en: "Toggle Preview (Sheet) / Split (Terminal)" },
+    ShortcutRow { key: "Opt/Alt + e", action_ja: "スプリットプレビュー（シート）/ 右ペイン編集（ターミナルスプリット）", action_en: "Split Preview (Sheet) / Edit Pane (Terminal Split)" },
+    ShortcutRow { key: "Opt/Alt + f", action_ja: "検索ダイアログ表示",   action_en: "Show Search Dialog" },
+];
+
+const CAT_TERMINAL: &[ShortcutRow] = &[
+    ShortcutRow { key: "Opt/Alt + t", action_ja: "新規ターミナルを開く（デスクトップ版のみ）", action_en: "New Terminal (Desktop only)" },
+];
+
+const CAT_SETTINGS: &[ShortcutRow] = &[
+    ShortcutRow { key: "Opt/Alt + =", action_ja: "フォントサイズを大きくする", action_en: "Increase Font Size" },
+    ShortcutRow { key: "Opt/Alt + -", action_ja: "フォントサイズを小さくする", action_en: "Decrease Font Size" },
+    ShortcutRow { key: "Opt/Alt + ,", action_ja: "設定を開く",                action_en: "Open Settings" },
+    ShortcutRow { key: "Opt/Alt + h", action_ja: "このヘルプを表示",           action_en: "Show This Help" },
+    ShortcutRow { key: "Esc",          action_ja: "ダイアログ / プレビュー / ドロップダウンを閉じる", action_en: "Close Dialog / Preview / Dropdown" },
+];
+
+const COL2: &[ShortcutCategory] = &[
+    ShortcutCategory { label_ja: "表示・プレビュー", label_en: "View & Preview", rows: CAT_VIEW },
+    ShortcutCategory { label_ja: "ターミナル",       label_en: "Terminal",        rows: CAT_TERMINAL },
+    ShortcutCategory { label_ja: "フォント・設定",   label_en: "Font & Settings", rows: CAT_SETTINGS },
+];
+
+// ─────────────────────────────────────────────────
+
+fn render_category(cat: &ShortcutCategory, is_ja: bool) -> Html {
+    let label = if is_ja { cat.label_ja } else { cat.label_en };
+    html! {
+        <div class="mb-4 last:mb-0">
+            // カテゴリヘッダー
+            <div class="text-[10px] font-bold text-emerald-500/80 uppercase tracking-widest
+                        pb-1 mb-1 border-b border-[#3c3836]">
+                { label }
+            </div>
+            // ショートカット行
+            { for cat.rows.iter().map(|row| {
+                let action = if is_ja { row.action_ja } else { row.action_en };
+                html! {
+                    <div class="flex items-center gap-2 py-1.5 border-b border-[#3c3836]/30
+                                last:border-0">
+                        <kbd class="shrink-0 inline-block bg-[#282828] border border-[#504945]
+                                    rounded px-1.5 py-0.5 text-[10px] font-mono text-[#d4be98]
+                                    whitespace-nowrap leading-tight">
+                            { row.key }
+                        </kbd>
+                        <span class="text-[11px] text-gray-300 leading-tight">{ action }</span>
+                    </div>
+                }
+            }) }
+        </div>
+    }
+}
 
 #[function_component(ShortcutHelp)]
 pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
@@ -71,16 +130,12 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
     }
 
     let title = if is_ja { "ショートカット一覧" } else { "Keyboard Shortcuts" };
-    let key_header = if is_ja { "キー" } else { "Key" };
-    let action_header = if is_ja { "機能" } else { "Action" };
 
-    let anim_class = if *is_closing {
-        "opacity-0 scale-95"
-    } else {
-        "opacity-100 scale-100"
-    };
+    let anim_class = if *is_closing { "opacity-0 scale-95" } else { "opacity-100 scale-100" };
 
-    let link_class = "hover:text-emerald-400 transition-colors underline underline-offset-4 decoration-gray-700 cursor-pointer bg-transparent border-0 p-0 font-[inherit] text-inherit";
+    let link_class = "hover:text-emerald-400 transition-colors underline underline-offset-4 \
+                      decoration-gray-700 cursor-pointer bg-transparent border-0 p-0 \
+                      font-[inherit] text-inherit";
     let make_link = |url: String, label: String| -> Html {
         html! {
             <button
@@ -95,9 +150,9 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
         }
     };
     let about_url = if is_ja { "about_ja.html".to_string() } else { "about.html".to_string() };
-    let link_about = make_link(about_url, i18n::t("about", lang).to_string());
-    let link_terms = make_link("terms.html".to_string(), i18n::t("terms_of_service", lang).to_string());
-    let link_privacy = make_link("privacy.html".to_string(), i18n::t("privacy_policy", lang).to_string());
+    let link_about    = make_link(about_url, i18n::t("about", lang).to_string());
+    let link_terms    = make_link("terms.html".to_string(),   i18n::t("terms_of_service", lang).to_string());
+    let link_privacy  = make_link("privacy.html".to_string(), i18n::t("privacy_policy", lang).to_string());
     let link_licenses = make_link("licenses.html".to_string(), i18n::t("oss_licenses", lang).to_string());
 
     html! {
@@ -111,17 +166,19 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
                 onclick={{let hc = handle_close.clone(); move |_| hc.emit(())}}
             ></div>
 
-            // Dialog
+            // Dialog (max-w-3xl で2カラム分の幅を確保)
             <div class={classes!(
-                "relative", "z-10", "w-full", "max-w-2xl", "mx-4",
+                "relative", "z-10", "w-full", "max-w-3xl", "mx-4",
                 "bg-[#1d2021]", "rounded-xl", "border", "border-[#3c3836]", "shadow-2xl",
                 "transition-all", "duration-300", anim_class
             )}>
                 // Header
                 <div class="flex items-center justify-between px-6 py-4 border-b border-[#3c3836]">
                     <div class="flex items-center gap-3">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-emerald-500">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="1.5" stroke="currentColor" class="w-5 h-5 text-emerald-500">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
                         </svg>
                         <h2 class="text-base font-bold text-[#ebdbb2]">{ title }</h2>
                     </div>
@@ -129,37 +186,25 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
                         onclick={{let hc = handle_close.clone(); move |_| hc.emit(())}}
                         class="p-1 rounded hover:bg-[#3c3836] text-gray-400 hover:text-white transition-colors"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                             stroke-width="2" stroke="currentColor" class="w-5 h-5">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
                 </div>
 
-                // Shortcut table
-                <div class="overflow-y-auto max-h-[60vh] px-4 py-3">
-                    <table class="w-full text-xs border-collapse">
-                        <thead>
-                            <tr class="border-b border-[#3c3836]">
-                                <th class="text-left py-2 px-3 text-gray-400 font-semibold w-2/5">{ key_header }</th>
-                                <th class="text-left py-2 px-3 text-gray-400 font-semibold">{ action_header }</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            { for SHORTCUTS.iter().map(|row| {
-                                let action = if is_ja { row.action_ja } else { row.action_en };
-                                html! {
-                                    <tr class="border-b border-[#3c3836]/50 hover:bg-[#282828]/50 transition-colors">
-                                        <td class="py-2 px-3">
-                                            <kbd class="inline-block bg-[#282828] border border-[#504945] rounded px-1.5 py-0.5 text-[11px] font-mono text-[#d4be98] whitespace-nowrap">
-                                                { row.key }
-                                            </kbd>
-                                        </td>
-                                        <td class="py-2 px-3 text-gray-300">{ action }</td>
-                                    </tr>
-                                }
-                            }) }
-                        </tbody>
-                    </table>
+                // 2カラム ショートカット一覧
+                <div class="overflow-y-auto max-h-[60vh] px-5 py-4">
+                    <div class="grid grid-cols-2 gap-x-6">
+                        // カラム1
+                        <div>
+                            { for COL1.iter().map(|cat| render_category(cat, is_ja)) }
+                        </div>
+                        // カラム2
+                        <div>
+                            { for COL2.iter().map(|cat| render_category(cat, is_ja)) }
+                        </div>
+                    </div>
                 </div>
 
                 // Footer
@@ -168,7 +213,8 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
                     if let Some(ref on_install) = props.on_install {
                         <button
                             onclick={{let cb = on_install.clone(); move |_| cb.emit(())}}
-                            class="w-full py-2 px-4 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                            class="w-full py-2 px-4 rounded-lg text-sm font-bold bg-emerald-600 \
+                                   hover:bg-emerald-700 text-white transition-colors"
                         >
                             { i18n::t("install_title", lang) }
                         </button>
