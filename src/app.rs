@@ -1544,6 +1544,9 @@ pub fn app() -> Html {
         let rs = sheets_ref.clone(); let sp = is_suppressing_changes.clone();
         let os = on_save_cb.clone();
         let lmk = loading_message_key.clone();
+        let ts_sel = terminal_split_enabled.clone();
+        let ts_ref_sel = terminal_split_ref.clone();
+        let ssf_sel = skip_split_fade.clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
             let aid_val = (*aid).clone();
             let mut needs_save = false;
@@ -1559,6 +1562,9 @@ pub fn app() -> Html {
             iv.set(false); lmk.set("synchronizing"); il.set(true); ifo.set(false); sp.set(true); 
             let ss_inner = ss.clone(); let aid_inner = aid.clone(); let sp_inner = sp.clone();
             let il_inner = il.clone(); let ifo_inner = ifo.clone(); let rs_inner = rs.clone();
+            let ts_sel_inner = ts_sel.clone();
+            let ts_ref_sel_inner = ts_ref_sel.clone();
+            let ssf_sel_inner = ssf_sel.clone();
             spawn_local(async move {
                 if let Ok(cv) = download_file(&did, None, None).await {
                     let bytes = js_sys::Uint8Array::new(&cv).to_vec();
@@ -1586,7 +1592,11 @@ pub fn app() -> Html {
                     load_editor_content(&c); set_gutter_status("none");
                     if let Some(idx) = tidx { cs[idx] = ns.clone(); } else if let Some(idx) = existing_idx { cs[idx] = ns.clone(); } else { cs.push(ns.clone()); }
                     *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
-                    focus_editor(); 
+                    // スプリット状態をリセット（フェードなし）
+                    *ssf_sel_inner.borrow_mut() = true;
+                    ts_sel_inner.set(false);
+                    *ts_ref_sel_inner.borrow_mut() = false;
+                    focus_editor();
                     let js = ns.to_js();
                     let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     Timeout::new(50, move || {
@@ -1647,6 +1657,9 @@ pub fn app() -> Html {
         let lock_h = lock_for_import; let il_h = il_for_import; let ifo_h = ifo_for_import;
         let lock_fade_h = lock_fade_for_import; let lmk_h = lmk_for_import;
         let os = on_save_cb.clone();
+        let ts_imp = terminal_split_enabled.clone();
+        let ts_ref_imp = terminal_split_ref.clone();
+        let ssf_imp = skip_split_fade.clone();
         Callback::from(move |_| {
             let aid_val = (*aid_state).clone();
             let mut needs_save = false;
@@ -1663,6 +1676,9 @@ pub fn app() -> Html {
             let sp_state_c = sp_state.clone(); let r_s_c = r_s.clone();
             let lock_cb = lock_h.clone(); let il_cb = il_h.clone(); let ifo_cb = ifo_h.clone();
             let lock_fade_cb = lock_fade_h.clone(); let lmk_cb = lmk_h.clone();
+            let ts_imp_c = ts_imp.clone();
+            let ts_ref_imp_c = ts_ref_imp.clone();
+            let ssf_imp_c = ssf_imp.clone();
             spawn_local(async move {
                 let res = open_local_file().await; if res.is_null() || res.is_undefined() { return; }
                 
@@ -1686,6 +1702,10 @@ pub fn app() -> Html {
                         current.push(ns.clone());
                     }
                     *r_s_c.borrow_mut() = current.clone(); s_state_c.set(current); aid_state_c.set(Some(nid.clone()));
+                    // スプリット状態をリセット（フェードなし）
+                    *ssf_imp_c.borrow_mut() = true;
+                    ts_imp_c.set(false);
+                    *ts_ref_imp_c.borrow_mut() = false;
                     load_editor_content(&content); set_gutter_status("local"); crate::js_interop::set_editor_mode(&name);
                     let js = ns.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     Timeout::new(100, move || {
