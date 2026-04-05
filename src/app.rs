@@ -2828,6 +2828,10 @@ pub fn app() -> Html {
                                 let tid = format!("__TERM__{}", *c);
                                 term_ids_ref_c.borrow_mut().push(tid.clone());
                                 term_tab_ids_c.set(term_ids_ref_c.borrow().clone());
+                                // 新規ターミナルは非スプリット状態で開く（フェードなし）
+                                *ssf_c.borrow_mut() = true;
+                                terminal_split_c.set(false);
+                                *terminal_split_ref_c.borrow_mut() = false;
                                 atid_c.set(Some(tid.clone()));
                                 *atref_c.borrow_mut() = Some(tid);
                                 return;
@@ -3918,12 +3922,19 @@ pub fn app() -> Html {
                                         let counter = terminal_counter.clone();
                                         let atid = active_terminal_id.clone();
                                         let ttids = terminal_tab_ids.clone();
+                                        let ts_tog = terminal_split_enabled.clone();
+                                        let ts_ref_tog = terminal_split_ref.clone();
+                                        let ssf_tog = skip_split_fade.clone();
                                         Callback::from(move |_| {
                                             let mut c = counter.borrow_mut();
                                             *c += 1;
                                             let tid = format!("__TERM__{}", *c);
                                             tids_ref.borrow_mut().push(tid.clone());
                                             ttids.set(tids_ref.borrow().clone());
+                                            // 新規ターミナルは非スプリット状態で開く（フェードなし）
+                                            *ssf_tog.borrow_mut() = true;
+                                            ts_tog.set(false);
+                                            *ts_ref_tog.borrow_mut() = false;
                                             atid.set(Some(tid));
                                         })
                                     }) } else { None }}

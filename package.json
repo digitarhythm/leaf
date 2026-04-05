@@ -1,6 +1,6 @@
 {
   "name": "leaf",
-  "version": "0.19.48",
+  "version": "0.19.49",
   "main": "index.js",
   "directories": {
     "doc": "docs"
