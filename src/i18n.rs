@@ -800,8 +800,15 @@ pub fn t(key: &str, lang: Language) -> String {
         }.to_string(),
 
         "tutorial" => match lang {
-            Language::Ja => "Leafの特徴",
-            _ => "Features of Leaf",
+            Language::Ja => "Leafガイド",
+            Language::Zh => "Leaf指南",
+            Language::Ko => "Leaf 가이드",
+            Language::Es => "Guía de Leaf",
+            Language::De => "Leaf-Handbuch",
+            Language::Fr => "Guide Leaf",
+            Language::It => "Guida Leaf",
+            Language::Nl => "Leaf-gids",
+            _ => "Leaf Guide",
         }.to_string(),
 
         "about" => match lang {

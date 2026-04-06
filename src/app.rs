@@ -4165,7 +4165,7 @@ pub fn app() -> Html {
                                                                                                                     <a href={if lang == Language::Ja { "/about_ja" } else { "/about" }} target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { i18n::t("about", lang) }
                                                                                                                     </a>
-                                                                                                                    <a href="/tutorial" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                    <a href="/guide" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { i18n::t("tutorial", lang) }
                                                                                                                     </a>
                                                                                                                     <a href="/terms" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
