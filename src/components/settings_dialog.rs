@@ -68,6 +68,14 @@ pub struct SettingsDialogProps {
     pub terminal_font_size: i32,
     #[prop_or_default]
     pub on_change_terminal_font_size: Option<Callback<i32>>,
+    #[prop_or_default]
+    pub is_guest_mode: bool,
+    #[prop_or_default]
+    pub local_auto_save: bool,
+    #[prop_or_default]
+    pub on_toggle_local_auto_save: Option<Callback<()>>,
+    #[prop_or_default]
+    pub on_google_login: Option<Callback<()>>,
     pub on_close: Callback<()>,
 }
 
@@ -164,6 +172,32 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                                 if props.vim_mode { "translate-x-[22px]" } else { "translate-x-0.5" }
                             )}></div>
                         </button>
+                    </div>
+
+                    // Separator
+                    <div class="border-t border-[#3c3836]"></div>
+
+                    // Local Auto-Save
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-sm font-bold text-[#ebdbb2]">{ i18n::t("local_auto_save", lang) }</div>
+                            <div class="text-xs text-gray-500 mt-0.5">{ i18n::t("local_auto_save_desc", lang) }</div>
+                        </div>
+                        if let Some(ref on_toggle) = props.on_toggle_local_auto_save {
+                            <button
+                                onclick={on_toggle.reform(|_| ())}
+                                class={classes!(
+                                    "relative", "w-11", "h-6", "rounded-full", "transition-colors", "duration-200", "cursor-pointer", "shrink-0",
+                                    if props.local_auto_save { "bg-emerald-500" } else { "bg-gray-600" }
+                                )}
+                            >
+                                <div class={classes!(
+                                    "absolute", "top-0.5", "w-5", "h-5", "bg-white", "rounded-full", "shadow",
+                                    "transition-transform", "duration-200",
+                                    if props.local_auto_save { "translate-x-[22px]" } else { "translate-x-0.5" }
+                                )}></div>
+                            </button>
+                        }
                     </div>
 
                     // Separator
@@ -305,6 +339,23 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                             })}
                         </div>
                     </div>
+
+                    // Google Login (guest mode only, at bottom)
+                    if props.is_guest_mode {
+                        if let Some(ref on_login) = props.on_google_login {
+                            <div class="border-t border-[#3c3836]"></div>
+                            <div>
+                                <div class="text-sm font-bold text-[#ebdbb2] mb-1">{ i18n::t("google_login", lang) }</div>
+                                <div class="text-xs text-gray-500 mb-3">{ i18n::t("google_login_desc", lang) }</div>
+                                <button
+                                    onclick={on_login.reform(|_| ())}
+                                    class="w-full py-2 px-4 rounded-lg text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                                >
+                                    { i18n::t("google_login", lang) }
+                                </button>
+                            </div>
+                        }
+                    }
                 </div>
             </div>
         </div>

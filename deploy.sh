@@ -68,7 +68,7 @@ NGINX_SITE="leaf.digitarhythm.net"
 if [ -f "$NGINX_CONF" ]; then
     echo "🚚 Deploying nginx config..."
     scp -P $PORT $NGINX_CONF $USER@$SERVER:/tmp/$NGINX_SITE.conf
-    ssh -p $PORT $USER@$SERVER "sudo cp /tmp/$NGINX_SITE.conf /etc/nginx/sites-available/$NGINX_SITE && sudo nginx -t && sudo systemctl reload nginx"
+    ssh -p $PORT $USER@$SERVER "sudo cp /tmp/$NGINX_SITE.conf /etc/nginx/conf.d/$NGINX_SITE.conf && sudo nginx -t && sudo systemctl reload nginx"
     if [ $? -ne 0 ]; then
         echo "❌ nginx reload failed. Check config manually."
         exit 1

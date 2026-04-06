@@ -24,6 +24,8 @@ pub struct ButtonBarProps {
     pub sheet_count: usize,
     #[prop_or_default]
     pub on_open_sheet_list: Option<Callback<()>>,
+    #[prop_or_default]
+    pub is_guest_mode: bool,
 }
 
 #[function_component(ButtonBar)]
@@ -69,24 +71,26 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
 
     html! {
         <div class="flex items-center space-x-2 bg-gray-800 py-1 px-2 border-b border-gray-700">
-            <button
-                onclick={props.on_new_sheet.reform(|_| ())}
-                class="p-1.5 rounded hover:bg-gray-700 text-white"
-                title={i18n::t("new_sheet", lang)}
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-                </svg>
-            </button>
-            <button
-                onclick={props.on_open.reform(|_| ())}
-                class="p-1.5 rounded hover:bg-gray-700 text-white"
-                title={i18n::t("open_file", lang)}
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.06-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-                </svg>
-            </button>
+            if !props.is_guest_mode {
+                <button
+                    onclick={props.on_new_sheet.reform(|_| ())}
+                    class="p-1.5 rounded hover:bg-gray-700 text-white"
+                    title={i18n::t("new_sheet", lang)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                </button>
+                <button
+                    onclick={props.on_open.reform(|_| ())}
+                    class="p-1.5 rounded hover:bg-gray-700 text-white"
+                    title={i18n::t("open_file", lang)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.06-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+                    </svg>
+                </button>
+            }
             <button
                 onclick={props.on_import.reform(|_| ())}
                 class="p-1.5 rounded hover:bg-gray-700 text-white"
@@ -100,7 +104,8 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 </svg>
             </button>
 
-            // Category Selector
+            // Category Selector (Google login mode only)
+            if !props.is_guest_mode {
             <div class="relative inline-block text-left">
                 <button
                     onclick={on_category_click}
@@ -167,6 +172,7 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     </>
                 }
             </div>
+            } // end if !props.is_guest_mode
             <div>
                 <select
                     value={props.file_extension.clone()}
@@ -230,15 +236,17 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     <circle cx="12" cy="14.5" r="0.5" fill="currentColor" />
                 </svg>
             </button>
-            <button
-                onclick={props.on_logout.reform(|_| ())}
-                class="mobile:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
-                title={i18n::t("logout", lang)}
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-                </svg>
-            </button>
+            if !props.is_guest_mode {
+                <button
+                    onclick={props.on_logout.reform(|_| ())}
+                    class="mobile:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                    title={i18n::t("logout", lang)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                    </svg>
+                </button>
+            }
             <span 
                 class="mobile:hidden text-green-500 opacity-60 font-bold px-4 text-xl select-none"
                 style="font-family: 'Petit Formal Script', cursive;"
@@ -309,15 +317,17 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                             </svg>
                             <span>{ i18n::t("settings", lang) }</span>
                         </button>
-                        <button
-                            onclick={let is_open = is_hamburger_open.clone(); let on_logout = props.on_logout.clone(); move |_| { is_open.set(false); on_logout.emit(()); }}
-                            class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center space-x-3 border-t border-gray-700/50"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 opacity-70">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
-                            </svg>
-                            <span>{ i18n::t("logout", lang) }</span>
-                        </button>
+                        if !props.is_guest_mode {
+                            <button
+                                onclick={let is_open = is_hamburger_open.clone(); let on_logout = props.on_logout.clone(); move |_| { is_open.set(false); on_logout.emit(()); }}
+                                class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-gray-700 hover:text-red-300 transition-colors flex items-center space-x-3 border-t border-gray-700/50"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 opacity-70">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                                </svg>
+                                <span>{ i18n::t("logout", lang) }</span>
+                            </button>
+                        }
                     </div>
                 }
             </div>

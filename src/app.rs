@@ -131,6 +131,8 @@ const EMPTY_SAVE_KEY: &str = "leaf_empty_save_behavior";
 const WINDOW_OPACITY_KEY: &str = "leaf_window_opacity";
 const WINDOW_BLUR_KEY: &str = "leaf_window_blur";
 const TERMINAL_FONT_SIZE_KEY: &str = "leaf_terminal_font_size";
+const GUEST_MODE_KEY: &str = "leaf_guest_mode";
+const LOCAL_AUTO_SAVE_KEY: &str = "leaf_local_auto_save";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -636,6 +638,21 @@ pub fn app() -> Html {
     let is_install_manual_visible = use_state(|| false);
 
     let is_ad_free = use_state(|| false);
+    let is_guest_mode = use_state(|| false);
+    let local_auto_save = use_state(|| {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(LOCAL_AUTO_SAVE_KEY).ok().flatten())
+            .map(|v| v == "true")
+            .unwrap_or(false)
+    });
+    let local_auto_save_ref = use_mut_ref(|| {
+        web_sys::window()
+            .and_then(|w| w.local_storage().ok().flatten())
+            .and_then(|s| s.get_item(LOCAL_AUTO_SAVE_KEY).ok().flatten())
+            .map(|v| v == "true")
+            .unwrap_or(false)
+    });
     let pending_close_tab = use_state(|| None::<String>);
     let pending_close_unsynced_tab = use_state(|| None::<String>);
     let pending_save_close_tab = use_state(|| None::<String>);
@@ -751,6 +768,100 @@ pub fn app() -> Html {
     }
 
     let on_login = Callback::from(|_: MouseEvent| { request_access_token(); });
+
+    let on_guest_login_cb = {
+        let is_auth = is_authenticated.clone();
+        let is_guest = is_guest_mode.clone();
+        let is_ld = is_loading.clone();
+        let is_fo = is_fading_out.clone();
+        let is_in = is_initial_load.clone();
+        let is_auth_flag_g = is_auth_flag.clone();
+        let s_state = sheets.clone();
+        let rs = sheets_ref.clone();
+        let aid = active_sheet_id.clone();
+        let db_ready = db_ready_state.clone();
+        let vim_g = vim_mode.clone();
+        let pfs_g = preview_font_size.clone();
+        let et_g = editor_theme.clone();
+        Callback::from(move |_: MouseEvent| {
+            // ゲストモードをlocalStorageに保存
+            if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                let _ = storage.set_item(GUEST_MODE_KEY, "true");
+            }
+            // URLを /editor に更新 (Web版)
+            if !crate::js_interop::is_tauri() {
+                if let Some(win) = web_sys::window() {
+                    if let Ok(hist) = win.history() {
+                        let path = win.location().pathname().unwrap_or_default();
+                        if path == "/login" {
+                            let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                        }
+                    }
+                }
+            }
+            *is_auth_flag_g.borrow_mut() = true;
+            is_auth.set(true);
+            is_guest.set(true);
+
+            let s = s_state.clone(); let r = rs.clone(); let a = aid.clone();
+            let ld = is_ld.clone(); let fo = is_fo.clone(); let ini = is_in.clone();
+            let db_r = db_ready.clone();
+            let vim = vim_g.clone(); let pfs = pfs_g.clone(); let et = et_g.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                if let Err(_) = crate::db_interop::init_db("LeafDB").await {
+                    gloo::console::error!("Guest DB init failed");
+                }
+                let mut has_sheets = false;
+                if let Ok(val) = crate::db_interop::load_sheets().await {
+                    if let Ok(loaded) = serde_wasm_bindgen::from_value::<Vec<JSSheet>>(val) {
+                        if !loaded.is_empty() {
+                            let mapped: Vec<Sheet> = loaded.into_iter().map(|s| Sheet {
+                                id: s.id, guid: s.guid, category: "__LOCAL__".to_string(), title: s.title,
+                                content: s.temp_content.clone().unwrap_or(s.content),
+                                is_modified: s.temp_timestamp.is_some(), drive_id: None,
+                                temp_content: s.temp_content, temp_timestamp: s.temp_timestamp,
+                                last_sync_timestamp: s.last_sync_timestamp,
+                                tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color },
+                                total_size: s.total_size, loaded_bytes: s.loaded_bytes,
+                                needs_bom: s.needs_bom, is_preview: s.is_preview,
+                                is_split: false, editor_state: None, preview_scroll_top: 0.0
+                            }).collect();
+                            let saved_active = web_sys::window()
+                                .and_then(|w| w.local_storage().ok().flatten())
+                                .and_then(|st| st.get_item(ACTIVE_TAB_KEY).ok().flatten());
+                            let active_id = saved_active
+                                .and_then(|id| mapped.iter().find(|s| s.id == id).map(|s| s.id.clone()))
+                                .or_else(|| mapped.last().map(|s| s.id.clone()));
+                            *r.borrow_mut() = mapped.clone();
+                            s.set(mapped);
+                            a.set(active_id);
+                            has_sheets = true;
+                        }
+                    }
+                }
+                if !has_sheets {
+                    let nid = js_sys::Date::now().to_string();
+                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0 };
+                    *r.borrow_mut() = vec![ns.clone()]; s.set(vec![ns]); a.set(Some(nid));
+                }
+                // 設定の読み込み
+                let vim_val = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|st| st.get_item(VIM_MODE_KEY).ok().flatten()).map(|v| v == "true").unwrap_or(true);
+                vim.set(vim_val);
+                crate::js_interop::set_vim_mode(vim_val);
+                if let Some(fs_str) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|st| st.get_item("leaf_preview_font_size").ok().flatten()) {
+                    if let Ok(fs) = fs_str.parse::<i32>() { pfs.set(fs); }
+                }
+                let theme_val = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|st| st.get_item(EDITOR_THEME_KEY).ok().flatten()).unwrap_or_else(|| "gruvbox".to_string());
+                crate::js_interop::set_editor_theme(&theme_val);
+                et.set(theme_val);
+                db_r.set(true);
+                fo.set(true);
+                let ld2 = ld.clone(); let fo2 = fo.clone(); let ini2 = ini.clone();
+                Timeout::new(300, move || { ld2.set(false); fo2.set(false); ini2.set(false); }).forget();
+            });
+        })
+    };
+
     let on_toggle_vim = {
         let vim = vim_mode.clone();
         Callback::from(move |_| {
@@ -1938,9 +2049,89 @@ pub fn app() -> Html {
         let is_auth_init = is_authenticated.clone(); let is_ld_init = is_loading.clone();
         let is_fo_init = is_fading_out.clone(); let is_in_init = is_initial_load.clone();
         let is_online_init = *network_connected;
+        let is_guest_mode_init = is_guest_mode.clone();
+        let is_auth_flag_init = is_auth_flag.clone();
+        let vim_mode_init = vim_mode.clone();
+        let pfs_init = preview_font_size.clone();
+        let et_init = editor_theme.clone();
 
         use_effect_with((), move |_| {
             spawn_local(async move {
+                // ゲストモードの自動初期化チェック
+                let is_guest = web_sys::window()
+                    .and_then(|w| w.local_storage().ok().flatten())
+                    .and_then(|s| s.get_item(GUEST_MODE_KEY).ok().flatten())
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
+
+                if is_guest {
+                    *is_auth_flag_init.borrow_mut() = true;
+                    if let Err(_) = crate::db_interop::init_db("LeafDB").await {
+                        gloo::console::error!("Guest DB init failed");
+                    }
+                    let mut has_sheets = false;
+                    if let Ok(val) = crate::db_interop::load_sheets().await {
+                        if let Ok(loaded) = serde_wasm_bindgen::from_value::<Vec<JSSheet>>(val) {
+                            if !loaded.is_empty() {
+                                let mapped: Vec<Sheet> = loaded.into_iter().map(|s| Sheet {
+                                    id: s.id, guid: s.guid, category: "__LOCAL__".to_string(), title: s.title,
+                                    content: s.temp_content.clone().unwrap_or(s.content),
+                                    is_modified: s.temp_timestamp.is_some(), drive_id: None,
+                                    temp_content: s.temp_content, temp_timestamp: s.temp_timestamp,
+                                    last_sync_timestamp: s.last_sync_timestamp,
+                                    tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color },
+                                    total_size: s.total_size, loaded_bytes: s.loaded_bytes,
+                                    needs_bom: s.needs_bom, is_preview: s.is_preview,
+                                    is_split: false, editor_state: None, preview_scroll_top: 0.0
+                                }).collect();
+                                let saved_active = web_sys::window()
+                                    .and_then(|w| w.local_storage().ok().flatten())
+                                    .and_then(|s| s.get_item(ACTIVE_TAB_KEY).ok().flatten());
+                                let active_id = saved_active
+                                    .and_then(|id| mapped.iter().find(|s| s.id == id).map(|s| s.id.clone()))
+                                    .or_else(|| mapped.last().map(|s| s.id.clone()));
+                                *rs.borrow_mut() = mapped.clone();
+                                s_handle.set(mapped);
+                                aid_handle.set(active_id);
+                                has_sheets = true;
+                            }
+                        }
+                    }
+                    if !has_sheets {
+                        let nid = js_sys::Date::now().to_string();
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0 };
+                        *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
+                    }
+                    // 設定の読み込み
+                    let vim_val = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|s| s.get_item(VIM_MODE_KEY).ok().flatten()).map(|v| v == "true").unwrap_or(true);
+                    vim_mode_init.set(vim_val);
+                    crate::js_interop::set_vim_mode(vim_val);
+                    if let Some(fs_str) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|s| s.get_item("leaf_preview_font_size").ok().flatten()) {
+                        if let Ok(fs) = fs_str.parse::<i32>() { pfs_init.set(fs); }
+                    }
+                    let theme_val = web_sys::window().and_then(|w| w.local_storage().ok().flatten()).and_then(|s| s.get_item(EDITOR_THEME_KEY).ok().flatten()).unwrap_or_else(|| "gruvbox".to_string());
+                    crate::js_interop::set_editor_theme(&theme_val);
+                    et_init.set(theme_val);
+                    // URLを /editor に更新 (Web版)
+                    if !crate::js_interop::is_tauri() {
+                        if let Some(win) = web_sys::window() {
+                            if let Ok(hist) = win.history() {
+                                let path = win.location().pathname().unwrap_or_default();
+                                if path == "/login" {
+                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                                }
+                            }
+                        }
+                    }
+                    is_auth_init.set(true);
+                    is_guest_mode_init.set(true);
+                    is_fo_init.set(true);
+                    let ild = is_ld_init.clone(); let ifo = is_fo_init.clone(); let isi = is_in_init.clone();
+                    Timeout::new(300, move || { ild.set(false); ifo.set(false); isi.set(false); }).forget();
+                    db_loaded_init.set(true);
+                    return;
+                }
+
                 let db_name = account_db_name();
                 let has_account = db_name != "LeafDB"; // メールが取得できた場合のみDBを開く
 
@@ -2220,6 +2411,7 @@ pub fn app() -> Html {
         let sp_init = is_suppressing_changes.clone(); let r_s = sheets_ref.clone(); let r_aid = active_id_ref.clone();
         let db_ready = db_ready_state.clone(); let aid_for_editor_init = active_sheet_id.clone();
         let is_first_edit_done_cb = is_first_edit_done_ref.clone();
+        let local_auto_save_ref_cb = local_auto_save_ref.clone();
         use_effect_with((is_auth, ncid.clone(), db_ready), move |deps| {
             let (auth, _, ready) = deps;
             if **auth && **ready {
@@ -2231,6 +2423,7 @@ pub fn app() -> Html {
                 let sp_ref_cb = is_suppressing_ref.clone(); let r_s_i = r_s.clone(); let r_aid_i = r_aid.clone();
                 let aid_state_for_cb = aid_for_editor_init.clone();
                 let is_first_done_i = is_first_edit_done_cb.clone();
+                let las_ref_i = local_auto_save_ref_cb.clone();
                 let callback = Closure::wrap(Box::new(move |cmd: String| {
                     if cmd == "save" { os_i.emit(true); }
                     else if cmd == "new_sheet" { on_i.emit(()); }
@@ -2290,7 +2483,7 @@ pub fn app() -> Html {
                                     let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: sheet.content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(cur_c.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview };
                                     spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
                                 }
-                                trigger_drive_sync = (sheet.category != "__LOCAL__" && !sheet.category.is_empty()) || (sheet.category != "__LOCAL__" && sheet.category.is_empty() && !sheet.title.starts_with("Untitled.txt")) || sheet.category == "__LOCAL__";
+                                trigger_drive_sync = (sheet.category != "__LOCAL__" && !sheet.category.is_empty()) || (sheet.category != "__LOCAL__" && sheet.category.is_empty() && !sheet.title.starts_with("Untitled.txt")) || (sheet.category == "__LOCAL__" && *las_ref_i.borrow());
                             }
                             if needs_upd { *r_s_i.borrow_mut() = cur_s.clone(); s_state.set(cur_s); }
                             if trigger_drive_sync && needs_upd { let osa = os_i.clone(); timer.set(Some(Timeout::new(1000, move || { osa.emit(false); }))); }
@@ -2448,6 +2641,7 @@ pub fn app() -> Html {
                 let tci_ev = tab_closing_id.clone();
                 let tfs_ev = terminal_font_size.clone();
                 let tfs_ref_ev = terminal_font_size_ref.clone();
+                let is_guest_mode_ev = is_guest_mode.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -2493,6 +2687,7 @@ pub fn app() -> Html {
                     let tfs_c = tfs_ev.clone();
                     let tfs_ref_c = tfs_ref_ev.clone();
                     let split_content_opacity_c = split_content_opacity_ev.clone();
+                    let is_guest_c = is_guest_mode_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -2685,7 +2880,7 @@ pub fn app() -> Html {
                                         let preview_scroll = web_sys::window()
                                             .and_then(|w| w.document())
                                             .and_then(|d| {
-                                                d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten()
+                                                d.query_selector(".absolute.inset-0.overflow-y-auto").ok().flatten()
                                                     .or_else(|| d.get_element_by_id("split-preview-scroll"))
                                             })
                                             .map(|el| el.scroll_top() as f64)
@@ -2799,7 +2994,7 @@ pub fn app() -> Html {
                             else if is_up || is_down || is_arrow_up || is_arrow_down || is_home || is_end || is_space {
                                 e.prevent_default(); e.stop_immediate_propagation();
                                 if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
-                                    if let Ok(Some(el)) = doc.query_selector(".absolute.inset-0.z-20.overflow-y-auto") {
+                                    if let Ok(Some(el)) = doc.query_selector(".absolute.inset-0.overflow-y-auto") {
                                         let client_height = el.client_height();
                                         let current_scroll = el.scroll_top();
                                         if is_up { el.set_scroll_top(current_scroll - client_height / 2); }
@@ -2854,7 +3049,7 @@ pub fn app() -> Html {
                         }
 
                         // Alt + M (FileOpen) のトグル
-                        if modifier_active && is_m_key && (!is_overlay_active || *is_file_open_c) {
+                        if modifier_active && is_m_key && (!is_overlay_active || *is_file_open_c) && !*is_guest_c {
                             e.prevent_default(); e.stop_immediate_propagation();
                             if *is_file_open_c {
                                 // 閉じる時はダイアログのアニメーション付きclose処理をトリガー
@@ -3083,9 +3278,16 @@ pub fn app() -> Html {
                     } else {
                         &s.content
                     };
+                    let is_local_file = s.category == "__LOCAL__";
                     let first_line = content_for_display.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
-                    let is_unsaved_new = s.drive_id.is_none() && s.guid.is_none() && s.category != "__LOCAL__";
-                    let display = if first_line.is_empty() || is_unsaved_new { "---".to_string() } else { first_line };
+                    let is_unsaved_new = s.drive_id.is_none() && s.guid.is_none() && !is_local_file;
+                    let display = if is_local_file {
+                        s.title.clone()
+                    } else if first_line.is_empty() || is_unsaved_new {
+                        "---".to_string()
+                    } else {
+                        first_line
+                    };
                     TabInfo {
                         id: s.id.clone(),
                         title: display,
@@ -3164,7 +3366,7 @@ pub fn app() -> Html {
                         let preview_scroll = web_sys::window()
                             .and_then(|w| w.document())
                             .and_then(|d| {
-                                d.query_selector(".absolute.inset-0.z-20.overflow-y-auto").ok().flatten()
+                                d.query_selector(".absolute.inset-0.overflow-y-auto").ok().flatten()
                                     .or_else(|| d.get_element_by_id("split-preview-scroll"))
                             })
                             .map(|el| el.scroll_top() as f64)
@@ -3855,7 +4057,7 @@ pub fn app() -> Html {
                                     on_import={on_import_cb} 
                                     on_change_font_size={on_change_font_size.clone()} 
                                     on_change_category={on_change_category_cb} 
-                                    on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_open_settings={let sv = is_settings_visible.clone(); Callback::from(move |_| sv.set(true))} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} />
+                                    on_preview={on_preview_cb} on_help={on_help_cb} on_logout={on_logout} current_category={current_cat.clone()} categories={(*categories).clone()} is_new_sheet={is_current_new_sheet} is_dropdown_open={*is_category_dropdown_open} on_toggle_dropdown={let id = is_category_dropdown_open.clone(); Callback::from(move |v| id.set(v))} vim_mode={*vim_mode} on_open_settings={let sv = is_settings_visible.clone(); Callback::from(move |_| sv.set(true))} file_extension={current_file_ext.clone()} on_change_extension={on_change_extension_cb.clone()} sheet_count={tab_infos.len()} on_open_sheet_list={let sl = is_sheet_list_visible.clone(); Callback::from(move |_| sl.set(true))} is_guest_mode={*is_guest_mode} />
                 <TabBar sheets={tab_infos.clone()} active_sheet_id={if (*active_terminal_id).is_some() { (*active_terminal_id).clone() } else { (*active_sheet_id).clone() }} on_select_tab={on_tab_select_cb.clone()} on_close_tab={on_tab_close_cb.clone()} on_reorder={on_tab_reorder_cb} on_drag_end={on_tab_drag_end_cb} on_new_tab={Some({ let cb = on_new_sheet_cb.clone(); Callback::from(move |_| cb.emit(())) })} />
                 // 分割プレビューモード
                 {html! {
@@ -3951,12 +4153,20 @@ pub fn app() -> Html {
                             <img src="icon.svg" class="mx-auto mb-8 shadow-2xl" style="width: 15vmin; height: 15vmin;" alt="Leaf Icon" />
                             <h1 class="text-4xl font-extrabold text-white mb-6 tracking-tight">{ i18n::t("welcome_headline", lang) }</h1>
                             <div class="mb-10 text-gray-300 text-sm leading-relaxed whitespace-pre-wrap opacity-80 bg-gray-800/30 p-6 rounded-lg border border-white/5 shadow-inner text-left">{ Html::from_html_unchecked(i18n::t("app_policy_description", lang).into()) }</div>
-                                                                                                                <button onclick={on_login} class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
-                                                                                                                    { i18n::t("signin_with_google", lang) }
-                                                                                                                </button>
+                                                                                                                <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
+                                                                                                                    <button onclick={on_login} class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
+                                                                                                                        { i18n::t("signin_with_google", lang) }
+                                                                                                                    </button>
+                                                                                                                    <button onclick={on_guest_login_cb} class="bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold py-3 px-8 rounded-md transition-colors shadow-lg text-lg">
+                                                                                                                        { i18n::t("use_without_login", lang) }
+                                                                                                                    </button>
+                                                                                                                </div>
                                                                                                                 <div class="mt-6 flex flex-row items-center justify-center space-x-4">
                                                                                                                     <a href={if lang == Language::Ja { "/about_ja" } else { "/about" }} target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { i18n::t("about", lang) }
+                                                                                                                    </a>
+                                                                                                                    <a href="/tutorial" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
+                                                                                                                        { i18n::t("tutorial", lang) }
                                                                                                                     </a>
                                                                                                                     <a href="/terms" target="_blank" class="text-gray-500 hover:text-emerald-400 text-xs underline transition-colors">
                                                                                                                         { "Terms / 利用規約" }
@@ -4000,7 +4210,7 @@ pub fn app() -> Html {
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() { let conflict = name_conflict_queue.first().unwrap(); let title = i18n::t("filename_conflict", lang); let message = i18n::t("filename_conflict_message", lang).replace("{}", &conflict.filename); let on_cfm = on_name_conflict_cfm.clone(); let ncq = name_conflict_queue.clone(); let labels = vec![i18n::t("opt_nc_overwrite", lang), i18n::t("opt_nc_new_guid", lang), i18n::t("opt_nc_rename", lang)]; Some(html! { <NameConflictDialog title={title} message={message} current_name={conflict.filename.clone()} labels={labels} on_confirm={on_cfm} on_cancel={move |_| { ncq.set(Vec::new()); }} /> }) } else { None } { <div class="pointer-events-auto">{ nc_diag }</div> }
                 <LoadingOverlay is_visible={*is_import_lock} message={i18n::t("synchronizing", lang)} is_fading_out={*is_import_fading_out} z_index="z-[90]" />
                 if *is_loading { <div class={classes!("fixed", "inset-0", "z-[200]", "flex", "items-center", "justify-center", "bg-gray-900", "transition-opacity", "duration-300", "pointer-events-auto", if *is_fading_out { "opacity-0" } else { "opacity-100" } )}><div class="flex flex-col items-center">if *is_initial_load { <img src="icon.svg" class="mb-8 shadow-2xl animate-in fade-in zoom-in duration-500" style="width: 20vmin; height: 20vmin;" alt="Leaf Icon" /> }<div class="w-12 h-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>if *is_authenticated { <p class="mt-4 text-white font-bold text-lg animate-pulse">{ i18n::t(*loading_message_key, lang) }</p> }</div></div> }
-                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/login").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
+                if *is_logout_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("logout", lang)} message={i18n::t("confirm_logout", lang)} on_confirm={let ic = is_logout_confirm_visible.clone(); let il = is_loading.clone(); let lmk = loading_message_key.clone(); let ifo = is_fading_out.clone(); move |_| { ic.set(false); lmk.set("logging_out"); il.set(true); ifo.set(false); if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) { let _ = storage.remove_item(GUEST_MODE_KEY); } spawn_local(async move { crate::auth_interop::sign_out().await; Timeout::new(800, move || { web_sys::window().unwrap().location().set_href("/login").unwrap(); }).forget(); }); } } on_cancel={let ic = is_logout_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if (*pending_close_tab).is_some() { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("close_tab", lang)} message={i18n::t("confirm_close_unsaved_tab", lang)} on_confirm={on_close_tab_confirm} on_cancel={let pc = pending_close_tab.clone(); move |_| pc.set(None)} /></div> }
                 if (*pending_close_unsynced_tab).is_some() { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("close_tab", lang)} message={i18n::t("confirm_close_unsynced_tab", lang)} ok_label={i18n::t("close_anyway", lang)} cancel_label={i18n::t("cancel", lang)} on_confirm={on_close_unsynced_tab_confirm} on_cancel={let pc = pending_close_unsynced_tab.clone(); move |_| pc.set(None)} /></div> }
                 if (*pending_save_close_tab).is_some() {
@@ -4082,6 +4292,32 @@ pub fn app() -> Html {
                                     tfs.set(new_size);
                                 })
                             }) } else { None }}
+                            is_guest_mode={*is_guest_mode}
+                            local_auto_save={*local_auto_save}
+                            on_toggle_local_auto_save={Some({
+                                let las = local_auto_save.clone();
+                                let las_ref = local_auto_save_ref.clone();
+                                Callback::from(move |_| {
+                                    let next = !*las;
+                                    *las_ref.borrow_mut() = next;
+                                    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                                        let _ = storage.set_item(LOCAL_AUTO_SAVE_KEY, if next { "true" } else { "false" });
+                                    }
+                                    las.set(next);
+                                })
+                            })}
+                            on_google_login={Some({
+                                let sv = is_settings_visible.clone();
+                                Callback::from(move |_| {
+                                    sv.set(false);
+                                    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                                        let _ = storage.remove_item(GUEST_MODE_KEY);
+                                    }
+                                    if let Some(win) = web_sys::window() {
+                                        let _ = win.location().reload();
+                                    }
+                                })
+                            })}
                             on_close={{
                                 let sv = is_settings_visible.clone();
                                 let atid_settings = active_terminal_id.clone();
