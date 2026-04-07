@@ -4321,7 +4321,7 @@ pub fn app() -> Html {
                                         let _ = storage.remove_item(GUEST_MODE_KEY);
                                     }
                                     if let Some(win) = web_sys::window() {
-                                        let _ = win.location().reload();
+                                        let _ = win.location().set_href("/login");
                                     }
                                 })
                             })}
