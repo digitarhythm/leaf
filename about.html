@@ -311,40 +311,6 @@
             color: var(--text-dim);
         }
 
-        /* Keyboard Shortcuts */
-        .shortcuts-section { background: var(--bg); }
-        .shortcuts-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1rem;
-        }
-        .shortcut-item {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 0.75rem;
-            padding: 1rem 1.5rem;
-        }
-        .shortcut-item kbd {
-            background: var(--bg-deep);
-            padding: 0.3rem 0.75rem;
-            border-radius: 0.4rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.85rem;
-            color: var(--emerald);
-            white-space: nowrap;
-            border: 1px solid var(--border-light);
-            flex-shrink: 0;
-            min-width: 100px;
-            text-align: center;
-        }
-        .shortcut-item span {
-            font-size: 0.9rem;
-            color: var(--text-dim);
-        }
-
         /* Use Cases */
         .use-cases-grid {
             display: grid;
@@ -374,31 +340,6 @@
             font-size: 0.9rem;
             color: var(--text-dim);
             line-height: 1.8;
-        }
-
-        /* Tech Stack */
-        .tech-grid {
-            display: flex;
-            justify-content: center;
-            gap: 2rem;
-            flex-wrap: wrap;
-        }
-        .tech-item {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 0.75rem;
-            padding: 1.5rem 2rem;
-            text-align: center;
-            min-width: 140px;
-        }
-        .tech-item .tech-name {
-            font-weight: 700;
-            font-size: 1rem;
-            margin-bottom: 0.3rem;
-        }
-        .tech-item .tech-desc {
-            font-size: 0.75rem;
-            color: var(--text-muted);
         }
 
         /* CTA */
@@ -471,7 +412,7 @@
 
         /* Responsive */
         @media (max-width: 900px) {
-            .features-grid, .steps, .shortcuts-grid, .use-cases-grid {
+            .features-grid, .steps, .use-cases-grid {
                 grid-template-columns: 1fr;
             }
             .nav-links a:not(.nav-cta) { display: none; }
@@ -492,7 +433,6 @@
         <div class="nav-links">
             <a href="#features">Features</a>
             <a href="#how-it-works">How It Works</a>
-            <a href="#shortcuts">Shortcuts</a>
             <a href="#use-cases">Use Cases</a>
             <a href="/guide">Guide</a>
             <a href="/login" class="nav-cta">Open Leaf</a>
@@ -640,33 +580,6 @@
     </div>
 </section>
 
-<!-- Keyboard Shortcuts -->
-<section id="shortcuts" class="shortcuts-section">
-    <div class="section-inner">
-        <div class="section-header">
-            <h2>Keyboard-Driven Workflow</h2>
-            <p>Power users can navigate the entire app without ever touching the mouse.</p>
-        </div>
-        <div class="shortcuts-grid">
-            <div class="shortcut-item"><kbd>Alt + N</kbd><span>Create a new sheet</span></div>
-            <div class="shortcut-item"><kbd>Alt + Shift + N</kbd><span>New local file (no cloud sync)</span></div>
-            <div class="shortcut-item"><kbd>Alt + M</kbd><span>Open sheet management dialog</span></div>
-            <div class="shortcut-item"><kbd>Alt + O</kbd><span>Open a local file</span></div>
-            <div class="shortcut-item"><kbd>Alt + S</kbd><span>Force save to Google Drive</span></div>
-            <div class="shortcut-item"><kbd>Alt + L</kbd><span>Toggle Markdown / code preview</span></div>
-            <div class="shortcut-item"><kbd>Alt + F</kbd><span>Find and replace in document</span></div>
-            <div class="shortcut-item"><kbd>Alt + [</kbd><span>Switch to left tab</span></div>
-            <div class="shortcut-item"><kbd>Alt + ]</kbd><span>Switch to right tab</span></div>
-            <div class="shortcut-item"><kbd>Alt + W</kbd><span>Close current tab</span></div>
-            <div class="shortcut-item"><kbd>Alt + T</kbd><span>New Terminal (Desktop)</span></div>
-            <div class="shortcut-item"><kbd>Alt + H</kbd><span>Show keyboard shortcuts</span></div>
-            <div class="shortcut-item"><kbd>Alt + ,</kbd><span>Open Settings</span></div>
-            <div class="shortcut-item"><kbd>Alt + -</kbd><span>Decrease font size</span></div>
-            <div class="shortcut-item"><kbd>Alt + =</kbd><span>Increase font size</span></div>
-        </div>
-    </div>
-</section>
-
 <!-- Use Cases -->
 <section id="use-cases">
     <div class="section-inner">
@@ -699,25 +612,6 @@
     </div>
 </section>
 
-<!-- Tech Stack -->
-<section class="how-it-works">
-    <div class="section-inner">
-        <div class="section-header">
-            <h2>Built with Modern Technology</h2>
-            <p>Leaf is engineered for performance and reliability using cutting-edge web technologies.</p>
-        </div>
-        <div class="tech-grid">
-            <div class="tech-item"><div class="tech-name">Rust + WASM</div><div class="tech-desc">Native performance</div></div>
-            <div class="tech-item"><div class="tech-name">Yew Framework</div><div class="tech-desc">Reactive UI</div></div>
-            <div class="tech-item"><div class="tech-name">Tauri</div><div class="tech-desc">Desktop app</div></div>
-            <div class="tech-item"><div class="tech-name">Tailwind CSS</div><div class="tech-desc">Modern styling</div></div>
-            <div class="tech-item"><div class="tech-name">Ace Editor</div><div class="tech-desc">Code editing</div></div>
-            <div class="tech-item"><div class="tech-name">IndexedDB</div><div class="tech-desc">Offline storage</div></div>
-            <div class="tech-item"><div class="tech-name">Google Drive API</div><div class="tech-desc">Cloud sync</div></div>
-        </div>
-    </div>
-</section>
-
 <!-- CTA -->
 <section class="cta-section">
     <div class="section-inner">
@@ -742,7 +636,7 @@
             <a href="/login">Open Editor</a>
             <a href="/guide">Guide</a>
             <a href="#features">Features</a>
-            <a href="#shortcuts">Shortcuts</a>
+            <a href="#use-cases">Use Cases</a>
         </div>
         <div class="footer-links">
             <h4>Legal</h4>
