@@ -8,12 +8,16 @@ pub struct ShortcutHelpProps {
     pub on_close: Callback<()>,
     #[prop_or_default]
     pub on_install: Option<Callback<()>>,
+    #[prop_or_default]
+    pub is_guest_mode: bool,
 }
 
 struct ShortcutRow {
     key: &'static str,
     action_ja: &'static str,
     action_en: &'static str,
+    /// ゲストモードでは非表示にするショートカット（クラウド同期専用）
+    cloud_only: bool,
 }
 
 struct ShortcutCategory {
@@ -25,14 +29,14 @@ struct ShortcutCategory {
 // ── カラム 1 ──────────────────────────────────────
 
 const CAT_SHEET: &[ShortcutRow] = &[
-    ShortcutRow { key: "Opt/Alt + n",         action_ja: "新規シート作成",          action_en: "New Sheet" },
-    ShortcutRow { key: "Opt/Alt + Shift + n", action_ja: "新規ローカルファイル作成",  action_en: "New Local File" },
-    ShortcutRow { key: "Opt/Alt + o",         action_ja: "ローカルファイルを開く",    action_en: "Open Local File" },
-    ShortcutRow { key: "Opt/Alt + s",         action_ja: "強制保存",                action_en: "Force Save" },
-    ShortcutRow { key: "Opt/Alt + w",         action_ja: "現在のタブを閉じる",        action_en: "Close Current Tab" },
-    ShortcutRow { key: "Opt/Alt + [",         action_ja: "左のタブに切り替え",        action_en: "Switch to Left Tab" },
-    ShortcutRow { key: "Opt/Alt + ]",         action_ja: "右のタブに切り替え",        action_en: "Switch to Right Tab" },
-    ShortcutRow { key: "Opt/Alt + m",         action_ja: "シート選択ダイアログ",      action_en: "Sheet Selection Dialog" },
+    ShortcutRow { key: "Opt/Alt + n",         action_ja: "新規シート作成",          action_en: "New Sheet",               cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + Shift + n", action_ja: "新規ローカルファイル作成",  action_en: "New Local File",          cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + o",         action_ja: "ローカルファイルを開く",    action_en: "Open Local File",         cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + s",         action_ja: "Googleドライブに強制保存",  action_en: "Force Save to Drive",     cloud_only: true  },
+    ShortcutRow { key: "Opt/Alt + w",         action_ja: "現在のタブを閉じる",        action_en: "Close Current Tab",       cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + [",         action_ja: "左のタブに切り替え",        action_en: "Switch to Left Tab",      cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + ]",         action_ja: "右のタブに切り替え",        action_en: "Switch to Right Tab",     cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + m",         action_ja: "シート選択ダイアログ",      action_en: "Sheet Selection Dialog",  cloud_only: true  },
 ];
 
 const COL1: &[ShortcutCategory] = &[
@@ -42,21 +46,21 @@ const COL1: &[ShortcutCategory] = &[
 // ── カラム 2 ──────────────────────────────────────
 
 const CAT_VIEW: &[ShortcutRow] = &[
-    ShortcutRow { key: "Opt/Alt + l", action_ja: "プレビュー切り替え（シート）/ スプリット切り替え（ターミナル）", action_en: "Toggle Preview (Sheet) / Split (Terminal)" },
-    ShortcutRow { key: "Opt/Alt + e", action_ja: "スプリットプレビュー（シート）/ 右ペイン編集（ターミナルスプリット）", action_en: "Split Preview (Sheet) / Edit Pane (Terminal Split)" },
-    ShortcutRow { key: "Opt/Alt + f", action_ja: "検索ダイアログ表示",   action_en: "Show Search Dialog" },
+    ShortcutRow { key: "Opt/Alt + l", action_ja: "プレビュー切り替え（シート）/ スプリット切り替え（ターミナル）", action_en: "Toggle Preview (Sheet) / Split (Terminal)",        cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + e", action_ja: "スプリットプレビュー（シート）/ 右ペイン編集（ターミナルスプリット）", action_en: "Split Preview (Sheet) / Edit Pane (Terminal Split)", cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + f", action_ja: "検索ダイアログ表示",   action_en: "Show Search Dialog", cloud_only: false },
 ];
 
 const CAT_TERMINAL: &[ShortcutRow] = &[
-    ShortcutRow { key: "Opt/Alt + t", action_ja: "新規ターミナルを開く（デスクトップ版のみ）", action_en: "New Terminal (Desktop only)" },
+    ShortcutRow { key: "Opt/Alt + t", action_ja: "新規ターミナルを開く（デスクトップ版のみ）", action_en: "New Terminal (Desktop only)", cloud_only: false },
 ];
 
 const CAT_SETTINGS: &[ShortcutRow] = &[
-    ShortcutRow { key: "Opt/Alt + =", action_ja: "フォントサイズを大きくする", action_en: "Increase Font Size" },
-    ShortcutRow { key: "Opt/Alt + -", action_ja: "フォントサイズを小さくする", action_en: "Decrease Font Size" },
-    ShortcutRow { key: "Opt/Alt + ,", action_ja: "設定を開く",                action_en: "Open Settings" },
-    ShortcutRow { key: "Opt/Alt + h", action_ja: "このヘルプを表示",           action_en: "Show This Help" },
-    ShortcutRow { key: "Esc",          action_ja: "ダイアログ / プレビュー / ドロップダウンを閉じる", action_en: "Close Dialog / Preview / Dropdown" },
+    ShortcutRow { key: "Opt/Alt + =", action_ja: "フォントサイズを大きくする", action_en: "Increase Font Size",                                          cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + -", action_ja: "フォントサイズを小さくする", action_en: "Decrease Font Size",                                          cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + ,", action_ja: "設定を開く",                action_en: "Open Settings",                                               cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + h", action_ja: "このヘルプを表示",           action_en: "Show This Help",                                              cloud_only: false },
+    ShortcutRow { key: "Esc",         action_ja: "ダイアログ / プレビュー / ドロップダウンを閉じる", action_en: "Close Dialog / Preview / Dropdown",    cloud_only: false },
 ];
 
 const COL2: &[ShortcutCategory] = &[
@@ -67,8 +71,10 @@ const COL2: &[ShortcutCategory] = &[
 
 // ─────────────────────────────────────────────────
 
-fn render_category(cat: &ShortcutCategory, is_ja: bool) -> Html {
+fn render_category(cat: &ShortcutCategory, is_ja: bool, is_guest: bool) -> Html {
     let label = if is_ja { cat.label_ja } else { cat.label_en };
+    let rows: Vec<&ShortcutRow> = cat.rows.iter().filter(|r| !(is_guest && r.cloud_only)).collect();
+    if rows.is_empty() { return html! {}; }
     html! {
         <div class="mb-4 last:mb-0">
             // カテゴリヘッダー
@@ -77,7 +83,7 @@ fn render_category(cat: &ShortcutCategory, is_ja: bool) -> Html {
                 { label }
             </div>
             // ショートカット行
-            { for cat.rows.iter().map(|row| {
+            { for rows.into_iter().map(|row| {
                 let action = if is_ja { row.action_ja } else { row.action_en };
                 html! {
                     <div class="flex items-center gap-2 py-1.5 border-b border-[#3c3836]/30
@@ -99,6 +105,7 @@ fn render_category(cat: &ShortcutCategory, is_ja: bool) -> Html {
 pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
     let lang = Language::detect();
     let is_ja = lang == Language::Ja;
+    let is_guest = props.is_guest_mode;
     let is_closing = use_state(|| false);
 
     let handle_close = {
@@ -196,14 +203,19 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
 
                 // 2カラム ショートカット一覧
                 <div class="overflow-y-auto max-h-[60vh] px-5 py-4">
+                    if is_guest {
+                        <div class="mb-3 px-3 py-2 rounded-lg bg-amber-900/20 border border-amber-700/30 text-[11px] text-amber-400/80">
+                            { if is_ja { "ゲストモード: 一部のショートカット（クラウド同期）は利用できません" } else { "Guest mode: some shortcuts (cloud sync) are not available" } }
+                        </div>
+                    }
                     <div class="grid grid-cols-2 gap-x-6">
                         // カラム1
                         <div>
-                            { for COL1.iter().map(|cat| render_category(cat, is_ja)) }
+                            { for COL1.iter().map(|cat| render_category(cat, is_ja, is_guest)) }
                         </div>
                         // カラム2
                         <div>
-                            { for COL2.iter().map(|cat| render_category(cat, is_ja)) }
+                            { for COL2.iter().map(|cat| render_category(cat, is_ja, is_guest)) }
                         </div>
                     </div>
                 </div>

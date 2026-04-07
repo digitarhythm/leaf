@@ -794,7 +794,7 @@ pub fn app() -> Html {
                     if let Ok(hist) = win.history() {
                         let path = win.location().pathname().unwrap_or_default();
                         if path == "/login" {
-                            let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                            let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/"));
                         }
                     }
                 }
@@ -2058,11 +2058,17 @@ pub fn app() -> Html {
         use_effect_with((), move |_| {
             spawn_local(async move {
                 // ゲストモードの自動初期化チェック
-                let is_guest = web_sys::window()
+                let is_guest_from_storage = web_sys::window()
                     .and_then(|w| w.local_storage().ok().flatten())
                     .and_then(|s| s.get_item(GUEST_MODE_KEY).ok().flatten())
                     .map(|v| v == "true")
                     .unwrap_or(false);
+                // Web版でパス "/" でアクセスかつGoogle未ログインの場合もゲストモード自動起動
+                let current_path = web_sys::window()
+                    .and_then(|w| w.location().pathname().ok())
+                    .unwrap_or_default();
+                let is_guest = is_guest_from_storage
+                    || (current_path == "/" && !crate::auth_interop::is_signed_in() && !crate::js_interop::is_tauri());
 
                 if is_guest {
                     *is_auth_flag_init.borrow_mut() = true;
@@ -2118,7 +2124,7 @@ pub fn app() -> Html {
                             if let Ok(hist) = win.history() {
                                 let path = win.location().pathname().unwrap_or_default();
                                 if path == "/login" {
-                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/"));
                                 }
                             }
                         }
@@ -2167,7 +2173,7 @@ pub fn app() -> Html {
                             if let Ok(hist) = win.history() {
                                 let path = win.location().pathname().unwrap_or_default();
                                 if path == "/login" {
-                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/"));
                                 }
                             }
                         }
@@ -2247,7 +2253,7 @@ pub fn app() -> Html {
                             if let Ok(hist) = win.history() {
                                 let path = win.location().pathname().unwrap_or_default();
                                 if path == "/login" {
-                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/editor"));
+                                    let _ = hist.push_state_with_url(&wasm_bindgen::JsValue::NULL, "", Some("/"));
                                 }
                             }
                         }
@@ -4042,6 +4048,7 @@ pub fn app() -> Html {
                         }
                     })}
                     on_install={on_install}
+                    is_guest_mode={*is_guest_mode}
                 />
             </div>
         }

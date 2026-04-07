@@ -16,6 +16,8 @@
     --color-red-800: oklch(44.4% 0.177 26.899);
     --color-red-900: oklch(39.6% 0.141 25.723);
     --color-amber-400: oklch(82.8% 0.189 84.429);
+    --color-amber-700: oklch(55.5% 0.163 48.998);
+    --color-amber-900: oklch(41.4% 0.112 45.904);
     --color-lime-400: oklch(84.1% 0.238 128.85);
     --color-lime-500: oklch(76.8% 0.233 130.85);
     --color-lime-600: oklch(64.8% 0.2 131.684);
@@ -947,6 +949,12 @@
   .border-\[\#504945\] {
     border-color: #504945;
   }
+  .border-amber-700\/30 {
+    border-color: color-mix(in srgb, oklch(55.5% 0.163 48.998) 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-amber-700) 30%, transparent);
+    }
+  }
   .border-blue-500\/30 {
     border-color: color-mix(in srgb, oklch(62.3% 0.214 259.815) 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -1072,6 +1080,12 @@
   }
   .bg-\[\#504945\] {
     background-color: #504945;
+  }
+  .bg-amber-900\/20 {
+    background-color: color-mix(in srgb, oklch(41.4% 0.112 45.904) 20%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-amber-900) 20%, transparent);
+    }
   }
   .bg-black {
     background-color: var(--color-black);
@@ -1490,6 +1504,12 @@
   }
   .text-amber-400 {
     color: var(--color-amber-400);
+  }
+  .text-amber-400\/80 {
+    color: color-mix(in srgb, oklch(82.8% 0.189 84.429) 80%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      color: color-mix(in oklab, var(--color-amber-400) 80%, transparent);
+    }
   }
   .text-blue-400 {
     color: var(--color-blue-400);
