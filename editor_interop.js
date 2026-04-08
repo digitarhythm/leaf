@@ -882,8 +882,17 @@ export async function terminal_open(id, containerId, cols, rows) {
 
     // 新規作成
     const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'width:100%;height:100%;position:relative;';
+    // overflow:hidden は Windows WebView2 の IME 入力時に xterm.js の hidden textarea が
+    // 祖先コンテナをスクロールさせ、Ace エディタが左にずれる問題を防ぐために必要
+    wrapper.style.cssText = 'width:100%;height:100%;position:relative;overflow:hidden;';
     container.appendChild(wrapper);
+
+    // Windows WebView2 IME workaround: IME 変換中に WebView2 がスクロール位置を変更しても
+    // wrapper および container のスクロールを即座に 0 にリセットする
+    const resetScroll = () => { wrapper.scrollLeft = 0; wrapper.scrollTop = 0; };
+    wrapper.addEventListener('scroll', resetScroll, { passive: true });
+    const resetContainerScroll = () => { container.scrollLeft = 0; container.scrollTop = 0; };
+    container.addEventListener('scroll', resetContainerScroll, { passive: true });
 
     // ローディングスピナー（PTY起動待ち）
     const spinner = document.createElement('div');
@@ -938,7 +947,7 @@ export async function terminal_open(id, containerId, cols, rows) {
         }).observe(wrapper);
     }
 
-    _terminals.set(id, { terminal, fitAddon, wrapper, spinner });
+    _terminals.set(id, { terminal, fitAddon, wrapper, spinner, resetScroll, resetContainerScroll, container });
     _activeTermId = id;
     return true;
 }
@@ -946,6 +955,8 @@ export async function terminal_open(id, containerId, cols, rows) {
 export function terminal_close(id) {
     const inst = _terminals.get(id);
     if (inst) {
+        if (inst.resetScroll && inst.wrapper) inst.wrapper.removeEventListener('scroll', inst.resetScroll);
+        if (inst.resetContainerScroll && inst.container) inst.container.removeEventListener('scroll', inst.resetContainerScroll);
         if (inst.wrapper && inst.wrapper.parentNode) inst.wrapper.parentNode.removeChild(inst.wrapper);
         if (inst.terminal) inst.terminal.dispose();
         _terminals.delete(id);
