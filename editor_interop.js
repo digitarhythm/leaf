@@ -420,6 +420,19 @@ export function get_editor_content() {
     return editor.getValue();
 }
 
+export function get_char_at_cursor() {
+    if (!editor) return '';
+    const pos = editor.getCursorPosition();
+    const line = editor.session.getLine(pos.row);
+    if (!line || pos.column >= line.length) return '';
+    // サロゲートペア（絵文字など）対応
+    const code = line.charCodeAt(pos.column);
+    if (code >= 0xD800 && code <= 0xDBFF && pos.column + 1 < line.length) {
+        return line.slice(pos.column, pos.column + 2);
+    }
+    return line[pos.column] || '';
+}
+
 export function resize_editor() {
     if (!editor) return;
     editor.resize(true);

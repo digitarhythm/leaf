@@ -10,6 +10,7 @@ extern "C" {
     pub fn load_editor_content(content: &str);
     pub fn append_editor_content(content: &str);
     pub fn get_editor_content() -> JsValue;
+    pub fn get_char_at_cursor() -> String;
     pub fn resize_editor();
     pub fn focus_editor();
     pub fn setup_cursor_sync();

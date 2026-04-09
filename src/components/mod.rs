@@ -1,4 +1,5 @@
 pub mod button_bar;
+pub mod char_code_dialog;
 pub mod dialog;
 pub mod file_open_dialog;
 pub mod preview;

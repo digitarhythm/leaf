@@ -6,6 +6,7 @@ use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameC
 use crate::components::file_open_dialog::FileOpenDialog;
 use crate::components::settings_dialog::{SettingsDialog, EmptySaveBehavior};
 use crate::components::shortcut_help::ShortcutHelp;
+use crate::components::char_code_dialog::CharCodeDialog;
 use crate::components::tab_select_dialog::{TabSelectDialog, TabSelectItem};
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
@@ -617,7 +618,9 @@ pub fn app() -> Html {
     let terminal_split_edit_ref = use_mut_ref(|| false);
     let split_edit_debounce = use_mut_ref(|| None::<Timeout>);
     let is_help_visible = use_state(|| false);
-    let is_suppressing_changes = use_state(|| false); 
+    let is_char_code_visible = use_state(|| false);
+    let char_code_char = use_state(|| String::new());
+    let is_suppressing_changes = use_state(|| false);
     let pending_delete_category = use_state(|| None::<String>);
     let is_processing_dialog = use_state(|| false);
     let is_install_confirm_visible = use_state(|| false);
@@ -2648,6 +2651,8 @@ pub fn app() -> Html {
                 let tfs_ev = terminal_font_size.clone();
                 let tfs_ref_ev = terminal_font_size_ref.clone();
                 let is_guest_mode_ev = is_guest_mode.clone();
+                let is_char_code_ev = is_char_code_visible.clone();
+                let char_code_char_ev = char_code_char.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -2694,6 +2699,8 @@ pub fn app() -> Html {
                     let tfs_ref_c = tfs_ref_ev.clone();
                     let split_content_opacity_c = split_content_opacity_ev.clone();
                     let is_guest_c = is_guest_mode_ev.clone();
+                    let is_char_code_c = is_char_code_ev.clone();
+                    let char_code_char_c = char_code_char_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -2706,6 +2713,7 @@ pub fn app() -> Html {
                         let is_h_key = code == "KeyH" || key_lower == "h" || key_lower == "˙";
                         let is_m_key = code == "KeyM" || key_lower == "m" || key_lower == "µ";
                         let is_e_key = code == "KeyE" || key_lower == "e" || key_lower == "´";
+                        let is_c_key = code == "KeyC" || key_lower == "c" || key == "©";
                         let is_plus_key = code == "Equal" || key == "=" || key == "+" || key == "≠";
                         let is_minus_key = code == "Minus" || key == "-" || key == "–";
                         let is_toggle_shortcut = modifier_active && (is_l_key || is_h_key || is_m_key);
@@ -3083,6 +3091,17 @@ pub fn app() -> Html {
                             return;
                         }
 
+                        // Alt + C: カーソル位置の文字コードダイアログ（シート表示中のみ）
+                        if modifier_active && is_c_key && !is_overlay_active && atref_c.borrow().is_none() {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            let ch = crate::js_interop::get_char_at_cursor();
+                            if !ch.is_empty() {
+                                char_code_char_c.set(ch);
+                                is_char_code_c.set(true);
+                            }
+                            return;
+                        }
+
                         // ターミナルアクティブ時: Alt+=/- でターミナルフォントサイズ変更
                         if modifier_active && is_font_size_shortcut && !is_overlay_active && atref_c.borrow().is_some() {
                             e.prevent_default(); e.stop_immediate_propagation();
@@ -3228,6 +3247,14 @@ pub fn app() -> Html {
     }
 
     let current_cat = active_sheet_id.as_ref().and_then(|id| sheets.iter().find(|s| s.id == *id)).map(|s| s.category.clone()).unwrap_or_else(|| (*no_category_folder_id).clone().unwrap_or_else(|| "NO_CATEGORY".to_string()));
+    let current_char_count: Option<usize> = if (*active_terminal_id).is_none() {
+        active_sheet_id.as_ref().and_then(|aid| {
+            sheets_ref.borrow().iter().find(|s| s.id == *aid).map(|s| s.content.chars().count())
+        })
+    } else {
+        None
+    };
+
     let (current_cat_name, current_file_name, current_file_ext) = if let Some(aid) = active_sheet_id.as_ref() {
         let rs = sheets_ref.borrow();
         if let Some(sheet) = rs.iter().find(|s| s.id == *aid) {
@@ -4056,6 +4083,19 @@ pub fn app() -> Html {
         }
     } else { html! {} };
 
+    let char_code_html: Html = if *is_char_code_visible {
+        let icc = is_char_code_visible.clone();
+        let ch = (*char_code_char).clone();
+        html! {
+            <div class="pointer-events-auto">
+                <CharCodeDialog
+                    char_str={ch}
+                    on_close={Callback::from(move |_| { icc.set(false); focus_editor(); })}
+                />
+            </div>
+        }
+    } else { html! {} };
+
     html! {
         <div id="app-root" class="relative h-screen w-screen overflow-hidden bg-gray-950" key="app-root">
             <main key="main-editor-surface" class={classes!("absolute", "inset-0", "flex", "flex-col", "text-white", "transition-opacity", "duration-300", if !*is_authenticated && *network_connected { "opacity-0" } else { "opacity-100" } )}>
@@ -4153,6 +4193,7 @@ pub fn app() -> Html {
                                     is_terminal_active={(*active_terminal_id).is_some()}
                                     category_name={current_cat_name}
                                     file_name={current_file_name}
+                                    char_count={current_char_count}
                                 />
             </main>
             <div id="overlays-layer" class="pointer-events-none fixed inset-0 z-[100]">
@@ -4211,6 +4252,7 @@ pub fn app() -> Html {
                     }
                 }
                 { help_html }
+                { char_code_html }
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if *is_install_manual_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_manual_title", lang)} message={i18n::t("install_manual_message", lang)} ok_label={i18n::t("ok", lang)} on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)} on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)} /></div> }
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category { let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang); let pending = pending_delete_category.clone(); let on_cfm = on_delete_category_cfm.clone(); Some(html! { <ConfirmDialog title={title} message={message} on_confirm={move |_| { on_cfm.emit(1); }} on_cancel={move |_| { pending.set(None); }} /> }) } else { None } { <div class="pointer-events-auto">{ del_diag }</div> }
