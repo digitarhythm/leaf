@@ -3091,10 +3091,19 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        // Alt + C: カーソル位置の文字コードダイアログ（シート表示中のみ）
-                        if modifier_active && is_c_key && !is_overlay_active && atref_c.borrow().is_none() {
+                        // Alt + C: カーソル位置の文字コードダイアログ
+                        // シート表示中、またはターミナルスプリットの右ペイン編集中に使用可能
+                        let terminal_split_edit_active =
+                            atref_c.borrow().is_some() && *terminal_split_edit_ref_c.borrow();
+                        if modifier_active && is_c_key && !is_overlay_active
+                            && (atref_c.borrow().is_none() || terminal_split_edit_active)
+                        {
                             e.prevent_default(); e.stop_immediate_propagation();
-                            let ch = crate::js_interop::get_char_at_cursor();
+                            let ch = if terminal_split_edit_active {
+                                crate::js_interop::get_char_at_split_editor_cursor()
+                            } else {
+                                crate::js_interop::get_char_at_cursor()
+                            };
                             if !ch.is_empty() {
                                 char_code_char_c.set(ch);
                                 is_char_code_c.set(true);

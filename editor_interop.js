@@ -769,6 +769,18 @@ export function get_split_editor_content() {
     return _splitEditor.getValue();
 }
 
+export function get_char_at_split_editor_cursor() {
+    if (!_splitEditor) return '';
+    const pos = _splitEditor.getCursorPosition();
+    const line = _splitEditor.session.getLine(pos.row);
+    if (!line || pos.column >= line.length) return '';
+    const code = line.charCodeAt(pos.column);
+    if (code >= 0xD800 && code <= 0xDBFF && pos.column + 1 < line.length) {
+        return line.slice(pos.column, pos.column + 2);
+    }
+    return line[pos.column] || '';
+}
+
 export function focus_split_editor() {
     if (_splitEditor) _splitEditor.focus();
 }
