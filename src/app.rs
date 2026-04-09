@@ -2773,7 +2773,9 @@ pub fn app() -> Html {
                         // Alt + E
                         // [シート] フル画面編集 ↔ スプリット（左:編集、右:プレビュー） のトグル
                         // [ターミナル] スプリット中のみ、プレビュー ↔ Ace編集モード のトグル
-                        if modifier_active && is_e_key && !is_overlay_active && !_preview {
+                        // ターミナルがスプリット中はシートのプレビュー状態に関わらず通す
+                        let terminal_split_active = atref_c.borrow().is_some() && *terminal_split_ref_c.borrow();
+                        if modifier_active && is_e_key && !is_overlay_active && (!_preview || terminal_split_active) {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let split_open = *terminal_split_ref_c.borrow();
                             if atref_c.borrow().is_some() {
