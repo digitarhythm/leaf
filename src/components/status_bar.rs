@@ -12,6 +12,8 @@ pub struct StatusBarProps {
     pub is_terminal_open: bool,
     #[prop_or_default]
     pub is_terminal_active: bool,
+    #[prop_or_default]
+    pub is_terminal_split: bool,
     pub category_name: String,
     pub file_name: String,
     #[prop_or_default]
@@ -105,8 +107,8 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
                     </button>
                 }
 
-                // 文字数（シート表示時のみ）
-                if !props.is_terminal_active {
+                // 文字数（シート表示時、またはターミナルスプリット時）
+                if !props.is_terminal_active || props.is_terminal_split {
                     if let Some(count) = props.char_count {
                         <span class="text-gray-500 font-mono tabular-nums text-[11px] select-none">
                             { format!("{} {}", count, i18n::t("chars", lang)) }

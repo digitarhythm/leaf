@@ -3256,7 +3256,7 @@ pub fn app() -> Html {
     }
 
     let current_cat = active_sheet_id.as_ref().and_then(|id| sheets.iter().find(|s| s.id == *id)).map(|s| s.category.clone()).unwrap_or_else(|| (*no_category_folder_id).clone().unwrap_or_else(|| "NO_CATEGORY".to_string()));
-    let current_char_count: Option<usize> = if (*active_terminal_id).is_none() {
+    let current_char_count: Option<usize> = if (*active_terminal_id).is_none() || *terminal_split_enabled {
         active_sheet_id.as_ref().and_then(|aid| {
             sheets_ref.borrow().iter().find(|s| s.id == *aid).map(|s| s.content.chars().count())
         })
@@ -4200,6 +4200,7 @@ pub fn app() -> Html {
                                     }) } else { None }}
                                     is_terminal_open={(*active_terminal_id).is_some()}
                                     is_terminal_active={(*active_terminal_id).is_some()}
+                                    is_terminal_split={*terminal_split_enabled}
                                     category_name={current_cat_name}
                                     file_name={current_file_name}
                                     char_count={current_char_count}
