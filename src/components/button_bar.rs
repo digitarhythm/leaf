@@ -241,7 +241,20 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                 </button>
             }
             <button
-                onclick={props.on_preview.reform(|_| ())}
+                onclick={{
+                    let on_preview = props.on_preview.clone();
+                    let on_ts = props.on_terminal_split.clone();
+                    let is_term = props.is_terminal_active;
+                    Callback::from(move |_| {
+                        if is_term {
+                            if let Some(ref cb) = on_ts {
+                                cb.emit(());
+                                return;
+                            }
+                        }
+                        on_preview.emit(());
+                    })
+                }}
                 class="mobile:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
                 title={i18n::t("preview", lang)}
             >

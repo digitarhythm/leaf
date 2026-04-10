@@ -197,6 +197,9 @@ pub fn tab_select_dialog(props: &TabSelectDialogProps) -> Html {
                             let idx_s = selected_index.clone();
                             let idx_r = selected_index_ref.clone();
                             let color = tab.tab_color.clone();
+                            let tab_id_dbl = tab.id.clone();
+                            let on_select_dbl = props.on_select.clone();
+                            let hc_dbl = handle_close.clone();
                             html! {
                                 <button
                                     id={format!("tab-item-{}", i)}
@@ -208,6 +211,10 @@ pub fn tab_select_dialog(props: &TabSelectDialogProps) -> Html {
                                     onclick={Callback::from(move |_| {
                                         *idx_r.borrow_mut() = i;
                                         idx_s.set(i);
+                                    })}
+                                    ondblclick={Callback::from(move |_| {
+                                        on_select_dbl.emit(tab_id_dbl.clone());
+                                        hc_dbl.emit(());
                                     })}
                                 >
                                     <div class="w-2 h-2 rounded-full flex-shrink-0" style={format!("background-color: {};", color)}></div>

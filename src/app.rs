@@ -2824,7 +2824,7 @@ pub fn app() -> Html {
                                         // 編集モード終了: フェード前に内容を同期保存
                                         crate::js_interop::sync_split_editor_to_main();
                                         let content = crate::js_interop::get_split_editor_content();
-                                        let aid = (*aid_ref_c.borrow()).clone();
+                                        let aid = (*split_pane_sheet_id_c).clone().or_else(|| (*aid_ref_c.borrow()).clone());
                                         if let Some(id) = aid {
                                             let mut cur = (*rs_c.borrow()).clone();
                                             if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
@@ -3120,8 +3120,10 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        // Alt + I: シート情報ダイアログ
-                        if modifier_active && is_i_key && !is_overlay_active && atref_c.borrow().is_none() {
+                        // Alt + I: シート情報ダイアログ（シート表示中またはターミナルスプリット中）
+                        let sheet_info_allowed = atref_c.borrow().is_none()
+                            || (*terminal_split_ref_c.borrow() && (*split_pane_sheet_id_c).is_some());
+                        if modifier_active && is_i_key && !is_overlay_active && sheet_info_allowed {
                             e.prevent_default(); e.stop_immediate_propagation();
                             is_sheet_info_c.set(true);
                             return;
@@ -3984,18 +3986,28 @@ pub fn app() -> Html {
         let sheets_r = sheets_ref.clone();
         let sheets_s = sheets.clone();
         let aid_r = active_id_ref.clone();
+        let split_pane_sid_r = split_pane_sheet_id.clone();
         let os = on_save_cb.clone();
         let debounce = split_edit_debounce.clone();
         let edit_mode = *terminal_split_edit_mode;
         use_effect_with(edit_mode, move |&editing| {
             if editing {
+                // ターミナルスプリット時は split_pane_sheet_id を優先、なければ active_sheet_id
+                let split_pane_id = (*split_pane_sid_r).clone();
+                let is_terminal_split = split_pane_id.is_some();
                 let (content, filename) = {
-                    let aid = aid_r.borrow().clone();
-                    if let Some(id) = aid {
-                        let c = get_editor_content().as_string().unwrap_or_else(|| {
+                    let id = split_pane_id.clone().or_else(|| aid_r.borrow().clone());
+                    if let Some(id) = id {
+                        let c = if is_terminal_split {
+                            // ターミナルスプリット: メインエディタではなくsheets_rから取得
                             sheets_r.borrow().iter().find(|s| s.id == id)
                                 .map(|s| s.content.clone()).unwrap_or_default()
-                        });
+                        } else {
+                            get_editor_content().as_string().unwrap_or_else(|| {
+                                sheets_r.borrow().iter().find(|s| s.id == id)
+                                    .map(|s| s.content.clone()).unwrap_or_default()
+                            })
+                        };
                         let f = sheets_r.borrow().iter().find(|s| s.id == id)
                             .map(|s| s.title.clone()).unwrap_or_default();
                         (c, f)
@@ -4008,10 +4020,11 @@ pub fn app() -> Html {
                     crate::js_interop::init_split_editor("split-edit-editor", &content_c, &filename_c);
                 }).forget();
                 // "split-editor-changed" イベントで自動保存
+                let split_pane_id_for_listener = split_pane_id.clone();
                 let window = web_sys::window().unwrap();
                 let listener = gloo::events::EventListener::new(&window, "split-editor-changed", move |_| {
                     let content = crate::js_interop::get_split_editor_content();
-                    let aid = (*aid_r.borrow()).clone();
+                    let aid = split_pane_id_for_listener.clone().or_else(|| (*aid_r.borrow()).clone());
                     if let Some(id) = aid {
                         let mut cur = (*sheets_r.borrow()).clone();
                         if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
@@ -4138,7 +4151,8 @@ pub fn app() -> Html {
         let isiv = is_sheet_info_visible.clone();
         let (info_title, info_char_count, info_created_at, info_updated_at, info_needs_bom, info_category_name) = {
             let rs = sheets_ref.borrow();
-            if let Some(aid) = active_sheet_id.as_ref() {
+            let info_sheet_id = (*split_pane_sheet_id).clone().or_else(|| (*active_sheet_id).clone());
+            if let Some(aid) = info_sheet_id.as_ref() {
                 if let Some(sheet) = rs.iter().find(|s| s.id == *aid) {
                     let cat_name = if sheet.category == "__LOCAL__" {
                         i18n::t("local_file", lang)
