@@ -60,6 +60,7 @@ const CAT_SETTINGS: &[ShortcutRow] = &[
     ShortcutRow { key: "Opt/Alt + -", action_ja: "フォントサイズを小さくする", action_en: "Decrease Font Size",                                          cloud_only: false },
     ShortcutRow { key: "Opt/Alt + ,", action_ja: "設定を開く",                action_en: "Open Settings",                                               cloud_only: false },
     ShortcutRow { key: "Opt/Alt + h", action_ja: "このヘルプを表示",           action_en: "Show This Help",                                              cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + i", action_ja: "シート情報ダイアログを表示",  action_en: "Show Sheet Info Dialog",                                       cloud_only: false },
     ShortcutRow { key: "Opt/Alt + c", action_ja: "カーソル位置の文字コード表示", action_en: "Show Character Codes at Cursor",                             cloud_only: false },
     ShortcutRow { key: "Esc",         action_ja: "ダイアログ / プレビュー / ドロップダウンを閉じる", action_en: "Close Dialog / Preview / Dropdown",    cloud_only: false },
 ];

@@ -22,6 +22,8 @@ pub struct JSSheet {
     pub needs_bom: bool,
     #[serde(default)]
     pub is_preview: bool,
+    #[serde(default)]
+    pub created_at: Option<u64>,
 }
 
 fn default_true() -> bool { true }

@@ -26,6 +26,12 @@ pub struct ButtonBarProps {
     pub on_open_sheet_list: Option<Callback<()>>,
     #[prop_or_default]
     pub is_guest_mode: bool,
+    #[prop_or_default]
+    pub on_sheet_info: Option<Callback<()>>,
+    #[prop_or_default]
+    pub is_terminal_active: bool,
+    #[prop_or_default]
+    pub on_terminal_split: Option<Callback<()>>,
 }
 
 #[function_component(ButtonBar)]
@@ -223,6 +229,17 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
                 </svg>
             </button>
+            if let Some(ref on_info) = props.on_sheet_info {
+                <button
+                    onclick={let cb = on_info.clone(); move |_| cb.emit(())}
+                    class="mobile:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
+                    title={i18n::t("sheet_info_title", lang)}
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                    </svg>
+                </button>
+            }
             <button
                 onclick={props.on_preview.reform(|_| ())}
                 class="mobile:hidden p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white mr-2"
@@ -296,8 +313,34 @@ pub fn button_bar(props: &ButtonBarProps) -> Html {
                             </svg>
                             <span>{ i18n::t("help", lang) }</span>
                         </button>
+                        if let Some(ref on_info) = props.on_sheet_info {
+                            <button
+                                onclick={let is_open = is_hamburger_open.clone(); let cb = on_info.clone(); move |_| { is_open.set(false); cb.emit(()); }}
+                                class="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center space-x-3 border-t border-gray-700/50"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 opacity-70">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
+                                </svg>
+                                <span>{ i18n::t("show_info", lang) }</span>
+                            </button>
+                        }
                         <button
-                            onclick={let is_open = is_hamburger_open.clone(); let on_preview = props.on_preview.clone(); move |_| { is_open.set(false); on_preview.emit(()); }}
+                            onclick={
+                                let is_open = is_hamburger_open.clone();
+                                let on_preview = props.on_preview.clone();
+                                let on_ts = props.on_terminal_split.clone();
+                                let is_term = props.is_terminal_active;
+                                move |_| {
+                                    is_open.set(false);
+                                    if is_term {
+                                        if let Some(ref cb) = on_ts {
+                                            cb.emit(());
+                                            return;
+                                        }
+                                    }
+                                    on_preview.emit(());
+                                }
+                            }
                             class="w-full text-left px-4 py-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors flex items-center space-x-3 border-t border-gray-700/50"
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 opacity-70">

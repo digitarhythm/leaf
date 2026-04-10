@@ -1079,6 +1079,56 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Auto-save to Google Drive with your Google account",
         }.to_string(),
 
+        "sheet_info_title" => match lang {
+            Language::Ja => "シート情報",
+            Language::Ko => "시트 정보",
+            Language::Zh => "文件信息",
+            _ => "Sheet Info",
+        }.to_string(),
+        "show_info" => match lang {
+            Language::Ja => "情報表示",
+            Language::Ko => "정보 표시",
+            Language::Zh => "显示信息",
+            _ => "Sheet Info",
+        }.to_string(),
+        "info_char_count" => match lang {
+            Language::Ja => "テキスト総文字数",
+            Language::Ko => "총 문자 수",
+            Language::Zh => "总字符数",
+            _ => "Total Characters",
+        }.to_string(),
+        "info_created_at" => match lang {
+            Language::Ja => "作成日時",
+            Language::Ko => "생성 일시",
+            Language::Zh => "创建时间",
+            _ => "Created",
+        }.to_string(),
+        "info_updated_at" => match lang {
+            Language::Ja => "最終更新日時",
+            Language::Ko => "최종 수정 일시",
+            Language::Zh => "最后更新时间",
+            _ => "Last Updated",
+        }.to_string(),
+        "info_encoding" => match lang {
+            Language::Ja => "文字コード",
+            Language::Ko => "문자 인코딩",
+            Language::Zh => "字符编码",
+            _ => "Encoding",
+        }.to_string(),
+        "info_directory" => match lang {
+            Language::Ja => "カテゴリー",
+            Language::Ko => "카테고리",
+            Language::Zh => "类别",
+            _ => "Category",
+        }.to_string(),
+
+        "info_filename" => match lang {
+            Language::Ja => "ファイル名",
+            Language::Ko => "파일명",
+            Language::Zh => "文件名",
+            _ => "Filename",
+        }.to_string(),
+
         _ => key.to_string(),
     }
 }
