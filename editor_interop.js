@@ -453,6 +453,13 @@ function syncPreviewToLine() {
 
     // .markdown-body の直下ブロック要素を取得
     const contentDiv = previewEl.querySelector('.markdown-body');
+
+    // 末尾3行分の余白をpadding-bottomで確保（常時）
+    const TAIL_PADDING = '4.5em';
+    if (contentDiv && contentDiv.style.paddingBottom !== TAIL_PADDING) {
+        contentDiv.style.paddingBottom = TAIL_PADDING;
+    }
+
     if (!contentDiv || contentDiv.children.length === 0) {
         // コードファイルなど非Markdown: 比率ベースにフォールバック
         const ratio = row / (totalRows - 1);
@@ -460,7 +467,7 @@ function syncPreviewToLine() {
         if (maxScroll > 0) {
             const isNearEnd = row >= totalRows - 4;
             let target = ratio * maxScroll - previewEl.clientHeight * 0.25;
-            if (isNearEnd) target = Math.max(target, maxScroll);
+            if (isNearEnd) target = maxScroll;
             previewEl.scrollTop = Math.max(0, Math.min(target, maxScroll));
         }
         return;
@@ -534,14 +541,12 @@ function syncPreviewToLine() {
                   + previewEl.scrollTop;
 
     // 対象ブロックがプレビューの縦中央付近に来るようスクロール
-    // カーソルが末尾付近の場合は最大スクロール位置（最終行が見えるよう3行分の余白を加算）
-    const LINE_HEIGHT_APPROX = 24; // 約3行分のピクセル余白
+    // 末尾付近は maxScroll まで完全スクロール（padding-bottom で3行分の余白確保済み）
     const maxScroll = previewEl.scrollHeight - previewEl.clientHeight;
     const isNearEnd = row >= totalRows - 4;
     let targetScroll = elTop - previewEl.clientHeight * 0.5;
     if (isNearEnd) {
-        // 末尾付近: 中央揃えの値と最大スクロールのうち大きい方を採用（最終行が必ず見える）
-        targetScroll = Math.max(targetScroll, maxScroll - LINE_HEIGHT_APPROX * 3);
+        targetScroll = Math.max(targetScroll, maxScroll);
     }
     previewEl.scrollTop = Math.max(0, Math.min(targetScroll, maxScroll));
 }

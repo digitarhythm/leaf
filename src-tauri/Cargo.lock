@@ -2088,7 +2088,7 @@ dependencies = [
 
 [[package]]
 name = "leaf-app"
-version = "0.19.61"
+version = "0.19.62"
 dependencies = [
  "base64 0.22.1",
  "cocoa",
