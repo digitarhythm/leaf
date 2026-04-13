@@ -611,7 +611,7 @@ pub fn app() -> Html {
     let is_splitter_dragging = use_mut_ref(|| false);
     let terminal_split_enabled = use_state(|| false);
     let terminal_split_ref = use_mut_ref(|| false);
-    let terminal_split_map = use_mut_ref(|| std::collections::HashMap::<String, bool>::new());
+    let terminal_split_map = use_mut_ref(|| std::collections::HashMap::<String, (bool, bool)>::new()); // (スプリット状態, 編集モード)
     let split_pane_mounted = use_state(|| false);   // 右ペインをDOMに保持するか
     let split_pane_opacity = use_state(|| false);   // 右ペインのopacity (true=100, false=0)
     let skip_split_fade = use_mut_ref(|| false);    // タブ切り替え時はフェードをスキップ
@@ -2899,7 +2899,7 @@ pub fn app() -> Html {
                                 if new_id.starts_with("__TERM__") {
                                     // 現在のタブのスプリット状態を保存
                                     if current_id.starts_with("__TERM__") {
-                                        ts_map_c.borrow_mut().insert(current_id.clone(), *terminal_split_ref_c.borrow());
+                                        ts_map_c.borrow_mut().insert(current_id.clone(), (*terminal_split_ref_c.borrow(), *terminal_split_edit_ref_c.borrow()));
                                     } else {
                                         let mut us = current_sheets.clone();
                                         if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
@@ -2907,16 +2907,21 @@ pub fn app() -> Html {
                                         }
                                         *rs_c.borrow_mut() = us;
                                     }
-                                    // ターミナルのスプリット状態を復元（フェードなし）
-                                    let terminal_split = *ts_map_c.borrow().get(&new_id).unwrap_or(&false);
+                                    // ターミナルのスプリット状態と編集モードを復元（フェードなし）
+                                    let (terminal_split, terminal_edit) = *ts_map_c.borrow().get(&new_id).unwrap_or(&(false, false));
                                     *ssf_c.borrow_mut() = true;
                                     terminal_split_c.set(terminal_split);
                                     *terminal_split_ref_c.borrow_mut() = terminal_split;
+                                    *terminal_split_edit_ref_c.borrow_mut() = terminal_edit;
+                                    terminal_split_edit_c.set(terminal_edit);
                                     atid_c.set(Some(new_id));
                                 } else {
                                     let was_on_terminal = current_id.starts_with("__TERM__");
                                     if was_on_terminal {
-                                        ts_map_c.borrow_mut().insert(current_id.clone(), *terminal_split_ref_c.borrow());
+                                        ts_map_c.borrow_mut().insert(current_id.clone(), (*terminal_split_ref_c.borrow(), *terminal_split_edit_ref_c.borrow()));
+                                        // シートに戻る際は編集モードをリセット
+                                        *terminal_split_edit_ref_c.borrow_mut() = false;
+                                        terminal_split_edit_c.set(false);
                                     }
                                     atid_c.set(None);
                                     sp_c.set(true);
@@ -3386,6 +3391,8 @@ pub fn app() -> Html {
         let ts_ref = terminal_split_ref.clone();
         let ts_map = terminal_split_map.clone();
         let ssf = skip_split_fade.clone();
+        let tse = terminal_split_edit_mode.clone();
+        let tse_ref = terminal_split_edit_ref.clone();
         Callback::from(move |new_id: String| {
             // ターミナルタブ選択
             if new_id.starts_with("__TERM__") {
@@ -3398,11 +3405,13 @@ pub fn app() -> Html {
                     }
                     *rs.borrow_mut() = us;
                 }
-                // ターミナルのスプリット状態を復元（フェードなし）
-                let terminal_split = *ts_map.borrow().get(&new_id).unwrap_or(&false);
+                // ターミナルのスプリット状態と編集モードを復元（フェードなし）
+                let (terminal_split, terminal_edit) = *ts_map.borrow().get(&new_id).unwrap_or(&(false, false));
                 *ssf.borrow_mut() = true;
                 ts.set(terminal_split);
                 *ts_ref.borrow_mut() = terminal_split;
+                *tse_ref.borrow_mut() = terminal_edit;
+                tse.set(terminal_edit);
                 atid.set(Some(new_id));
                 return;
             }
@@ -3410,9 +3419,11 @@ pub fn app() -> Html {
             let was_on_terminal = (*atid).is_some();
             let leaving_terminal_id = (*atid).clone();
             atid.set(None);
-            // ターミナルから来た場合はそのスプリット状態を保存
+            // ターミナルから来た場合: スプリット状態と編集モードを保存し、シートへはリセット
             if let Some(ref tid) = leaving_terminal_id {
-                ts_map.borrow_mut().insert(tid.clone(), *ts_ref.borrow());
+                ts_map.borrow_mut().insert(tid.clone(), (*ts_ref.borrow(), *tse_ref.borrow()));
+                *tse_ref.borrow_mut() = false;
+                tse.set(false);
             }
             // RefCellから最新のactive_idを取得
             let current_aid = (*aid_ref.borrow()).clone();
@@ -3797,7 +3808,11 @@ pub fn app() -> Html {
         let aid_ref_exit = active_id_ref.clone();
         let terminal_split_ref_exit = terminal_split_ref.clone();
         let terminal_split_exit = terminal_split_enabled.clone();
+        let terminal_split_edit_ref_exit = terminal_split_edit_ref.clone();
+        let terminal_split_edit_exit = terminal_split_edit_mode.clone();
         let split_pane_sheet_id_exit = split_pane_sheet_id.clone();
+        let sheets_ref_exit = sheets_ref.clone();
+        let is_preview_exit = is_preview_visible.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let listener = EventListener::new(&window, "terminal-exit", move |e| {
@@ -3820,15 +3835,25 @@ pub fn app() -> Html {
                     if was_active {
                         atid_exit.set(None);
                         *atref_exit.borrow_mut() = None;
-                        // 分割ペインもリセット
+                        // 分割ペインと編集モードをリセット
                         *terminal_split_ref_exit.borrow_mut() = false;
                         terminal_split_exit.set(false);
+                        *terminal_split_edit_ref_exit.borrow_mut() = false;
+                        terminal_split_edit_exit.set(false);
                         split_pane_sheet_id_exit.set(None);
                         if let Some(ref next) = next_tab {
                             if next.starts_with("__TERM__") {
                                 atid_exit.set(Some(next.clone()));
                                 *atref_exit.borrow_mut() = Some(next.clone());
                             } else {
+                                // シートの表示モードを復元
+                                let sheets_list = sheets_ref_exit.borrow();
+                                if let Some(sheet) = sheets_list.iter().find(|s| s.id == *next) {
+                                    is_preview_exit.set(sheet.is_preview);
+                                    *terminal_split_ref_exit.borrow_mut() = sheet.is_split;
+                                    terminal_split_exit.set(sheet.is_split);
+                                }
+                                drop(sheets_list);
                                 aid_exit.set(Some(next.clone()));
                                 *aid_ref_exit.borrow_mut() = Some(next.clone());
                             }
