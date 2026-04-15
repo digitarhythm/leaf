@@ -3813,6 +3813,7 @@ pub fn app() -> Html {
         let split_pane_sheet_id_exit = split_pane_sheet_id.clone();
         let sheets_ref_exit = sheets_ref.clone();
         let is_preview_exit = is_preview_visible.clone();
+        let ts_map_exit = terminal_split_map.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
             let listener = EventListener::new(&window, "terminal-exit", move |e| {
@@ -3843,6 +3844,12 @@ pub fn app() -> Html {
                         split_pane_sheet_id_exit.set(None);
                         if let Some(ref next) = next_tab {
                             if next.starts_with("__TERM__") {
+                                // ターミナルのスプリット状態と編集モードを復元
+                                let (split, edit) = *ts_map_exit.borrow().get(next.as_str()).unwrap_or(&(false, false));
+                                *terminal_split_ref_exit.borrow_mut() = split;
+                                terminal_split_exit.set(split);
+                                *terminal_split_edit_ref_exit.borrow_mut() = edit;
+                                terminal_split_edit_exit.set(edit);
                                 atid_exit.set(Some(next.clone()));
                                 *atref_exit.borrow_mut() = Some(next.clone());
                             } else {
