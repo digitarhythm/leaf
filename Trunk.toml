@@ -10,8 +10,8 @@ dist = "dist"
 addresses = ["127.0.0.1"]
 port = 5003
 # https = true
-# tls_key_path = "localhost+2-key.pem"
-# tls_cert_path = "localhost+2.pem"
+# tls_key_path = "config/certs/localhost+2-key.pem"
+# tls_cert_path = "config/certs/localhost+2.pem"
 
 [[proxy]]
 backend = "http://127.0.0.1:3000/api/"
@@ -21,4 +21,4 @@ rewrite = "/api/"
 # pre_build に変更して、Trunkがアセットを処理する前にCSSを確実に生成する
 stage = "pre_build"
 command = "sh"
-command_arguments = ["-c", "npx @tailwindcss/cli -i input.css -o tailwind.css && sleep 2"]
+command_arguments = ["-c", "npx @tailwindcss/cli -i assets/css/input.css -o assets/css/tailwind.css && sleep 2"]

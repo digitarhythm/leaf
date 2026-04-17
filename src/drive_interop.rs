@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 
-#[wasm_bindgen(module = "/drive.js")]
+#[wasm_bindgen(module = "/assets/js/drive.js")]
 extern "C" {
     #[wasm_bindgen(catch)]
     pub async fn find_or_create_folder(folder_name: &str, parent_id: &str) -> Result<JsValue, JsValue>;

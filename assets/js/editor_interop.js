@@ -301,9 +301,10 @@ export function init_editor(element_id, callback) {
         exec: () => { change_font_size(-1); }
     });
 
-    // 待機中の内容があれば反映
+    // 待機中の内容があれば反映（初期ロード時はUNDO起点をリセット）
     if (pendingContent !== null) {
         set_editor_content(pendingContent);
+        editor.session.getUndoManager().reset();
     }
 
     // 待機中のガーターステータスがあれば反映
@@ -604,6 +605,7 @@ export function load_editor_content_raw(content) {
         editor.moveCursorToPosition({ row: 0, column: 0 });
         editor.session.setScrollTop(0);
         editor.session.setScrollLeft(0);
+        editor.session.getUndoManager().reset();
         pendingContent = null;
     } finally {
         internalChange = false;

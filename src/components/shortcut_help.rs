@@ -158,12 +158,12 @@ pub fn shortcut_help(props: &ShortcutHelpProps) -> Html {
             >{ label }</button>
         }
     };
-    let about_url = if is_ja { "about_ja.html".to_string() } else { "about.html".to_string() };
+    let about_url = if is_ja { "assets/html/about_ja.html".to_string() } else { "assets/html/about.html".to_string() };
     let link_about    = make_link(about_url, i18n::t("about", lang).to_string());
-    let link_guide    = make_link("guide.html".to_string(), i18n::t("tutorial", lang).to_string());
-    let link_terms    = make_link("terms.html".to_string(),   i18n::t("terms_of_service", lang).to_string());
-    let link_privacy  = make_link("privacy.html".to_string(), i18n::t("privacy_policy", lang).to_string());
-    let link_licenses = make_link("licenses.html".to_string(), i18n::t("oss_licenses", lang).to_string());
+    let link_guide    = make_link("assets/html/guide.html".to_string(), i18n::t("tutorial", lang).to_string());
+    let link_terms    = make_link("assets/html/terms.html".to_string(),   i18n::t("terms_of_service", lang).to_string());
+    let link_privacy  = make_link("assets/html/privacy.html".to_string(), i18n::t("privacy_policy", lang).to_string());
+    let link_licenses = make_link("assets/html/licenses.html".to_string(), i18n::t("oss_licenses", lang).to_string());
 
     html! {
         <div class="fixed inset-0 z-[200] flex items-center justify-center">
