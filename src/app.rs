@@ -8,6 +8,7 @@ use crate::components::settings_dialog::{SettingsDialog, EmptySaveBehavior};
 use crate::components::shortcut_help::ShortcutHelp;
 use crate::components::char_code_dialog::CharCodeDialog;
 use crate::components::sheet_info_dialog::SheetInfoDialog;
+use crate::components::empty_sheet_dialog::EmptySheetDialog;
 use crate::components::tab_select_dialog::{TabSelectDialog, TabSelectItem};
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
@@ -311,6 +312,8 @@ fn close_tab_direct(
     atref_handle: Option<Rc<RefCell<Option<String>>>>,
 ) {
     sp.set(true);
+    // 閉じるシートのUndo履歴をクリア
+    crate::js_interop::clear_undo_state(&close_id);
     let mut us = (*rs.borrow()).clone();
     let pos = us.iter().position(|s| s.id == close_id);
     if let Some(pos) = pos {
@@ -1019,9 +1022,9 @@ pub fn app() -> Html {
                             cur_c
                         };
 
-                        // 自動保存時の空データ処理（設定に応じて動作を分岐）
+                        // 空データ処理（自動保存・手動保存共通）
                         // cur_cが空で、シートがDriveまたはGUIDに紐付いている場合（一度は保存されたファイル）
-                        if !is_manual && cur_c.trim().is_empty() && (sheet.drive_id.is_some() || sheet.guid.is_some()) {
+                        if cur_c.trim().is_empty() && (sheet.drive_id.is_some() || sheet.guid.is_some()) {
                             let behavior = *esb_ref.borrow();
                             match behavior {
                                 EmptySaveBehavior::Nothing => {
@@ -2926,6 +2929,8 @@ pub fn app() -> Html {
                                     atid_c.set(None);
                                     sp_c.set(true);
                                     if !was_on_terminal {
+                                        // Undo履歴を保存
+                                        crate::js_interop::save_undo_state(&current_id);
                                         let editor_state = crate::js_interop::get_editor_state();
                                         let preview_scroll = web_sys::window()
                                             .and_then(|w| w.document())
@@ -2961,6 +2966,7 @@ pub fn app() -> Html {
                                     let sheets_list = (*rs_c.borrow()).clone();
                                     if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
                                         crate::js_interop::load_editor_content_raw(&sheet.content);
+                                        crate::js_interop::restore_undo_state(&new_id);
                                         if let Some(ref state) = sheet.editor_state {
                                             crate::js_interop::set_editor_state(state);
                                         }
@@ -3445,6 +3451,8 @@ pub fn app() -> Html {
                 if was_on_terminal {
                     // ターミナルから来た場合: エディタ内容は変わっていないので保存不要
                 } else {
+                    // Undo履歴を保存
+                    crate::js_interop::save_undo_state(&old_id);
                     let editor_state = crate::js_interop::get_editor_state();
                     let cur_c_val = get_editor_content();
                     if let Some(cur_c) = cur_c_val.as_string() {
@@ -3488,6 +3496,7 @@ pub fn app() -> Html {
             let sheets_list = (*rs.borrow()).clone();
             if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
                 crate::js_interop::load_editor_content_raw(&sheet.content);
+                crate::js_interop::restore_undo_state(&new_id);
                 if let Some(ref state) = sheet.editor_state {
                     crate::js_interop::set_editor_state(state);
                 }
@@ -4048,8 +4057,9 @@ pub fn app() -> Html {
                 // DOMが描画された後にAceエディタを初期化
                 let content_c = content.clone();
                 let filename_c = filename.clone();
+                let sheet_id_c = split_pane_id.clone().or_else(|| aid_r.borrow().clone()).unwrap_or_default();
                 gloo::timers::callback::Timeout::new(20, move || {
-                    crate::js_interop::init_split_editor("split-edit-editor", &content_c, &filename_c);
+                    crate::js_interop::init_split_editor("split-edit-editor", &content_c, &filename_c, &sheet_id_c);
                 }).forget();
                 // "split-editor-changed" イベントで自動保存
                 let split_pane_id_for_listener = split_pane_id.clone();
@@ -4396,16 +4406,41 @@ pub fn app() -> Html {
                     </div>
                 }
                 if (*pending_empty_delete).is_some() {
-                    <div class="pointer-events-auto"><ConfirmDialog
-                        title={i18n::t("delete", lang)}
-                        message={i18n::t("confirm_delete_empty", lang)}
-                        on_confirm={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); Callback::from(move |_| {
+                    <div class="pointer-events-auto"><EmptySheetDialog
+                        lang={lang}
+                        on_cancel={let ped = pending_empty_delete.clone(); Callback::from(move |_| ped.set(None))}
+                        on_save={{
+                            let ped = pending_empty_delete.clone();
+                            let rs = sheets_ref.clone();
+                            let s_state = sheets.clone();
+                            Callback::from(move |_| {
+                                if let Some(ref sheet_id) = (*ped).clone() {
+                                    ped.set(None);
+                                    // 空ファイルとして直接保存
+                                    let mut cur_s = (*rs.borrow()).clone();
+                                    if let Some(sheet) = cur_s.iter_mut().find(|s| s.id == *sheet_id) {
+                                        sheet.content = "".to_string();
+                                        sheet.is_modified = false;
+                                        sheet.temp_content = Some("".to_string());
+                                        sheet.temp_timestamp = Some(js_sys::Date::now() as u64);
+                                        let js = sheet.to_js();
+                                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                        if let Ok(v) = js.serialize(&ser) {
+                                            wasm_bindgen_futures::spawn_local(async move { let _ = save_sheet(v).await; });
+                                        }
+                                    }
+                                    *rs.borrow_mut() = cur_s.clone();
+                                    s_state.set(cur_s);
+                                    set_gutter_status("none");
+                                }
+                            })
+                        }}
+                        on_delete={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); Callback::from(move |_| {
                             if let Some(sheet_id) = (*ped).clone() {
                                 ped.set(None);
                                 close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
                             }
                         })}
-                        on_cancel={let ped = pending_empty_delete.clone(); Callback::from(move |_| ped.set(None))}
                     /></div>
                 }
                 if *is_sheet_list_visible {

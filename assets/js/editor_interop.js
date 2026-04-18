@@ -7,6 +7,7 @@ let previewActive = false;
 let localFileHandle = null;
 let localFilePath = null; // Tauri用: ネイティブファイルパス保持
 let internalChange = false;
+const _undoStates = new Map(); // シートIDごとのUndo/Redo履歴
 const FONT_SIZE_KEY_BASE = 'leaf_font_size';
 function getFontSizeKey() {
     const email = localStorage.getItem('leaf_google_email');
@@ -596,6 +597,34 @@ export function set_editor_state(state_json) {
     } catch (_) {}
 }
 
+// シートのUndo/Redo履歴を保存
+export function save_undo_state(sheetId) {
+    if (!editor || !sheetId) return;
+    const um = editor.session.getUndoManager();
+    _undoStates.set(sheetId, {
+        undoStack: JSON.parse(JSON.stringify(um.$undoStack || [])),
+        redoStack: JSON.parse(JSON.stringify(um.$redoStack || []))
+    });
+}
+
+// シートのUndo/Redo履歴を復元（なければリセット）
+export function restore_undo_state(sheetId) {
+    if (!editor) return;
+    const um = editor.session.getUndoManager();
+    if (sheetId && _undoStates.has(sheetId)) {
+        const state = _undoStates.get(sheetId);
+        um.$undoStack = state.undoStack;
+        um.$redoStack = state.redoStack;
+    } else {
+        um.reset();
+    }
+}
+
+// シート削除時にUndo履歴をクリア
+export function clear_undo_state(sheetId) {
+    if (sheetId) _undoStates.delete(sheetId);
+}
+
 export function load_editor_content_raw(content) {
     if (!editor) { pendingContent = content; return; }
     internalChange = true;
@@ -605,7 +634,7 @@ export function load_editor_content_raw(content) {
         editor.moveCursorToPosition({ row: 0, column: 0 });
         editor.session.setScrollTop(0);
         editor.session.setScrollLeft(0);
-        editor.session.getUndoManager().reset();
+        // Undo復元はRust側でrestore_undo_stateを呼ぶ
         pendingContent = null;
     } finally {
         internalChange = false;
@@ -746,8 +775,10 @@ if (is_tauri() && window.__TAURI__ && window.__TAURI__.core) {
 // --- スプリット編集エディタ (Ace 第2インスタンス) ---
 let _splitEditor = null;
 let _splitEditorTimer = null;
+let _splitEditorSheetId = null; // スプリットエディタで編集中のシートID
 
-export function init_split_editor(element_id, content, filename) {
+export function init_split_editor(element_id, content, filename, sheetId) {
+    _splitEditorSheetId = sheetId || null;
     if (typeof ace === 'undefined') return;
     if (_splitEditor) { _splitEditor.destroy(); _splitEditor = null; }
     _splitEditor = ace.edit(element_id);
@@ -771,6 +802,15 @@ export function init_split_editor(element_id, content, filename) {
     });
     _splitEditor.setValue(content || '', -1);
     _splitEditor.clearSelection();
+    // Undo履歴を復元（メインエディタと共有）
+    if (_splitEditorSheetId && _undoStates.has(_splitEditorSheetId)) {
+        const state = _undoStates.get(_splitEditorSheetId);
+        const um = _splitEditor.session.getUndoManager();
+        um.$undoStack = state.undoStack;
+        um.$redoStack = state.redoStack;
+    } else {
+        _splitEditor.session.getUndoManager().reset();
+    }
     _splitEditor.on('change', () => {
         if (_splitEditorTimer) clearTimeout(_splitEditorTimer);
         _splitEditorTimer = setTimeout(() => {
@@ -782,7 +822,16 @@ export function init_split_editor(element_id, content, filename) {
 
 export function destroy_split_editor() {
     if (_splitEditorTimer) { clearTimeout(_splitEditorTimer); _splitEditorTimer = null; }
+    // Undo履歴を保存してからエディタを破棄
+    if (_splitEditor && _splitEditorSheetId) {
+        const um = _splitEditor.session.getUndoManager();
+        _undoStates.set(_splitEditorSheetId, {
+            undoStack: JSON.parse(JSON.stringify(um.$undoStack || [])),
+            redoStack: JSON.parse(JSON.stringify(um.$redoStack || []))
+        });
+    }
     if (_splitEditor) { _splitEditor.destroy(); _splitEditor = null; }
+    _splitEditorSheetId = null;
 }
 
 export function get_split_editor_content() {

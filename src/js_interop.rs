@@ -29,6 +29,9 @@ extern "C" {
     pub fn get_editor_state() -> String;
     pub fn set_editor_state(state_json: &str);
     pub fn load_editor_content_raw(content: &str);
+    pub fn save_undo_state(sheet_id: &str);
+    pub fn restore_undo_state(sheet_id: &str);
+    pub fn clear_undo_state(sheet_id: &str);
     pub fn preload_markdown_libs();
     pub fn is_marked_loaded() -> bool;
     pub fn exec_editor_command(command: &str);
@@ -47,7 +50,7 @@ extern "C" {
     pub fn terminal_focus(id: &str);
     pub fn terminal_set_font_size(size: i32) -> i32;
 
-    pub fn init_split_editor(element_id: &str, content: &str, filename: &str);
+    pub fn init_split_editor(element_id: &str, content: &str, filename: &str, sheet_id: &str);
     pub fn destroy_split_editor();
     pub fn get_split_editor_content() -> String;
     pub fn focus_split_editor();
