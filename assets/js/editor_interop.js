@@ -1148,7 +1148,9 @@ export function highlight_code(code, lang) {
         'py': 'python',
         'md': 'markdown',
         'sh': 'bash',
-        'yml': 'yaml'
+        'yml': 'yaml',
+        'coffee': 'coffeescript',
+        'toml': 'ini'
     };
 
     const targetLang = langMap[lang] || lang;

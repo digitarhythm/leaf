@@ -245,7 +245,7 @@
     /* --- */
     /* --- Markdown Preview Styling (GitHub Dark Inspired) --- */
     .markdown-body {
-      color: #c9d1d9;
+      color: #24292e;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
       font-size: 16px;
       line-height: 1.6;
@@ -259,8 +259,8 @@
       margin-bottom: 16px;
       font-weight: 600;
       line-height: 1.25;
-      color: #f0f6f0;
-      border-bottom: 1px solid #30363d;
+      color: #24292e;
+      border-bottom: 1px solid #d1cfc0;
       padding-bottom: .3em;
     }
 
@@ -285,7 +285,7 @@
     }
 
     .markdown-body a {
-      color: #58a6ff;
+      color: #0969da;
       text-decoration: none;
     }
 
@@ -297,7 +297,8 @@
       padding: 0.2em 0.4em;
       margin: 0;
       font-size: 85%;
-      background-color: rgba(110, 118, 129, 0.4);
+      background-color: #0d1117;
+      color: #e6e6e6;
       border-radius: 6px;
       font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
     }
@@ -309,7 +310,7 @@
       line-height: 1.45;
       background-color: #0d1117;
       border-radius: 6px;
-      border: 1px solid #30363d;
+      border: 1px solid #0d1117;
       margin-bottom: 16px;
     }
 
@@ -321,6 +322,12 @@
       word-break: break-all;
       white-space: pre-wrap;
       border: 0;
+    }
+
+    /* highlight.jsのテーマ背景色を黒に統一 */
+    .markdown-body pre code.hljs {
+      background-color: #0d1117 !important;
+      padding: 0 !important;
     }
 
     .markdown-body ul {
@@ -335,8 +342,8 @@
 
     .markdown-body blockquote {
       padding: 0 1em;
-      color: #8b949e;
-      border-left: .25em solid #30363d;
+      color: #57606a;
+      border-left: .25em solid #d1cfc0;
       margin: 0 0 16px 0;
     }
 
@@ -350,23 +357,23 @@
 
     .markdown-body th,
     .markdown-body td {
-      border: 1px solid #30363d;
+      border: 1px solid #d1cfc0;
       padding: 6px 13px;
     }
 
     .markdown-body th {
-      background-color: #161b22;
+      background-color: #f0e8d0;
       font-weight: 600;
     }
 
     .markdown-body tr:nth-child(2n) {
-      background-color: #0d1117;
+      background-color: #f6ecd0;
     }
 
     .markdown-body img {
       max-width: 100%;
       box-sizing: content-box;
-      background-color: #0d1117;
+      background-color: transparent;
     }
 
     .markdown-body pre,
@@ -409,6 +416,11 @@
     crossorigin="anonymous" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
     crossorigin="anonymous"></script>
+  <!-- highlight.jsのcommonパッケージに含まれない言語を追加ロード -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/coffeescript.min.js"
+    crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/ini.min.js"
+    crossorigin="anonymous"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js" crossorigin="anonymous"></script>
   <!-- テーマは起動時にlocalStorageから読み取り、必要な1つだけ動的ロード -->
   <script>
@@ -440,12 +452,35 @@
       s.crossOrigin = 'anonymous';
       s.onload = function() {
         if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
-          marked.setOptions({
-            highlight: function(code, lang) {
-              var language = hljs.getLanguage(lang) ? lang : 'plaintext';
-              return hljs.highlight(code, { language }).value;
-            },
-            langPrefix: 'hljs language-'
+          // marked v5+対応: renderer.codeをオーバーライド（v15+はtoken object、v4はstring+langで呼ばれる）
+          marked.use({
+            renderer: {
+              code: function(codeOrToken, lang) {
+                var code, language;
+                if (typeof codeOrToken === 'object' && codeOrToken !== null) {
+                  code = codeOrToken.text;
+                  language = codeOrToken.lang || '';
+                } else {
+                  code = codeOrToken;
+                  language = lang || '';
+                }
+                // 先頭の空白除去＋空白区切りの最初のトークンを抽出
+                language = String(language).trim().split(/\s+/)[0].toLowerCase();
+                var escape = function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+                // Mermaidはハイライトせず、language-mermaidクラスのみ付けて後段のinitMermaidに委譲
+                if (language === 'mermaid') {
+                  return '<pre><code class="language-mermaid">' + escape(code) + '</code></pre>\n';
+                }
+                var validLang = language && hljs.getLanguage(language) ? language : 'plaintext';
+                var result;
+                try {
+                  result = hljs.highlight(code, { language: validLang }).value;
+                } catch (_) {
+                  result = escape(code);
+                }
+                return '<pre><code class="hljs language-' + validLang + '">' + result + '</code></pre>\n';
+              }
+            }
           });
         }
         callback();
@@ -469,7 +504,8 @@
     window.initMermaid = function (el) {
       if (!el) return;
       window.ensureMermaid(function() {
-        el.querySelectorAll('code.language-mermaid').forEach(function(code) {
+        // code.language-mermaid または code.hljs.language-mermaid を両方検出
+        el.querySelectorAll('code.language-mermaid, code.hljs.language-mermaid').forEach(function(code) {
           var pre = code.parentElement;
           if (pre && pre.tagName === 'PRE') {
             var div = document.createElement('div');
@@ -478,7 +514,14 @@
             pre.replaceWith(div);
           }
         });
-        mermaid.run({ nodes: el.querySelectorAll('.mermaid') });
+        var mermaidNodes = Array.from(el.querySelectorAll('.mermaid'));
+        if (mermaidNodes.length > 0) {
+          try {
+            mermaid.run({ nodes: mermaidNodes });
+          } catch (err) {
+            console.error('[Leaf] Mermaid render error:', err);
+          }
+        }
       });
     };
 

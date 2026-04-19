@@ -158,7 +158,7 @@ pub fn preview(props: &PreviewProps) -> Html {
             class={classes!(
                 if is_markdown { "markdown-body" } else { "hljs" },
                 "max-w-none", "outline-none", "relative",
-                if props.is_embedded { "flex-1 overflow-auto custom-scrollbar bg-[#1a1b26] p-6 text-xs" } else { "overflow-y-auto p-6 sm:p-12 bg-[#1a1b26]" }
+                if props.is_embedded { "flex-1 overflow-auto custom-scrollbar bg-[#fdf6e3] p-6 text-xs" } else { "overflow-y-auto p-6 sm:p-12 bg-[#fdf6e3]" }
             )}
             style={if props.is_embedded { "".to_string() } else { format!("font-size: {}pt;", props.font_size) }}
         >

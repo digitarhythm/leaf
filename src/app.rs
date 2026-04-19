@@ -273,9 +273,9 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
     }
 
     let container_class = if props.is_split {
-        "h-full w-full overflow-y-auto bg-[#1a1b26]"
+        "h-full w-full overflow-y-auto bg-[#fdf6e3]"
     } else {
-        "absolute inset-0 overflow-y-auto bg-[#1a1b26]"
+        "absolute inset-0 overflow-y-auto bg-[#fdf6e3]"
     };
     let container_id = if props.is_split { "split-preview-scroll" } else { "" };
     html! {
