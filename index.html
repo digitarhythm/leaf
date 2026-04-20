@@ -468,34 +468,27 @@
     /* --- */
   </style>
 
-  <link rel="stylesheet"
-    href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/tokyo-night-dark.min.css"
-    crossorigin="anonymous" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
-    crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="assets/css/tokyo-night-dark.min.css" />
+  <script src="assets/js/highlight.min.js"></script>
   <!-- highlight.jsのcommonパッケージに含まれない言語を追加ロード -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/coffeescript.min.js"
-    crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/ini.min.js"
-    crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ace.js" crossorigin="anonymous"></script>
+  <script src="assets/js/hljs-languages/coffeescript.min.js"></script>
+  <script src="assets/js/hljs-languages/ini.min.js"></script>
+  <script src="assets/js/ace/ace.js"></script>
   <!-- テーマは起動時にlocalStorageから読み取り、必要な1つだけ動的ロード -->
   <script>
     (function() {
       var theme = localStorage.getItem("leaf_editor_theme") || "gruvbox";
       var s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/theme-" + theme + ".js";
-      s.crossOrigin = "anonymous";
+      s.src = "assets/js/ace/theme-" + theme + ".js";
       document.head.appendChild(s);
     })();
   </script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-text.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/mode-javascript.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-language_tools.js"
-    crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-modelist.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/ext-searchbox.js" crossorigin="anonymous"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/keybinding-vim.js" crossorigin="anonymous"></script>
+  <script src="assets/js/ace/mode-text.js"></script>
+  <script src="assets/js/ace/mode-javascript.js"></script>
+  <script src="assets/js/ace/ext-language_tools.js"></script>
+  <script src="assets/js/ace/ext-modelist.js"></script>
+  <script src="assets/js/ace/ext-searchbox.js"></script>
+  <script src="assets/js/ace/keybinding-vim.js"></script>
   <script>
     // marked/mermaid は遅延ロード（Markdownプレビュー初回使用時）
     window._markedLoaded = false;
@@ -505,8 +498,7 @@
       if (window._markedLoaded) { setTimeout(function() { window.ensureMarked(callback); }, 100); return; }
       window._markedLoaded = true;
       var s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
-      s.crossOrigin = 'anonymous';
+      s.src = 'assets/js/marked.min.js';
       s.onload = function() {
         if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
           // marked v5+対応: renderer.codeをオーバーライド（v15+はtoken object、v4はstring+langで呼ばれる）
@@ -549,8 +541,7 @@
       if (window._mermaidLoaded) { setTimeout(function() { window.ensureMermaid(callback); }, 100); return; }
       window._mermaidLoaded = true;
       var s = document.createElement('script');
-      s.src = 'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js';
-      s.crossOrigin = 'anonymous';
+      s.src = 'assets/js/mermaid.min.js';
       s.onload = function() {
         mermaid.initialize({
           startOnLoad: false,
@@ -586,7 +577,7 @@
     };
 
     if (typeof ace !== 'undefined') {
-      ace.config.set("basePath", "https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.3/");
+      ace.config.set("basePath", "assets/js/ace/");
     }
 
     // Service Worker 登録 (Tauri環境では無効化)
