@@ -450,6 +450,7 @@ fn trigger_conflict_check(
 
                 let s_ref_inner = s_ref.clone();
                 let s_state_inner = s_state.clone();
+                let aid_ref_inner = aid_ref.clone();
                 // 競合チェック開始（オーバーレイは出さず、バックグラウンドでメタデータを確認）
                 spawn_local(async move {
                     if let Ok(metadata) = get_file_metadata(&drive_id).await {
@@ -487,7 +488,11 @@ fn trigger_conflict_check(
                                         }
                                         *s_ref_inner.borrow_mut() = us.clone();
                                         s_state_inner.set(us);
-                                        load_editor_content(&drive_content);
+                                        // 現在アクティブなシートが同期対象と同じ場合のみエディタにロード（他のシートへの切り替え中は更新しない）
+                                        let current_aid = (*aid_ref_inner.borrow()).clone();
+                                        if current_aid.as_ref() == Some(&sheet_id) {
+                                            load_editor_content(&drive_content);
+                                        }
                                     }
                                     let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = is_init_inner.clone();
                                     ifo.set(true);
@@ -3091,6 +3096,22 @@ pub fn app() -> Html {
                                 let tid = format!("__TERM__{}", *c);
                                 term_ids_ref_c.borrow_mut().push(tid.clone());
                                 term_tab_ids_c.set(term_ids_ref_c.borrow().clone());
+                                // アクティブがシートの場合、シートタブの左（同じ位置）に挿入
+                                let is_terminal_active_now = atref_c.borrow().is_some();
+                                if !is_terminal_active_now {
+                                    if let Some(aid) = (*aid_ref_c.borrow()).clone() {
+                                        let mut order = tab_order_ref_c.borrow_mut();
+                                        if let Some(pos) = order.iter().position(|x| x == &aid) {
+                                            order.insert(pos, tid.clone());
+                                        } else {
+                                            order.push(tid.clone());
+                                        }
+                                    } else {
+                                        tab_order_ref_c.borrow_mut().push(tid.clone());
+                                    }
+                                } else {
+                                    tab_order_ref_c.borrow_mut().push(tid.clone());
+                                }
                                 // 新規ターミナルは非スプリット状態で開く（フェードなし）
                                 *ssf_c.borrow_mut() = true;
                                 terminal_split_c.set(false);
@@ -3440,13 +3461,15 @@ pub fn app() -> Html {
                 tse.set(terminal_edit);
                 sps_tab.set(pane_sheet.clone());
                 *sps_tab_ref.borrow_mut() = pane_sheet;
-                atid.set(Some(new_id));
+                atid.set(Some(new_id.clone()));
+                *atref_tab.borrow_mut() = Some(new_id);
                 return;
             }
             // シートタブ選択
             let was_on_terminal = (*atref_tab.borrow()).is_some();
             let leaving_terminal_id = (*atref_tab.borrow()).clone();
             atid.set(None);
+            *atref_tab.borrow_mut() = None;
             // ターミナルから来た場合: スプリット状態・編集モード・ペインシートIDを保存し、シートへはリセット
             if let Some(ref tid) = leaving_terminal_id {
                 ts_map.borrow_mut().insert(tid.clone(), (*ts_ref.borrow(), *tse_ref.borrow(), (*sps_tab_ref.borrow()).clone()));
@@ -4338,16 +4361,35 @@ pub fn app() -> Html {
                                         let tids_ref = terminal_ids_ref.clone();
                                         let counter = terminal_counter.clone();
                                         let atid = active_terminal_id.clone();
+                                        let atref_tog = active_terminal_ref.clone();
                                         let ttids = terminal_tab_ids.clone();
                                         let ts_tog = terminal_split_enabled.clone();
                                         let ts_ref_tog = terminal_split_ref.clone();
                                         let ssf_tog = skip_split_fade.clone();
+                                        let aid_ref_tog = active_id_ref.clone();
+                                        let to_ref_tog = tab_order_ref.clone();
                                         Callback::from(move |_| {
                                             let mut c = counter.borrow_mut();
                                             *c += 1;
                                             let tid = format!("__TERM__{}", *c);
                                             tids_ref.borrow_mut().push(tid.clone());
                                             ttids.set(tids_ref.borrow().clone());
+                                            // アクティブがシートの場合、シートタブの左（同じ位置）にターミナルタブを挿入
+                                            let is_terminal_active = atref_tog.borrow().is_some();
+                                            if !is_terminal_active {
+                                                if let Some(aid) = (*aid_ref_tog.borrow()).clone() {
+                                                    let mut order = to_ref_tog.borrow_mut();
+                                                    if let Some(pos) = order.iter().position(|x| x == &aid) {
+                                                        order.insert(pos, tid.clone());
+                                                    } else {
+                                                        order.push(tid.clone());
+                                                    }
+                                                } else {
+                                                    to_ref_tog.borrow_mut().push(tid.clone());
+                                                }
+                                            } else {
+                                                to_ref_tog.borrow_mut().push(tid.clone());
+                                            }
                                             // 新規ターミナルは非スプリット状態で開く（フェードなし）
                                             *ssf_tog.borrow_mut() = true;
                                             ts_tog.set(false);

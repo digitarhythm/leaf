@@ -1,6 +1,6 @@
 [package]
 name = "leaf-app"
-version = "0.19.69"
+version = "0.19.70"
 description = "Leaf - A Minimal Text Editor"
 authors = ["you"]
 license = ""
