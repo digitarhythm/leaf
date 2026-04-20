@@ -595,6 +595,7 @@ pub fn app() -> Html {
     let is_preview_fading_out = use_state(|| false);
     let preview_overlay_opacity = use_state(|| false); // プレビューオーバーレイのopacity制御
     let split_pane_sheet_id: UseStateHandle<Option<String>> = use_state(|| None); // 分割ペインに表示するシートID (None=アクティブシート)
+    let split_pane_sheet_id_ref: Rc<RefCell<Option<String>>> = use_mut_ref(|| None); // 上記のコールバックから常に最新値を読むためのref
     let is_tab_select_dialog_visible = use_state(|| false); // タブ選択ダイアログ（デスクトップ版）
     let is_split_close_dialog_visible = use_state(|| false); // スプリットクローズ選択ダイアログ
     let split_close_selected = use_state(|| 0usize); // 0=ターミナル, 1=プレビュー
@@ -614,7 +615,7 @@ pub fn app() -> Html {
     let is_splitter_dragging = use_mut_ref(|| false);
     let terminal_split_enabled = use_state(|| false);
     let terminal_split_ref = use_mut_ref(|| false);
-    let terminal_split_map = use_mut_ref(|| std::collections::HashMap::<String, (bool, bool)>::new()); // (スプリット状態, 編集モード)
+    let terminal_split_map = use_mut_ref(|| std::collections::HashMap::<String, (bool, bool, Option<String>)>::new()); // (スプリット状態, 編集モード, スプリットペインシートID)
     let split_pane_mounted = use_state(|| false);   // 右ペインをDOMに保持するか
     let split_pane_opacity = use_state(|| false);   // 右ペインのopacity (true=100, false=0)
     let skip_split_fade = use_mut_ref(|| false);    // タブ切り替え時はフェードをスキップ
@@ -1935,6 +1936,7 @@ pub fn app() -> Html {
         let ts = terminal_split_enabled.clone();
         let ts_ref = terminal_split_ref.clone();
         let spid = split_pane_sheet_id.clone();
+        let spid_ref = split_pane_sheet_id_ref.clone();
         let tab_sel = is_tab_select_dialog_visible.clone();
         let aid_ref = active_id_ref.clone();
         Callback::from(move |_| {
@@ -1943,6 +1945,7 @@ pub fn app() -> Html {
                 *ts_ref.borrow_mut() = false;
                 ts.set(false);
                 spid.set(None);
+                *spid_ref.borrow_mut() = None;
             } else if aid_ref.borrow().is_some() {
                 tab_sel.set(true);
             }
@@ -2669,6 +2672,7 @@ pub fn app() -> Html {
                 let is_tab_select_ev = is_tab_select_dialog_visible.clone();
                 let is_split_close_ev = is_split_close_dialog_visible.clone();
                 let split_pane_sheet_id_ev = split_pane_sheet_id.clone();
+                let split_pane_sheet_id_ref_ev = split_pane_sheet_id_ref.clone();
                 let split_content_opacity_ev = split_content_opacity.clone();
                 let terminal_split_ev = terminal_split_enabled.clone();
                 let terminal_split_ref_ev = terminal_split_ref.clone();
@@ -2719,6 +2723,7 @@ pub fn app() -> Html {
                     let is_tab_select_c = is_tab_select_ev.clone();
                     let is_split_close_c = is_split_close_ev.clone();
                     let split_pane_sheet_id_c = split_pane_sheet_id_ev.clone();
+                    let split_pane_sheet_id_ref_c = split_pane_sheet_id_ref_ev.clone();
                     let terminal_split_c = terminal_split_ev.clone();
                     let terminal_split_ref_c = terminal_split_ref_ev.clone();
                     let ts_map_c = terminal_split_map_ev.clone();
@@ -2776,6 +2781,7 @@ pub fn app() -> Html {
                                     *terminal_split_ref_c.borrow_mut() = false;
                                     terminal_split_c.set(false);
                                     split_pane_sheet_id_c.set(None);
+                                    *split_pane_sheet_id_ref_c.borrow_mut() = None;
                                 } else {
                                     // スプリット未表示 → タブ選択ダイアログ
                                     if aid_ref_c.borrow().is_some() {
@@ -2870,8 +2876,10 @@ pub fn app() -> Html {
                                     *terminal_split_ref_c.borrow_mut() = false;
                                     terminal_split_c.set(false);
                                     split_pane_sheet_id_c.set(None);
+                                    *split_pane_sheet_id_ref_c.borrow_mut() = None;
                                 } else if aid_ref_c.borrow().is_some() {
                                     split_pane_sheet_id_c.set(None);
+                                    *split_pane_sheet_id_ref_c.borrow_mut() = None;
                                     *terminal_split_ref_c.borrow_mut() = true;
                                     terminal_split_c.set(true);
                                 }
@@ -2902,7 +2910,7 @@ pub fn app() -> Html {
                                 if new_id.starts_with("__TERM__") {
                                     // 現在のタブのスプリット状態を保存
                                     if current_id.starts_with("__TERM__") {
-                                        ts_map_c.borrow_mut().insert(current_id.clone(), (*terminal_split_ref_c.borrow(), *terminal_split_edit_ref_c.borrow()));
+                                        ts_map_c.borrow_mut().insert(current_id.clone(), (*terminal_split_ref_c.borrow(), *terminal_split_edit_ref_c.borrow(), (*split_pane_sheet_id_ref_c.borrow()).clone()));
                                     } else {
                                         let mut us = current_sheets.clone();
                                         if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
@@ -2910,21 +2918,25 @@ pub fn app() -> Html {
                                         }
                                         *rs_c.borrow_mut() = us;
                                     }
-                                    // ターミナルのスプリット状態と編集モードを復元（フェードなし）
-                                    let (terminal_split, terminal_edit) = *ts_map_c.borrow().get(&new_id).unwrap_or(&(false, false));
+                                    // ターミナルのスプリット状態・編集モード・ペインシートIDを復元（フェードなし）
+                                    let (terminal_split, terminal_edit, pane_sheet) = ts_map_c.borrow().get(&new_id).cloned().unwrap_or((false, false, None));
                                     *ssf_c.borrow_mut() = true;
                                     terminal_split_c.set(terminal_split);
                                     *terminal_split_ref_c.borrow_mut() = terminal_split;
                                     *terminal_split_edit_ref_c.borrow_mut() = terminal_edit;
                                     terminal_split_edit_c.set(terminal_edit);
+                                    split_pane_sheet_id_c.set(pane_sheet.clone());
+                                    *split_pane_sheet_id_ref_c.borrow_mut() = pane_sheet;
                                     atid_c.set(Some(new_id));
                                 } else {
                                     let was_on_terminal = current_id.starts_with("__TERM__");
                                     if was_on_terminal {
-                                        ts_map_c.borrow_mut().insert(current_id.clone(), (*terminal_split_ref_c.borrow(), *terminal_split_edit_ref_c.borrow()));
-                                        // シートに戻る際は編集モードをリセット
+                                        ts_map_c.borrow_mut().insert(current_id.clone(), (*terminal_split_ref_c.borrow(), *terminal_split_edit_ref_c.borrow(), (*split_pane_sheet_id_ref_c.borrow()).clone()));
+                                        // シートに戻る際は編集モードとペインシートIDをリセット
                                         *terminal_split_edit_ref_c.borrow_mut() = false;
                                         terminal_split_edit_c.set(false);
+                                        split_pane_sheet_id_c.set(None);
+                                        *split_pane_sheet_id_ref_c.borrow_mut() = None;
                                     }
                                     atid_c.set(None);
                                     sp_c.set(true);
@@ -3399,37 +3411,49 @@ pub fn app() -> Html {
         let ssf = skip_split_fade.clone();
         let tse = terminal_split_edit_mode.clone();
         let tse_ref = terminal_split_edit_ref.clone();
+        let sps_tab = split_pane_sheet_id.clone();
+        let sps_tab_ref = split_pane_sheet_id_ref.clone();
+        let atref_tab = active_terminal_ref.clone();
         Callback::from(move |new_id: String| {
             // ターミナルタブ選択
             if new_id.starts_with("__TERM__") {
-                // 現在のシートのスプリット状態を保存
-                let current_sheet_id = (*aid_ref.borrow()).clone();
-                if let Some(sheet_id) = current_sheet_id {
-                    let mut us = (*rs.borrow()).clone();
-                    if let Some(sheet) = us.iter_mut().find(|x| x.id == sheet_id) {
-                        sheet.is_split = *ts_ref.borrow();
+                // 現在がターミナルならそのスプリット状態を保存、シートならシートのis_splitを保存
+                let prev_term = (*atref_tab.borrow()).clone();
+                if let Some(ref prev_tid) = prev_term {
+                    ts_map.borrow_mut().insert(prev_tid.clone(), (*ts_ref.borrow(), *tse_ref.borrow(), (*sps_tab_ref.borrow()).clone()));
+                } else {
+                    let current_sheet_id = (*aid_ref.borrow()).clone();
+                    if let Some(sheet_id) = current_sheet_id {
+                        let mut us = (*rs.borrow()).clone();
+                        if let Some(sheet) = us.iter_mut().find(|x| x.id == sheet_id) {
+                            sheet.is_split = *ts_ref.borrow();
+                        }
+                        *rs.borrow_mut() = us;
                     }
-                    *rs.borrow_mut() = us;
                 }
-                // ターミナルのスプリット状態と編集モードを復元（フェードなし）
-                let (terminal_split, terminal_edit) = *ts_map.borrow().get(&new_id).unwrap_or(&(false, false));
+                // ターミナルのスプリット状態・編集モード・ペインシートIDを復元（フェードなし）
+                let (terminal_split, terminal_edit, pane_sheet) = ts_map.borrow().get(&new_id).cloned().unwrap_or((false, false, None));
                 *ssf.borrow_mut() = true;
                 ts.set(terminal_split);
                 *ts_ref.borrow_mut() = terminal_split;
                 *tse_ref.borrow_mut() = terminal_edit;
                 tse.set(terminal_edit);
+                sps_tab.set(pane_sheet.clone());
+                *sps_tab_ref.borrow_mut() = pane_sheet;
                 atid.set(Some(new_id));
                 return;
             }
             // シートタブ選択
-            let was_on_terminal = (*atid).is_some();
-            let leaving_terminal_id = (*atid).clone();
+            let was_on_terminal = (*atref_tab.borrow()).is_some();
+            let leaving_terminal_id = (*atref_tab.borrow()).clone();
             atid.set(None);
-            // ターミナルから来た場合: スプリット状態と編集モードを保存し、シートへはリセット
+            // ターミナルから来た場合: スプリット状態・編集モード・ペインシートIDを保存し、シートへはリセット
             if let Some(ref tid) = leaving_terminal_id {
-                ts_map.borrow_mut().insert(tid.clone(), (*ts_ref.borrow(), *tse_ref.borrow()));
+                ts_map.borrow_mut().insert(tid.clone(), (*ts_ref.borrow(), *tse_ref.borrow(), (*sps_tab_ref.borrow()).clone()));
                 *tse_ref.borrow_mut() = false;
                 tse.set(false);
+                sps_tab.set(None);
+                *sps_tab_ref.borrow_mut() = None;
             }
             // RefCellから最新のactive_idを取得
             let current_aid = (*aid_ref.borrow()).clone();
@@ -3626,6 +3650,7 @@ pub fn app() -> Html {
         let ts_enabled = terminal_split_enabled.clone();
         let ts_ref = terminal_split_ref.clone();
         let sp_sheet = split_pane_sheet_id.clone();
+        let sp_sheet_ref = split_pane_sheet_id_ref.clone();
         use_effect_with(is_open, move |&open| {
             if !open {
                 return Box::new(|| ()) as Box<dyn FnOnce()>;
@@ -3656,6 +3681,7 @@ pub fn app() -> Html {
                                 *ts_ref.borrow_mut() = false;
                                 ts_enabled.set(false);
                                 sp_sheet.set(None);
+                                *sp_sheet_ref.borrow_mut() = None;
                                 tab_close.emit(tid);
                             }
                         } else {
@@ -3663,6 +3689,7 @@ pub fn app() -> Html {
                             *ts_ref.borrow_mut() = false;
                             ts_enabled.set(false);
                             sp_sheet.set(None);
+                            *sp_sheet_ref.borrow_mut() = None;
                             if let Some(tid) = atref.borrow().as_ref().cloned() {
                                 gloo::timers::callback::Timeout::new(50, move || {
                                     crate::js_interop::terminal_focus(&tid);
@@ -3820,6 +3847,7 @@ pub fn app() -> Html {
         let terminal_split_edit_ref_exit = terminal_split_edit_ref.clone();
         let terminal_split_edit_exit = terminal_split_edit_mode.clone();
         let split_pane_sheet_id_exit = split_pane_sheet_id.clone();
+        let split_pane_sheet_id_ref_exit = split_pane_sheet_id_ref.clone();
         let sheets_ref_exit = sheets_ref.clone();
         let is_preview_exit = is_preview_visible.clone();
         let ts_map_exit = terminal_split_map.clone();
@@ -3842,6 +3870,8 @@ pub fn app() -> Html {
                     crate::js_interop::terminal_close(&id);
                     tids_ref_exit.borrow_mut().retain(|x| x != &id);
                     ttids_exit.set(tids_ref_exit.borrow().clone());
+                    // 終了したターミナルのスプリット状態エントリを削除
+                    ts_map_exit.borrow_mut().remove(&id);
                     if was_active {
                         atid_exit.set(None);
                         *atref_exit.borrow_mut() = None;
@@ -3851,14 +3881,17 @@ pub fn app() -> Html {
                         *terminal_split_edit_ref_exit.borrow_mut() = false;
                         terminal_split_edit_exit.set(false);
                         split_pane_sheet_id_exit.set(None);
+                        *split_pane_sheet_id_ref_exit.borrow_mut() = None;
                         if let Some(ref next) = next_tab {
                             if next.starts_with("__TERM__") {
-                                // ターミナルのスプリット状態と編集モードを復元
-                                let (split, edit) = *ts_map_exit.borrow().get(next.as_str()).unwrap_or(&(false, false));
+                                // ターミナルのスプリット状態・編集モード・ペインシートIDを復元
+                                let (split, edit, pane_sheet) = ts_map_exit.borrow().get(next.as_str()).cloned().unwrap_or((false, false, None));
                                 *terminal_split_ref_exit.borrow_mut() = split;
                                 terminal_split_exit.set(split);
                                 *terminal_split_edit_ref_exit.borrow_mut() = edit;
                                 terminal_split_edit_exit.set(edit);
+                                split_pane_sheet_id_exit.set(pane_sheet.clone());
+                                *split_pane_sheet_id_ref_exit.borrow_mut() = pane_sheet;
                                 atid_exit.set(Some(next.clone()));
                                 *atref_exit.borrow_mut() = Some(next.clone());
                             } else {
@@ -4568,12 +4601,14 @@ pub fn app() -> Html {
                                         let ts_enabled = terminal_split_enabled.clone();
                                         let ts_ref = terminal_split_ref.clone();
                                         let sp_sheet = split_pane_sheet_id.clone();
+                                        let sp_sheet_ref = split_pane_sheet_id_ref.clone();
                                         move |_| {
                                             d.set(false);
                                             if let Some(tid) = atref.borrow().as_ref().cloned() {
                                                 *ts_ref.borrow_mut() = false;
                                                 ts_enabled.set(false);
                                                 sp_sheet.set(None);
+                                                *sp_sheet_ref.borrow_mut() = None;
                                                 tab_close.emit(tid);
                                             }
                                         }
@@ -4593,12 +4628,14 @@ pub fn app() -> Html {
                                         let ts_enabled = terminal_split_enabled.clone();
                                         let ts_ref = terminal_split_ref.clone();
                                         let sp_sheet = split_pane_sheet_id.clone();
+                                        let sp_sheet_ref = split_pane_sheet_id_ref.clone();
                                         let atref = active_terminal_ref.clone();
                                         move |_| {
                                             d.set(false);
                                             *ts_ref.borrow_mut() = false;
                                             ts_enabled.set(false);
                                             sp_sheet.set(None);
+                                            *sp_sheet_ref.borrow_mut() = None;
                                             if let Some(tid) = atref.borrow().as_ref().cloned() {
                                                 gloo::timers::callback::Timeout::new(50, move || { crate::js_interop::terminal_focus(&tid); }).forget();
                                             }
@@ -4641,14 +4678,22 @@ pub fn app() -> Html {
                             tabs={sheets.iter().map(|s| TabSelectItem { id: s.id.clone(), title: s.title.clone(), tab_color: s.tab_color.clone(), content: s.content.clone() }).collect::<Vec<_>>()}
                             on_select={{
                                 let sp_sheet = split_pane_sheet_id.clone();
+                                let sp_sheet_ref = split_pane_sheet_id_ref.clone();
                                 let ts_enabled = terminal_split_enabled.clone();
                                 let ts_ref = terminal_split_ref.clone();
                                 let itsd = is_tab_select_dialog_visible.clone();
                                 let atref_sel = active_terminal_ref.clone();
+                                let ts_map_sel = terminal_split_map.clone();
+                                let atref_sel_save = active_terminal_ref.clone();
                                 Callback::from(move |id: String| {
-                                    sp_sheet.set(Some(id));
+                                    sp_sheet.set(Some(id.clone()));
+                                    *sp_sheet_ref.borrow_mut() = Some(id.clone());
                                     *ts_ref.borrow_mut() = true;
                                     ts_enabled.set(true);
+                                    // アクティブターミナルの ts_map にも即座に保存
+                                    if let Some(tid) = atref_sel_save.borrow().as_ref().cloned() {
+                                        ts_map_sel.borrow_mut().insert(tid, (true, false, Some(id)));
+                                    }
                                     itsd.set(false);
                                     // スプリット表示後にターミナルへフォーカスを戻す
                                     let atref_sel2 = atref_sel.clone();
