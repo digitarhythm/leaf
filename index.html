@@ -143,7 +143,7 @@
       /* gray-950 */
       border: 1px solid #374151 !important;
       /* gray-700 */
-      color: #ffffff !important;
+      color: #000000 !important;
       border-radius: 0.375rem !important;
       /* rounded-md */
       padding: 0.4rem 0.75rem !important;
@@ -179,7 +179,7 @@
     .ace_searchbtn:hover {
       background-color: #4b5563 !important;
       /* gray-600 */
-      color: #ffffff !important;
+      color: #000000 !important;
     }
 
     .ace_searchbtn.prev,
@@ -210,7 +210,7 @@
       background-color: #059669 !important;
       /* emerald-600 */
       border-color: #10b981 !important;
-      color: #ffffff !important;
+      color: #000000 !important;
     }
 
     .ace_searchbtn_close {
@@ -225,7 +225,7 @@
 
     .ace_searchbtn_close:hover {
       opacity: 1 !important;
-      color: #ffffff !important;
+      color: #000000 !important;
     }
 
     /* --- */
@@ -408,6 +408,63 @@
       background: transparent !important;
     }
 
+    /* Mermaid を含む pre の黒背景を透明化 */
+    .markdown-body pre.mermaid-pre {
+      background: transparent !important;
+      background-color: transparent !important;
+      border: none !important;
+      padding: 0 !important;
+    }
+    .markdown-body pre.mermaid-pre code.language-mermaid {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
+    .mermaid {
+      background: transparent !important;
+    }
+
+    /* Mermaid 線と文字のコントラスト強化（汎用・包括的） */
+    .mermaid svg line,
+    .mermaid svg path:not(.actor-top):not(.actor-bottom) {
+      stroke: #000000 !important;
+      stroke-width: 2.5px !important;
+      stroke-opacity: 1 !important;
+    }
+    .mermaid svg polygon,
+    .mermaid svg marker path,
+    .mermaid svg marker polygon,
+    .mermaid svg #arrowhead path {
+      fill: #000000 !important;
+      stroke: #000000 !important;
+      fill-opacity: 1 !important;
+      stroke-opacity: 1 !important;
+    }
+    .mermaid svg text,
+    .mermaid svg tspan {
+      fill: #000000 !important;
+      fill-opacity: 1 !important;
+      font-weight: 700 !important;
+    }
+    .mermaid svg foreignObject,
+    .mermaid svg foreignObject *,
+    .mermaid svg foreignObject div,
+    .mermaid svg foreignObject span,
+    .mermaid svg foreignObject p {
+      color: #000000 !important;
+      opacity: 1 !important;
+      font-weight: 700 !important;
+    }
+    /* ノードの背景（actor boxなど）は元のまま維持 */
+    .mermaid svg rect.actor,
+    .mermaid svg rect.actor-top,
+    .mermaid svg rect.actor-bottom,
+    .mermaid svg .node rect,
+    .mermaid svg .node polygon,
+    .mermaid svg .node circle {
+      stroke-width: 1.5px !important;
+    }
+
+
     /* --- */
   </style>
 
@@ -469,7 +526,7 @@
                 var escape = function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
                 // Mermaidはハイライトせず、language-mermaidクラスのみ付けて後段のinitMermaidに委譲
                 if (language === 'mermaid') {
-                  return '<pre><code class="language-mermaid">' + escape(code) + '</code></pre>\n';
+                  return '<pre class="mermaid-pre"><code class="language-mermaid">' + escape(code) + '</code></pre>\n';
                 }
                 var validLang = language && hljs.getLanguage(language) ? language : 'plaintext';
                 var result;
@@ -495,7 +552,10 @@
       s.src = 'https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js';
       s.crossOrigin = 'anonymous';
       s.onload = function() {
-        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'default'
+        });
         callback();
       };
       document.head.appendChild(s);
