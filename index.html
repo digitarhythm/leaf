@@ -489,68 +489,53 @@
   <script src="assets/js/ace/ext-modelist.js"></script>
   <script src="assets/js/ace/ext-searchbox.js"></script>
   <script src="assets/js/ace/keybinding-vim.js"></script>
+  <!-- marked と mermaid を静的にロード（競合状態防止） -->
+  <script src="assets/js/marked.min.js"></script>
+  <script src="assets/js/mermaid.min.js"></script>
   <script>
-    // marked/mermaid は遅延ロード（Markdownプレビュー初回使用時）
-    window._markedLoaded = false;
-    window._mermaidLoaded = false;
-    window.ensureMarked = function(callback) {
-      if (typeof marked !== 'undefined') { callback(); return; }
-      if (window._markedLoaded) { setTimeout(function() { window.ensureMarked(callback); }, 100); return; }
-      window._markedLoaded = true;
-      var s = document.createElement('script');
-      s.src = 'assets/js/marked.min.js';
-      s.onload = function() {
-        if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
-          // marked v5+対応: renderer.codeをオーバーライド（v15+はtoken object、v4はstring+langで呼ばれる）
-          marked.use({
-            renderer: {
-              code: function(codeOrToken, lang) {
-                var code, language;
-                if (typeof codeOrToken === 'object' && codeOrToken !== null) {
-                  code = codeOrToken.text;
-                  language = codeOrToken.lang || '';
-                } else {
-                  code = codeOrToken;
-                  language = lang || '';
-                }
-                // 先頭の空白除去＋空白区切りの最初のトークンを抽出
-                language = String(language).trim().split(/\s+/)[0].toLowerCase();
-                var escape = function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
-                // Mermaidはハイライトせず、language-mermaidクラスのみ付けて後段のinitMermaidに委譲
-                if (language === 'mermaid') {
-                  return '<pre class="mermaid-pre"><code class="language-mermaid">' + escape(code) + '</code></pre>\n';
-                }
-                var validLang = language && hljs.getLanguage(language) ? language : 'plaintext';
-                var result;
-                try {
-                  result = hljs.highlight(code, { language: validLang }).value;
-                } catch (_) {
-                  result = escape(code);
-                }
-                return '<pre><code class="hljs language-' + validLang + '">' + result + '</code></pre>\n';
-              }
+    // marked/mermaid は既にロード済み
+    window._markedLoaded = true;
+    window._mermaidLoaded = true;
+    // markedのレンダラー登録
+    if (typeof marked !== 'undefined' && typeof hljs !== 'undefined') {
+      marked.use({
+        renderer: {
+          code: function(codeOrToken, lang) {
+            var code, language;
+            if (typeof codeOrToken === 'object' && codeOrToken !== null) {
+              code = codeOrToken.text;
+              language = codeOrToken.lang || '';
+            } else {
+              code = codeOrToken;
+              language = lang || '';
             }
-          });
+            language = String(language).trim().split(/\s+/)[0].toLowerCase();
+            var escape = function(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+            if (language === 'mermaid') {
+              return '<pre class="mermaid-pre"><code class="language-mermaid">' + escape(code) + '</code></pre>\n';
+            }
+            var validLang = language && hljs.getLanguage(language) ? language : 'plaintext';
+            var result;
+            try {
+              result = hljs.highlight(code, { language: validLang }).value;
+            } catch (_) {
+              result = escape(code);
+            }
+            return '<pre><code class="hljs language-' + validLang + '">' + result + '</code></pre>\n';
+          }
         }
-        callback();
-      };
-      document.head.appendChild(s);
-    };
-    window.ensureMermaid = function(callback) {
-      if (typeof mermaid !== 'undefined') { callback(); return; }
-      if (window._mermaidLoaded) { setTimeout(function() { window.ensureMermaid(callback); }, 100); return; }
-      window._mermaidLoaded = true;
-      var s = document.createElement('script');
-      s.src = 'assets/js/mermaid.min.js';
-      s.onload = function() {
-        mermaid.initialize({
-          startOnLoad: false,
-          theme: 'default'
-        });
-        callback();
-      };
-      document.head.appendChild(s);
-    };
+      });
+    }
+    // mermaidの初期化
+    if (typeof mermaid !== 'undefined') {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default'
+      });
+    }
+    // markedとmermaidは既に静的ロード済みなのですぐにコールバック呼び出し
+    window.ensureMarked = function(callback) { callback(); };
+    window.ensureMermaid = function(callback) { callback(); };
 
     window.initMermaid = function (el) {
       if (!el) return;
