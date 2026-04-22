@@ -62,6 +62,7 @@ extern "C" {
 
     pub async fn open_local_file() -> JsValue;
     pub async fn save_local_file(content: &str, needs_bom: bool) -> JsValue;
+    pub fn set_local_file_path(path: &str);
     pub fn clear_local_handle();
     pub fn scroll_into_view_graceful(container: &web_sys::Element, index: u32, duration_ms: f64);
 }

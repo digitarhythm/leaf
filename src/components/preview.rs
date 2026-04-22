@@ -146,17 +146,17 @@ pub fn preview(props: &PreviewProps) -> Html {
     let rendered_html = if is_markdown {
         render_markdown(&props.content)
     } else {
-        // highlight.js を使用してハイライト済みの HTML 文字列を生成
+        // Markdown以外のプレビューもmarkdown-bodyと同じスタイルに統一
         let code_html = highlight_code(&props.content, &props.lang);
-        format!(r#"<pre class="hljs whitespace-pre-wrap break-all"><code class="hljs language-{}">{}</code></pre>"#, props.lang, code_html)
+        format!(r#"<pre><code class="hljs language-{}">{}</code></pre>"#, props.lang, code_html)
     };
 
     let content_node = html! {
-        <div 
+        <div
             ref={node_ref.clone()}
             tabindex={if props.is_embedded { "-1" } else { "0" }}
             class={classes!(
-                if is_markdown { "markdown-body" } else { "hljs" },
+                "markdown-body",
                 "max-w-none", "outline-none", "relative",
                 if props.is_embedded { "flex-1 overflow-auto custom-scrollbar bg-[#fdf6e3] p-6 text-xs" } else { "overflow-y-auto p-6 sm:p-12 bg-[#fdf6e3]" }
             )}

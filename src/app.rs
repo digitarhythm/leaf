@@ -47,6 +47,7 @@ pub struct Sheet {
     pub editor_state: Option<String>, // メモリのみ（カーソル/スクロール位置）
     pub preview_scroll_top: f64,     // メモリのみ（プレビュースクロール位置）
     pub created_at: Option<u64>,
+    pub local_path: Option<String>,  // メモリのみ（ローカルファイルの絶対パス、Tauriのみ）
 }
 
 fn has_utf8_bom(bytes: &[u8]) -> bool {
@@ -234,8 +235,9 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
     } else if is_markdown {
         crate::js_interop::render_markdown(&props.content)
     } else {
+        // Markdown以外のプレビュー: markdown-bodyと同じ見た目に揃えるため、code blockとして描画
         let code_html = crate::js_interop::highlight_code(&props.content, &props.file_ext);
-        format!(r#"<pre class="hljs whitespace-pre-wrap break-all"><code class="hljs language-{}">{}</code></pre>"#, props.file_ext, code_html)
+        format!(r#"<pre><code class="hljs language-{}">{}</code></pre>"#, props.file_ext, code_html)
     };
 
     // Mermaid初期化
@@ -287,16 +289,28 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
                     <p class="text-emerald-500/70 text-sm font-bold animate-pulse">{ "Loading..." }</p>
                 </div>
             </div>
-            // コンテンツ
+            // コンテンツ（Markdown以外のプレビューもmarkdown-bodyスタイルで統一）
             <div
                 ref={node_ref}
-                class={classes!(if is_markdown { "markdown-body" } else { "hljs" }, "max-w-none", "p-6", "sm:p-12", if loading { "hidden" } else { "" })}
+                class={classes!("markdown-body", "max-w-none", "p-6", "sm:p-12", if loading { "hidden" } else { "" })}
                 style={format!("font-size: {}pt;", props.font_size)}
             >
                 { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
             </div>
         </div>
     }
+}
+
+#[derive(Clone)]
+struct TerminalSplitHandles {
+    ts_state: UseStateHandle<bool>,
+    ts_ref: Rc<RefCell<bool>>,
+    tse_state: UseStateHandle<bool>,
+    tse_ref: Rc<RefCell<bool>>,
+    sps_state: UseStateHandle<Option<String>>,
+    sps_ref: Rc<RefCell<Option<String>>>,
+    skip_fade: Rc<RefCell<bool>>,
+    map: Rc<RefCell<std::collections::HashMap<String, (bool, bool, Option<String>)>>>,
 }
 
 fn close_tab_direct(
@@ -310,7 +324,9 @@ fn close_tab_direct(
     tab_order: Vec<String>,
     atid_handle: Option<UseStateHandle<Option<String>>>,
     atref_handle: Option<Rc<RefCell<Option<String>>>>,
+    tsh: Option<TerminalSplitHandles>,
 ) {
+    let ts_map = tsh.as_ref().map(|h| h.map.clone());
     sp.set(true);
     // 閉じるシートのUndo履歴をクリア
     crate::js_interop::clear_undo_state(&close_id);
@@ -330,6 +346,8 @@ fn close_tab_direct(
                 temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(),
                 total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0,
                 created_at: Some(js_sys::Date::now() as u64),
+                local_path: None,
+
             };
             us.push(ns.clone());
             *rs.borrow_mut() = us.clone();
@@ -348,8 +366,15 @@ fn close_tab_direct(
                 if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
             });
         } else {
+            // 現在ターミナルがアクティブかどうか
+            let on_terminal = if let Some(ref h) = atref_handle {
+                h.borrow().is_some()
+            } else { false };
             // RefCellから最新のactive_idを取得（UseStateHandleはstaleの可能性がある）
-            let was_active = if let Some(ref r) = aid_ref {
+            // ターミナルアクティブ時は sheet close でタブ切り替えを行わない（ターミナルのコンテキストを維持）
+            let was_active = if on_terminal {
+                false
+            } else if let Some(ref r) = aid_ref {
                 r.borrow().as_ref() == Some(&close_id)
             } else {
                 aid.as_ref() == Some(&close_id)
@@ -357,25 +382,78 @@ fn close_tab_direct(
             *rs.borrow_mut() = us.clone();
             s_state.set(us.clone());
 
+            // ターミナル上では aid を変更しない（変更すると use_effect_with(aid) が発火し
+            // is_preview_visible が書き換わってスプリットビューに影響するため）。
+            // aid が閉じたシートを指していても、ユーザーが次にシートに切り替える時に解決される。
+
             if was_active {
-                // tab_orderから左隣を取得（ターミナルも含む表示順）
+                // tab_orderから左隣を取得（ロックされたシートはスキップ）
+                // ターミナルタブと非ロックのシートタブのみ採用
+                let is_id_valid = |id: &str| -> bool {
+                    if id.starts_with("__TERM__") { return true; }
+                    if let Some(ref tsm) = ts_map {
+                        !is_sheet_locked_by_terminal(id, &tsm.borrow())
+                    } else { true }
+                };
                 let order_idx = tab_order.iter().position(|x| x == &close_id);
-                let next_id = order_idx.and_then(|i| {
-                    if i > 0 { tab_order.get(i - 1).cloned() }
-                    else { tab_order.get(i + 1).cloned() }
-                }).or_else(|| {
+                // 左隣から順に有効なタブを探す、見つからなければ右隣から
+                let mut next_id: Option<String> = None;
+                if let Some(idx) = order_idx {
+                    for i in (0..idx).rev() {
+                        if let Some(candidate) = tab_order.get(i) {
+                            if is_id_valid(candidate) {
+                                next_id = Some(candidate.clone());
+                                break;
+                            }
+                        }
+                    }
+                    if next_id.is_none() {
+                        for i in (idx + 1)..tab_order.len() {
+                            if let Some(candidate) = tab_order.get(i) {
+                                if is_id_valid(candidate) {
+                                    next_id = Some(candidate.clone());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                // 上記で見つからなければ us から近い位置を選ぶ（フォールバック）
+                if next_id.is_none() {
                     let new_idx = if pos > 0 { pos - 1 } else { 0 };
-                    us.get(new_idx).map(|s| s.id.clone())
-                });
+                    next_id = us.get(new_idx).and_then(|s| {
+                        if is_id_valid(&s.id) { Some(s.id.clone()) } else { None }
+                    });
+                }
 
                 let focus_terminal_id: Option<String> = if let Some(ref next) = next_id {
                     if next.starts_with("__TERM__") {
-                        // ターミナルをアクティブに
+                        // ターミナルをアクティブにし、スプリット状態を ts_map から復元
+                        if let Some(ref h) = tsh {
+                            let (t_split, t_edit, t_pane) = h.map.borrow().get(next.as_str()).cloned().unwrap_or((false, false, None));
+                            *h.skip_fade.borrow_mut() = true;
+                            h.ts_state.set(t_split);
+                            *h.ts_ref.borrow_mut() = t_split;
+                            h.tse_state.set(t_edit);
+                            *h.tse_ref.borrow_mut() = t_edit;
+                            h.sps_state.set(t_pane.clone());
+                            *h.sps_ref.borrow_mut() = t_pane;
+                        }
                         if let Some(ref h) = atid_handle { h.set(Some(next.clone())); }
                         if let Some(ref h) = atref_handle { *h.borrow_mut() = Some(next.clone()); }
                         Some(next.clone())
                     } else {
-                        // シートをアクティブに
+                        // シートをアクティブに: ターミナルスプリット関連の state をリセット
+                        if let Some(ref h) = tsh {
+                            *h.skip_fade.borrow_mut() = true;
+                            let sheet_is_split = us.iter().find(|s| s.id == *next).map(|s| s.is_split).unwrap_or(false);
+                            h.ts_state.set(sheet_is_split);
+                            *h.ts_ref.borrow_mut() = sheet_is_split;
+                            h.tse_state.set(false);
+                            *h.tse_ref.borrow_mut() = false;
+                            h.sps_state.set(None);
+                            *h.sps_ref.borrow_mut() = None;
+                        }
                         if let Some(ref h) = atid_handle { h.set(None); }
                         if let Some(ref h) = atref_handle { *h.borrow_mut() = None; }
                         if let Some(sheet) = us.iter().find(|s| s.id == *next) {
@@ -418,6 +496,17 @@ fn close_tab_direct(
             let _ = crate::db_interop::delete_sheet(&sheet_id).await;
         });
     }
+}
+
+// 指定シートが、いずれかのターミナルのスプリットペインに選択されているかを判定
+// ts_mapのエントリから、split_enabled=true かつ pane_sheet_id が一致するものを探す
+fn is_sheet_locked_by_terminal(
+    sheet_id: &str,
+    ts_map: &std::collections::HashMap<String, (bool, bool, Option<String>)>,
+) -> bool {
+    ts_map.values().any(|(split_enabled, _edit, pane)| {
+        *split_enabled && pane.as_deref() == Some(sheet_id)
+    })
 }
 
 fn trigger_conflict_check(
@@ -541,6 +630,7 @@ fn trigger_conflict_check(
         if let Some(h) = init_final { h.set(false); }
     }).forget();
 }
+
 
 #[function_component(App)]
 pub fn app() -> Html {
@@ -843,6 +933,8 @@ pub fn app() -> Html {
                                 needs_bom: s.needs_bom, is_preview: s.is_preview,
                                 is_split: false, editor_state: None, preview_scroll_top: 0.0,
                                 created_at: s.created_at,
+                                local_path: None,
+                
                             }).collect();
                             let saved_active = web_sys::window()
                                 .and_then(|w| w.local_storage().ok().flatten())
@@ -859,7 +951,7 @@ pub fn app() -> Html {
                 }
                 if !has_sheets {
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                     *r.borrow_mut() = vec![ns.clone()]; s.set(vec![ns]); a.set(Some(nid));
                 }
                 // 設定の読み込み
@@ -940,7 +1032,7 @@ pub fn app() -> Html {
                     }
                     if us.is_empty() {
                         let nid = js_sys::Date::now().to_string();
-                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                         us.push(ns.clone()); aid_inner.set(Some(nid.clone())); load_editor_content(""); focus_editor();
                         let js = ns.to_js();
                         let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
@@ -1058,7 +1150,7 @@ pub fn app() -> Html {
                                             us.remove(pos);
                                             if us.is_empty() {
                                                 let nid = js_sys::Date::now().to_string();
-                                                let ns = Sheet { id: nid.clone(), guid: None, category: ncid_val.unwrap_or_default(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                                                let ns = Sheet { id: nid.clone(), guid: None, category: ncid_val.unwrap_or_default(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                                                 us.push(ns.clone());
                                                 *rs_del.borrow_mut() = us.clone();
                                                 s_del.set(us);
@@ -1113,16 +1205,31 @@ pub fn app() -> Html {
                             let rs_cb_inner = r_s.clone();
                             let s_state_inner = s_state.clone();
                             let n_bom = sheet.needs_bom;
+                            let local_path_for_save = sheet.local_path.clone();
 
                             s_state.set(cur_s.clone());
                             if is_manual { is_saving_h.set(Some(id.clone())); } // マニュアル時のみIDセット
+                            // シートに保存されたローカルパスをJSグローバルに設定（正しいパスに保存するため）
+                            // local_pathが無ければ空文字でクリアし、保存ダイアログを出させる
+                            crate::js_interop::set_local_file_path(local_path_for_save.as_deref().unwrap_or(""));
                             spawn_local(async move {
                                 let result = save_local_file(&content_to_save, n_bom).await;
-                                if let Some(fname) = result.as_string() {
+                                // Tauri版はオブジェクト {name, path}、Web版は文字列で返る
+                                let (fname_opt, saved_path) = if result.is_null() || result.is_undefined() {
+                                    (None, None)
+                                } else if let Some(s) = result.as_string() {
+                                    (Some(s), None)
+                                } else {
+                                    let n = js_sys::Reflect::get(&result, &JsValue::from_str("name")).ok().and_then(|v| v.as_string());
+                                    let p = js_sys::Reflect::get(&result, &JsValue::from_str("path")).ok().and_then(|v| v.as_string());
+                                    (n, p)
+                                };
+                                if let Some(fname) = fname_opt {
                                     let mut us = (*rs_cb_inner.borrow()).clone();
                                     if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) {
                                         s.category = "__LOCAL__".to_string();
                                         s.title = fname.clone();
+                                        if saved_path.is_some() { s.local_path = saved_path.clone(); }
                                         s.is_modified = false;
                                         s.content = content_to_save;
                                         s.total_size = s.content.len() as u64;
@@ -1431,7 +1538,7 @@ pub fn app() -> Html {
                 clear_local_handle();
                 let nid = js_sys::Date::now().to_string();
                 let cat_id = (*ncid_for_new).clone().unwrap_or_else(|| "".to_string());
-                let ns = Sheet { id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                let ns = Sheet { id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                 load_editor_content(""); set_gutter_status("unsaved");
 
                 let mut current_sheets = (*rs.borrow()).clone();
@@ -1631,7 +1738,7 @@ pub fn app() -> Html {
                 }
                 if us.is_empty() {
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                    let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                     us.push(ns.clone()); aid_inner.set(Some(nid.clone())); load_editor_content(""); focus_editor();
                     let js = ns.to_js();
                     let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
@@ -1676,7 +1783,28 @@ pub fn app() -> Html {
         let ts_sel = terminal_split_enabled.clone();
         let ts_ref_sel = terminal_split_ref.clone();
         let ssf_sel = skip_split_fade.clone();
+        let atid_fo = active_terminal_id.clone();
+        let atref_fo = active_terminal_ref.clone();
+        let ts_map_fo = terminal_split_map.clone();
+        let tse_fo = terminal_split_edit_mode.clone();
+        let tse_ref_fo = terminal_split_edit_ref.clone();
+        let spid_fo = split_pane_sheet_id.clone();
+        let spid_ref_fo = split_pane_sheet_id_ref.clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
+            // 既に同じdrive_idのシートが開かれている場合はそのシートをアクティブにして終了
+            {
+                let cur_s = (*rs.borrow()).clone();
+                if let Some(existing) = cur_s.iter().find(|s| s.drive_id.as_ref() == Some(&did)) {
+                    let existing_id = existing.id.clone();
+                    iv.set(false); // ファイル選択ダイアログを閉じる
+                    aid.set(Some(existing_id.clone()));
+                    load_editor_content(&existing.content);
+                    crate::js_interop::set_editor_mode(&existing.title);
+                    focus_editor();
+                    return;
+                }
+            }
+
             let aid_val = (*aid).clone();
             let mut needs_save = false;
             if let Some(id) = aid_val {
@@ -1688,7 +1816,22 @@ pub fn app() -> Html {
             }
             if needs_save { os.emit(false); }
 
-            iv.set(false); lmk.set("synchronizing"); il.set(true); ifo.set(false); sp.set(true); 
+            iv.set(false); lmk.set("synchronizing"); il.set(true); ifo.set(false); sp.set(true);
+            // ターミナルがアクティブな場合、スプリット状態をts_mapに保存してターミナルコンテキストを抜ける
+            let prev_tid = atref_fo.borrow().clone();
+            if let Some(tid) = prev_tid {
+                let ts_val = *ts_ref_sel.borrow();
+                let tse_val = *tse_ref_fo.borrow();
+                let spid_val = spid_ref_fo.borrow().clone();
+                ts_map_fo.borrow_mut().insert(tid, (ts_val, tse_val, spid_val));
+                atid_fo.set(None);
+                *atref_fo.borrow_mut() = None;
+                *tse_ref_fo.borrow_mut() = false;
+                tse_fo.set(false);
+                spid_fo.set(None);
+                *spid_ref_fo.borrow_mut() = None;
+            }
+
             let ss_inner = ss.clone(); let aid_inner = aid.clone(); let sp_inner = sp.clone();
             let il_inner = il.clone(); let ifo_inner = ifo.clone(); let rs_inner = rs.clone();
             let ts_sel_inner = ts_sel.clone();
@@ -1717,7 +1860,7 @@ pub fn app() -> Html {
                     let existing_idx = cs.iter().position(|s| s.drive_id.as_ref() == Some(&did));
                     let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
                     let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else if let Some(idx) = existing_idx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
-                    let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: sync_ts, tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else if let Some(idx) = existing_idx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: None };
+                    let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: sync_ts, tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else if let Some(idx) = existing_idx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: None, local_path: None };
                     load_editor_content(&c); set_gutter_status("none");
                     if let Some(idx) = tidx { cs[idx] = ns.clone(); } else if let Some(idx) = existing_idx { cs[idx] = ns.clone(); } else { cs.push(ns.clone()); }
                     *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs); aid_inner.set(Some(nid.clone()));
@@ -1789,7 +1932,28 @@ pub fn app() -> Html {
         let ts_imp = terminal_split_enabled.clone();
         let ts_ref_imp = terminal_split_ref.clone();
         let ssf_imp = skip_split_fade.clone();
+        let atid_imp = active_terminal_id.clone();
+        let atref_imp = active_terminal_ref.clone();
+        let ts_map_imp = terminal_split_map.clone();
+        let tse_imp = terminal_split_edit_mode.clone();
+        let tse_ref_imp = terminal_split_edit_ref.clone();
+        let spid_imp = split_pane_sheet_id.clone();
+        let spid_ref_imp = split_pane_sheet_id_ref.clone();
         Callback::from(move |_| {
+            // ターミナルがアクティブな場合、スプリット状態をts_mapに保存してターミナルコンテキストを抜ける
+            let prev_tid = atref_imp.borrow().clone();
+            if let Some(tid) = prev_tid {
+                let ts_val = *ts_ref_imp.borrow();
+                let tse_val = *tse_ref_imp.borrow();
+                let spid_val = spid_ref_imp.borrow().clone();
+                ts_map_imp.borrow_mut().insert(tid, (ts_val, tse_val, spid_val));
+                atid_imp.set(None);
+                *atref_imp.borrow_mut() = None;
+                *tse_ref_imp.borrow_mut() = false;
+                tse_imp.set(false);
+                spid_imp.set(None);
+                *spid_ref_imp.borrow_mut() = None;
+            }
             let aid_val = (*aid_state).clone();
             let mut needs_save = false;
             if let Some(id) = aid_val {
@@ -1810,18 +1974,35 @@ pub fn app() -> Html {
             let ssf_imp_c = ssf_imp.clone();
             spawn_local(async move {
                 let res = open_local_file().await; if res.is_null() || res.is_undefined() { return; }
-                
+
                 let content_val = js_sys::Reflect::get(&res, &JsValue::from_str("content")).ok().and_then(|v| v.as_string());
                 let bytes_val = js_sys::Reflect::get(&res, &JsValue::from_str("bytes")).ok();
                 let name_val = js_sys::Reflect::get(&res, &JsValue::from_str("name")).ok().and_then(|v| v.as_string());
+                let path_val = js_sys::Reflect::get(&res, &JsValue::from_str("path")).ok().and_then(|v| v.as_string());
+
+                // 既に同じファイル名のローカルシートが開かれていればそのタブをアクティブにして終了
+                if let Some(ref name) = name_val {
+                    let cur_s = (*r_s_c.borrow()).clone();
+                    if let Some(existing) = cur_s.iter().find(|s| s.category == "__LOCAL__" && s.title == *name) {
+                        let existing_id = existing.id.clone();
+                        aid_state_c.set(Some(existing_id));
+                        load_editor_content(&existing.content);
+                        set_gutter_status("local");
+                        crate::js_interop::set_editor_mode(&existing.title);
+                        focus_editor();
+                        lock_cb.set(false);
+                        il_cb.set(false);
+                        return;
+                    }
+                }
 
                 if let (Some(name), Some(content), Some(bytes_js)) = (name_val, content_val, bytes_val) {
                     let bytes = js_sys::Uint8Array::new(&bytes_js).to_vec();
                     let has_bom = has_utf8_bom(&bytes);
-                    
+
                     lmk_cb.set("synchronizing"); ifo_cb.set(false); lock_fade_cb.set(false); il_cb.set(true); lock_cb.set(true);
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: name.clone(), content: content.clone(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: content.len() as u64, loaded_bytes: content.len() as u64, needs_bom: has_bom, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: name.clone(), content: content.clone(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: content.len() as u64, loaded_bytes: content.len() as u64, needs_bom: has_bom, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: path_val };
                     sp_state_c.set(true);
                     let mut current = (*r_s_c.borrow()).clone();
                     // 未保存の新規シート1枚のみなら置換、それ以外はpush
@@ -1944,6 +2125,8 @@ pub fn app() -> Html {
         let spid_ref = split_pane_sheet_id_ref.clone();
         let tab_sel = is_tab_select_dialog_visible.clone();
         let aid_ref = active_id_ref.clone();
+        let atref_ts = active_terminal_ref.clone();
+        let ts_map_ts = terminal_split_map.clone();
         Callback::from(move |_| {
             let split_open = *ts_ref.borrow();
             if split_open {
@@ -1951,6 +2134,10 @@ pub fn app() -> Html {
                 ts.set(false);
                 spid.set(None);
                 *spid_ref.borrow_mut() = None;
+                // ts_map のエントリも更新してシートのロック解除
+                if let Some(tid) = atref_ts.borrow().as_ref().cloned() {
+                    ts_map_ts.borrow_mut().insert(tid, (false, false, None));
+                }
             } else if aid_ref.borrow().is_some() {
                 tab_sel.set(true);
             }
@@ -2128,6 +2315,8 @@ pub fn app() -> Html {
                                     needs_bom: s.needs_bom, is_preview: s.is_preview,
                                     is_split: false, editor_state: None, preview_scroll_top: 0.0,
                                     created_at: s.created_at,
+                                local_path: None,
+                    
                                 }).collect();
                                 let saved_active = web_sys::window()
                                     .and_then(|w| w.local_storage().ok().flatten())
@@ -2144,7 +2333,7 @@ pub fn app() -> Html {
                     }
                     if !has_sheets {
                         let nid = js_sys::Date::now().to_string();
-                        let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                         *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
                     }
                     // 設定の読み込み
@@ -2187,7 +2376,7 @@ pub fn app() -> Html {
                     if let Ok(val) = crate::db_interop::load_sheets().await {
                         if let Ok(loaded) = serde_wasm_bindgen::from_value::<Vec<JSSheet>>(val) {
                             if !loaded.is_empty() {
-                                let mapped: Vec<Sheet> = loaded.into_iter().map(|s| Sheet { id: s.id, guid: s.guid, category: s.category, title: s.title, content: s.temp_content.clone().unwrap_or(s.content), is_modified: s.temp_timestamp.is_some(), drive_id: s.drive_id, temp_content: s.temp_content, temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color }, total_size: s.total_size, loaded_bytes: s.loaded_bytes, needs_bom: s.needs_bom, is_preview: s.is_preview, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: s.created_at }).collect();
+                                let mapped: Vec<Sheet> = loaded.into_iter().map(|s| Sheet { id: s.id, guid: s.guid, category: s.category, title: s.title, content: s.temp_content.clone().unwrap_or(s.content), is_modified: s.temp_timestamp.is_some(), drive_id: s.drive_id, temp_content: s.temp_content, temp_timestamp: s.temp_timestamp, last_sync_timestamp: s.last_sync_timestamp, tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color }, total_size: s.total_size, loaded_bytes: s.loaded_bytes, needs_bom: s.needs_bom, is_preview: s.is_preview, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: s.created_at, local_path: None }).collect();
                                 // 保存されたアクティブタブIDを復元、なければ最後のシート
                                 let saved_active = get_account_storage(ACTIVE_TAB_KEY);
                                 let active_id = saved_active.and_then(|id| mapped.iter().find(|s| s.id == id).map(|s| s.id.clone())).or_else(|| mapped.last().map(|s| s.id.clone()));
@@ -2197,7 +2386,7 @@ pub fn app() -> Html {
                     }
                     if initial {
                         let nid = js_sys::Date::now().to_string();
-                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                         *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
                     }
                 }
@@ -2357,6 +2546,8 @@ pub fn app() -> Html {
                                             tab_color: if s.tab_color.is_empty() { generate_random_color() } else { s.tab_color },
                                             total_size: s.total_size, loaded_bytes: s.loaded_bytes, needs_bom: s.needs_bom, is_preview: s.is_preview, is_split: false, editor_state: None, preview_scroll_top: 0.0,
                                             created_at: s.created_at,
+                                local_path: None,
+                            
                                         }).collect();
                                         let saved_active = get_account_storage(ACTIVE_TAB_KEY);
                                         let active_id = saved_active.and_then(|id| mapped.iter().find(|s| s.id == id).map(|s| s.id.clone())).or_else(|| mapped.last().map(|s| s.id.clone()));
@@ -2369,7 +2560,7 @@ pub fn app() -> Html {
                             }
                             if !has_sheets {
                                 let nid = js_sys::Date::now().to_string();
-                                let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                                let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                                 *rs_ref.borrow_mut() = vec![ns.clone()];
                                 s_handle.set(vec![ns]);
                                 aid_h.set(Some(nid));
@@ -2490,7 +2681,7 @@ pub fn app() -> Html {
                         Timeout::new(delay, move || {
                             clear_local_handle();
                             let nid = js_sys::Date::now().to_string();
-                            let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64) };
+                            let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                             load_editor_content(""); set_gutter_status("local");
                             let mut current_sheets = (*rs.borrow()).clone(); current_sheets.push(ns.clone());
                             *rs.borrow_mut() = current_sheets.clone(); s.set(current_sheets); aid_ref.borrow_mut().replace(nid.clone()); aid_state.set(Some(nid.clone()));
@@ -2598,12 +2789,22 @@ pub fn app() -> Html {
         let to = tab_order_ref.clone();
         let atid = active_terminal_id.clone();
         let atref = active_terminal_ref.clone();
+        let tsh_save_close = TerminalSplitHandles {
+            ts_state: terminal_split_enabled.clone(),
+            ts_ref: terminal_split_ref.clone(),
+            tse_state: terminal_split_edit_mode.clone(),
+            tse_ref: terminal_split_edit_ref.clone(),
+            sps_state: split_pane_sheet_id.clone(),
+            sps_ref: split_pane_sheet_id_ref.clone(),
+            skip_fade: skip_split_fade.clone(),
+            map: terminal_split_map.clone(),
+        };
         use_effect_with(((*saving).clone(), (*psc).clone()), move |deps| {
             let (saving_val, psc_val) = deps;
             if saving_val.is_none() {
                 if let Some(close_id) = psc_val.clone() {
                     psc.set(None);
-                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
+                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_save_close.clone()));
                 }
             }
             || ()
@@ -2746,7 +2947,8 @@ pub fn app() -> Html {
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
                         let key = ke.key(); let code = ke.code();
-                        let modifier_active = ke.alt_key();
+                        // Cmd/Ctrl 併用時はアプリショートカットとして扱わない（DevTools の Cmd+Opt+I 等を通す）
+                        let modifier_active = ke.alt_key() && !ke.meta_key() && !ke.ctrl_key();
                         let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open || is_tab_select || is_split_close_dialog;
                         let is_overlay_active = is_dialog_open || imp_lock;
                         let key_lower = key.to_lowercase();
@@ -2787,6 +2989,10 @@ pub fn app() -> Html {
                                     terminal_split_c.set(false);
                                     split_pane_sheet_id_c.set(None);
                                     *split_pane_sheet_id_ref_c.borrow_mut() = None;
+                                    // ts_map のエントリも更新してシートのロック解除
+                                    if let Some(tid) = atref_c.borrow().as_ref().cloned() {
+                                        ts_map_c.borrow_mut().insert(tid, (false, false, None));
+                                    }
                                 } else {
                                     // スプリット未表示 → タブ選択ダイアログ
                                     if aid_ref_c.borrow().is_some() {
@@ -2905,11 +3111,23 @@ pub fn app() -> Html {
                                 sid.clone()
                             } else { return; };
                             if let Some(cur_idx) = all_tab_ids.iter().position(|id| *id == current_id) {
-                                let new_idx = if is_bracket_left {
-                                    if cur_idx == 0 { all_tab_ids.len() - 1 } else { cur_idx - 1 }
-                                } else {
-                                    if cur_idx == all_tab_ids.len() - 1 { 0 } else { cur_idx + 1 }
-                                };
+                                // ロックされたシートをスキップしながら次のタブを探す
+                                let len = all_tab_ids.len();
+                                let mut new_idx = cur_idx;
+                                let ts_map_snap = ts_map_c.borrow().clone();
+                                for _ in 0..len {
+                                    new_idx = if is_bracket_left {
+                                        if new_idx == 0 { len - 1 } else { new_idx - 1 }
+                                    } else {
+                                        if new_idx == len - 1 { 0 } else { new_idx + 1 }
+                                    };
+                                    let candidate = &all_tab_ids[new_idx];
+                                    // ターミナルタブ、または非ロックのシートタブなら採用
+                                    if candidate.starts_with("__TERM__")
+                                        || !is_sheet_locked_by_terminal(candidate, &ts_map_snap) {
+                                        break;
+                                    }
+                                }
                                 let new_id = all_tab_ids[new_idx].clone();
                                 if new_id == current_id { return; }
                                 if new_id.starts_with("__TERM__") {
@@ -3279,9 +3497,19 @@ pub fn app() -> Html {
                                     let tci2 = tci_c.clone();
                                     let rs2 = rs_c.clone(); let sc2 = sheets_c.clone(); let ac2 = aid_c.clone(); let sp2 = sp_c.clone(); let nc2 = ncid_c.clone(); let ar2 = aid_ref_c.clone();
                                     let to2 = tab_order_ref_c.clone(); let atid2 = atid_c.clone(); let atref2 = atref_c.clone();
+                                    let tsh_close2 = TerminalSplitHandles {
+                                        ts_state: terminal_split_c.clone(),
+                                        ts_ref: terminal_split_ref_c.clone(),
+                                        tse_state: terminal_split_edit_c.clone(),
+                                        tse_ref: terminal_split_edit_ref_c.clone(),
+                                        sps_state: split_pane_sheet_id_c.clone(),
+                                        sps_ref: split_pane_sheet_id_ref_c.clone(),
+                                        skip_fade: ssf_c.clone(),
+                                        map: ts_map_c.clone(),
+                                    };
                                     Timeout::new(300, move || {
                                         tci2.set(None);
-                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), to2.borrow().clone(), Some(atid2.clone()), Some(atref2.clone()));
+                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), to2.borrow().clone(), Some(atid2.clone()), Some(atref2.clone()), Some(tsh_close2));
                                     }).forget();
                                 }
                                 return;
@@ -3436,6 +3664,11 @@ pub fn app() -> Html {
         let sps_tab_ref = split_pane_sheet_id_ref.clone();
         let atref_tab = active_terminal_ref.clone();
         Callback::from(move |new_id: String| {
+            // シートタブかつターミナルのスプリットペインに選択されている場合はクリックを無効化
+            if !new_id.starts_with("__TERM__")
+                && is_sheet_locked_by_terminal(&new_id, &ts_map.borrow()) {
+                return;
+            }
             // ターミナルタブ選択
             if new_id.starts_with("__TERM__") {
                 // 現在がターミナルならそのスプリット状態を保存、シートならシートのis_splitを保存
@@ -3584,6 +3817,16 @@ pub fn app() -> Html {
         let ncid = no_category_folder_id.clone();
         let nc = network_connected.clone();
         let to_ref_close = tab_order_ref.clone();
+        let tsh_close = TerminalSplitHandles {
+            ts_state: terminal_split_enabled.clone(),
+            ts_ref: terminal_split_ref.clone(),
+            tse_state: terminal_split_edit_mode.clone(),
+            tse_ref: terminal_split_edit_ref.clone(),
+            sps_state: split_pane_sheet_id.clone(),
+            sps_ref: split_pane_sheet_id_ref.clone(),
+            skip_fade: skip_split_fade.clone(),
+            map: terminal_split_map.clone(),
+        };
         Callback::from(move |close_id: String| {
             // ターミナルタブの閉じ処理
             if close_id.starts_with("__TERM__") {
@@ -3658,7 +3901,7 @@ pub fn app() -> Html {
                 }
             }
             // 未保存でなければ直接閉じる
-            close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to_ref_close.borrow().clone(), Some(atid_close.clone()), Some(atref_close.clone()));
+            close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to_ref_close.borrow().clone(), Some(atid_close.clone()), Some(atref_close.clone()), Some(tsh_close.clone()));
         })
     };
 
@@ -3674,6 +3917,7 @@ pub fn app() -> Html {
         let ts_ref = terminal_split_ref.clone();
         let sp_sheet = split_pane_sheet_id.clone();
         let sp_sheet_ref = split_pane_sheet_id_ref.clone();
+        let ts_map_split_close = terminal_split_map.clone();
         use_effect_with(is_open, move |&open| {
             if !open {
                 return Box::new(|| ()) as Box<dyn FnOnce()>;
@@ -3705,6 +3949,7 @@ pub fn app() -> Html {
                                 ts_enabled.set(false);
                                 sp_sheet.set(None);
                                 *sp_sheet_ref.borrow_mut() = None;
+                                ts_map_split_close.borrow_mut().insert(tid.clone(), (false, false, None));
                                 tab_close.emit(tid);
                             }
                         } else {
@@ -3714,6 +3959,7 @@ pub fn app() -> Html {
                             sp_sheet.set(None);
                             *sp_sheet_ref.borrow_mut() = None;
                             if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                ts_map_split_close.borrow_mut().insert(tid.clone(), (false, false, None));
                                 gloo::timers::callback::Timeout::new(50, move || {
                                     crate::js_interop::terminal_focus(&tid);
                                 }).forget();
@@ -3747,10 +3993,20 @@ pub fn app() -> Html {
         let to = tab_order_ref.clone();
         let atid = active_terminal_id.clone();
         let atref = active_terminal_ref.clone();
+        let tsh_cc = TerminalSplitHandles {
+            ts_state: terminal_split_enabled.clone(),
+            ts_ref: terminal_split_ref.clone(),
+            tse_state: terminal_split_edit_mode.clone(),
+            tse_ref: terminal_split_edit_ref.clone(),
+            sps_state: split_pane_sheet_id.clone(),
+            sps_ref: split_pane_sheet_id_ref.clone(),
+            skip_fade: skip_split_fade.clone(),
+            map: terminal_split_map.clone(),
+        };
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_cc.clone()));
             }
         })
     };
@@ -3766,10 +4022,20 @@ pub fn app() -> Html {
         let to = tab_order_ref.clone();
         let atid = active_terminal_id.clone();
         let atref = active_terminal_ref.clone();
+        let tsh_ucc = TerminalSplitHandles {
+            ts_state: terminal_split_enabled.clone(),
+            ts_ref: terminal_split_ref.clone(),
+            tse_state: terminal_split_edit_mode.clone(),
+            tse_ref: terminal_split_edit_ref.clone(),
+            sps_state: split_pane_sheet_id.clone(),
+            sps_ref: split_pane_sheet_id_ref.clone(),
+            skip_fade: skip_split_fade.clone(),
+            map: terminal_split_map.clone(),
+        };
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_ucc.clone()));
             }
         })
     };
@@ -4086,6 +4352,8 @@ pub fn app() -> Html {
         let split_pane_sid_r = split_pane_sheet_id.clone();
         let os = on_save_cb.clone();
         let debounce = split_edit_debounce.clone();
+        let is_saving_split = saving_sheet_id.clone();
+        let saving_id_ref_split = saving_id_ref.clone();
         let edit_mode = *terminal_split_edit_mode;
         use_effect_with(edit_mode, move |&editing| {
             if editing {
@@ -4124,16 +4392,35 @@ pub fn app() -> Html {
                     let content = crate::js_interop::get_split_editor_content();
                     let aid = split_pane_id_for_listener.clone().or_else(|| (*aid_r.borrow()).clone());
                     if let Some(id) = aid {
+                        // 保存中インジケータを表示
+                        *saving_id_ref_split.borrow_mut() = Some(id.clone());
+                        is_saving_split.set(Some(id.clone()));
                         let mut cur = (*sheets_r.borrow()).clone();
                         if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
-                            if sheet.content == content { return; }
+                            if sheet.content == content {
+                                // 内容変更なしの場合は保存中表示を解除して終了
+                                *saving_id_ref_split.borrow_mut() = None;
+                                is_saving_split.set(None);
+                                return;
+                            }
                             let now = js_sys::Date::now() as u64;
                             sheet.content = content.clone();
                             sheet.is_modified = true;
                             sheet.temp_content = Some(content.clone());
                             sheet.temp_timestamp = Some(now);
                             let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview, created_at: sheet.created_at };
-                            spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
+                            let is_saving_inner = is_saving_split.clone();
+                            let saving_ref_inner = saving_id_ref_split.clone();
+                            let id_inner = id.clone();
+                            spawn_local(async move {
+                                let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                // IndexedDB保存完了後に保存中インジケータを解除
+                                if saving_ref_inner.borrow().as_ref() == Some(&id_inner) {
+                                    *saving_ref_inner.borrow_mut() = None;
+                                    is_saving_inner.set(None);
+                                }
+                            });
                         }
                         *sheets_r.borrow_mut() = cur.clone();
                         sheets_s.set(cur);
@@ -4510,10 +4797,10 @@ pub fn app() -> Html {
                                 }
                             })
                         }}
-                        on_delete={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); Callback::from(move |_| {
+                        on_delete={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); let tsh_del = TerminalSplitHandles { ts_state: terminal_split_enabled.clone(), ts_ref: terminal_split_ref.clone(), tse_state: terminal_split_edit_mode.clone(), tse_ref: terminal_split_edit_ref.clone(), sps_state: split_pane_sheet_id.clone(), sps_ref: split_pane_sheet_id_ref.clone(), skip_fade: skip_split_fade.clone(), map: terminal_split_map.clone() }; Callback::from(move |_| {
                             if let Some(sheet_id) = (*ped).clone() {
                                 ped.set(None);
-                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()));
+                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_del.clone()));
                             }
                         })}
                     /></div>
@@ -4644,6 +4931,7 @@ pub fn app() -> Html {
                                         let ts_ref = terminal_split_ref.clone();
                                         let sp_sheet = split_pane_sheet_id.clone();
                                         let sp_sheet_ref = split_pane_sheet_id_ref.clone();
+                                        let ts_map_btn = terminal_split_map.clone();
                                         move |_| {
                                             d.set(false);
                                             if let Some(tid) = atref.borrow().as_ref().cloned() {
@@ -4651,6 +4939,7 @@ pub fn app() -> Html {
                                                 ts_enabled.set(false);
                                                 sp_sheet.set(None);
                                                 *sp_sheet_ref.borrow_mut() = None;
+                                                ts_map_btn.borrow_mut().insert(tid.clone(), (false, false, None));
                                                 tab_close.emit(tid);
                                             }
                                         }
@@ -4672,6 +4961,7 @@ pub fn app() -> Html {
                                         let sp_sheet = split_pane_sheet_id.clone();
                                         let sp_sheet_ref = split_pane_sheet_id_ref.clone();
                                         let atref = active_terminal_ref.clone();
+                                        let ts_map_btn = terminal_split_map.clone();
                                         move |_| {
                                             d.set(false);
                                             *ts_ref.borrow_mut() = false;
@@ -4679,6 +4969,7 @@ pub fn app() -> Html {
                                             sp_sheet.set(None);
                                             *sp_sheet_ref.borrow_mut() = None;
                                             if let Some(tid) = atref.borrow().as_ref().cloned() {
+                                                ts_map_btn.borrow_mut().insert(tid.clone(), (false, false, None));
                                                 gloo::timers::callback::Timeout::new(50, move || { crate::js_interop::terminal_focus(&tid); }).forget();
                                             }
                                         }

@@ -62,7 +62,7 @@ export async function open_local_file() {
             const result = await window.__TAURI__.core.invoke('open_local_file_native');
             localFileHandle = null; // Tauri ではハンドルは使わない
             localFilePath = result.path; // パスを保持
-            return { name: result.name, content: result.content, bytes: new Uint8Array(result.bytes) };
+            return { name: result.name, content: result.content, bytes: new Uint8Array(result.bytes), path: result.path };
         } catch (e) {
             if (e === 'cancelled') return null;
             console.error("Tauri file open failed:", e);
@@ -102,6 +102,11 @@ export async function open_local_file() {
     }
 }
 
+// シート切り替え時などに、アクティブなローカルシートのパスをセットする
+export function set_local_file_path(path) {
+    localFilePath = path || null;
+}
+
 export async function save_local_file(content, needs_bom) {
     if (is_tauri()) {
         try {
@@ -111,7 +116,8 @@ export async function save_local_file(content, needs_bom) {
                 currentPath: localFilePath || null
             });
             localFilePath = result.path;
-            return result.name;
+            // nameとpath両方を含むオブジェクトを返す（Rust側でlocal_pathを更新するため）
+            return { name: result.name, path: result.path };
         } catch (e) {
             if (e === 'cancelled') return null;
             console.error("Tauri file save failed:", e);
@@ -821,7 +827,15 @@ export function init_split_editor(element_id, content, filename, sheetId) {
 }
 
 export function destroy_split_editor() {
-    if (_splitEditorTimer) { clearTimeout(_splitEditorTimer); _splitEditorTimer = null; }
+    // 破棄前に未保存のデバウンス中変更を即時フラッシュ（sheets_refに反映させる）
+    if (_splitEditorTimer) {
+        clearTimeout(_splitEditorTimer);
+        _splitEditorTimer = null;
+        if (_splitEditor) {
+            // split-editor-changed イベントを同期的に発火してRust側の保存処理を走らせる
+            window.dispatchEvent(new CustomEvent('split-editor-changed'));
+        }
+    }
     // Undo履歴を保存してからエディタを破棄
     if (_splitEditor && _splitEditorSheetId) {
         const um = _splitEditor.session.getUndoManager();
