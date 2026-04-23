@@ -382,21 +382,26 @@ async fn open_local_file_native(app: tauri::AppHandle) -> Result<Value, String> 
                 .map(|n: &std::ffi::OsStr| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "unknown".to_string());
 
-            // Try UTF-8 first, then Shift_JIS
-            let content = match String::from_utf8(bytes.clone()) {
-                Ok(s) => s,
+            // UTF-8 BOM (EF BB BF) があれば content から剥がす。
+            // bytes 側は保持（呼び出し側で BOM 判定して needs_bom を決めるため）。
+            let content_slice: &[u8] = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                &bytes[3..]
+            } else {
+                &bytes[..]
+            };
+
+            let content = match std::str::from_utf8(content_slice) {
+                Ok(s) => s.to_string(),
                 Err(_) => {
-                    println!("[Tauri] UTF-8 failed, trying Shift_JIS...");
-                    // Simple fallback: lossy UTF-8
-                    String::from_utf8_lossy(&bytes).to_string()
+                    println!("[Tauri] UTF-8 failed, falling back to lossy conversion...");
+                    String::from_utf8_lossy(content_slice).to_string()
                 }
             };
 
-            let bytes_array: Vec<u8> = bytes;
             Ok(serde_json::json!({
                 "name": name,
                 "content": content,
-                "bytes": bytes_array,
+                "bytes": bytes,
                 "path": path.to_string_lossy().to_string()
             }))
         }
