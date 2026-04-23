@@ -4370,7 +4370,7 @@ pub fn app() -> Html {
         let os = on_save_cb.clone();
         let debounce = split_edit_debounce.clone();
         let is_saving_split = saving_sheet_id.clone();
-        let saving_id_ref_split = saving_id_ref.clone();
+        // NOTE: saving_id_ref は on_save_cb の並行保存 lock 専用。split-editor-changed は触らない。
         let edit_mode = *terminal_split_edit_mode;
         use_effect_with(edit_mode, move |&editing| {
             if editing {
@@ -4409,14 +4409,12 @@ pub fn app() -> Html {
                     let content = crate::js_interop::get_split_editor_content();
                     let aid = split_pane_id_for_listener.clone().or_else(|| (*aid_r.borrow()).clone());
                     if let Some(id) = aid {
-                        // 保存中インジケータを表示
-                        *saving_id_ref_split.borrow_mut() = Some(id.clone());
+                        // 保存中インジケータを表示（UI用のみ。saving_id_ref は on_save_cb の lock 専用なので触らない）
                         is_saving_split.set(Some(id.clone()));
                         let mut cur = (*sheets_r.borrow()).clone();
                         if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
                             if sheet.content == content {
                                 // 内容変更なしの場合は保存中表示を解除して終了
-                                *saving_id_ref_split.borrow_mut() = None;
                                 is_saving_split.set(None);
                                 return;
                             }
@@ -4427,16 +4425,11 @@ pub fn app() -> Html {
                             sheet.temp_timestamp = Some(now);
                             let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview, created_at: sheet.created_at };
                             let is_saving_inner = is_saving_split.clone();
-                            let saving_ref_inner = saving_id_ref_split.clone();
-                            let id_inner = id.clone();
                             spawn_local(async move {
                                 let ser = serde_wasm_bindgen::Serializer::json_compatible();
                                 if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                                // IndexedDB保存完了後に保存中インジケータを解除
-                                if saving_ref_inner.borrow().as_ref() == Some(&id_inner) {
-                                    *saving_ref_inner.borrow_mut() = None;
-                                    is_saving_inner.set(None);
-                                }
+                                // IndexedDB保存完了後にインジケータを解除
+                                is_saving_inner.set(None);
                             });
                         }
                         *sheets_r.borrow_mut() = cur.clone();
