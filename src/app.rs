@@ -3057,28 +3057,10 @@ pub fn app() -> Html {
                                 if split_open {
                                     let new_val = !*terminal_split_edit_ref_c.borrow();
                                     *terminal_split_edit_ref_c.borrow_mut() = new_val;
-                                    if !new_val {
-                                        // 編集モード終了: フェード前に内容を同期保存
-                                        crate::js_interop::sync_split_editor_to_main();
-                                        let content = crate::js_interop::get_split_editor_content();
-                                        let aid = (*split_pane_sheet_id_c).clone().or_else(|| (*aid_ref_c.borrow()).clone());
-                                        if let Some(id) = aid {
-                                            let mut cur = (*rs_c.borrow()).clone();
-                                            if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
-                                                if sheet.content != content {
-                                                    let now = js_sys::Date::now() as u64;
-                                                    sheet.content = content.clone();
-                                                    sheet.is_modified = true;
-                                                    sheet.temp_content = Some(content.clone());
-                                                    sheet.temp_timestamp = Some(now);
-                                                    let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview, created_at: sheet.created_at };
-                                                    spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
-                                                }
-                                            }
-                                            *rs_c.borrow_mut() = cur.clone();
-                                            sheets_c.set(cur);
-                                        }
-                                    }
+                                    // 編集モード終了時の保存は destroy_split_editor 経由の
+                                    // split-editor-changed { final: true } ディスパッチに委譲する。
+                                    // ここで get_split_editor_content を呼ぶと _splitEditor 未初期化の
+                                    // タイミング（連打など）で空文字列を誤保存してしまうため。
                                     // フェードアウト → モード切替 → フェードイン
                                     split_content_opacity_c.set(false);
                                     let tse_c2 = terminal_split_edit_c.clone();
@@ -4447,12 +4429,16 @@ pub fn app() -> Html {
                             sheets_s.set(cur);
                         }
 
-                        if is_final {
-                            // スプリットビュー解除時: メインエディタに最新 content をロード
-                            load_editor_content(&content);
-                            // Drive 保存をスケジュール（case B の方針：Drive 保存は解除時のみ）
+                        // Drive 保存のスケジュール:
+                        //  - 通常の入力（final=false）: 3 秒無入力で発火（バックグラウンド保存）
+                        //  - スプリット解除（final=true）: メインエディタへ再ロード + 即座に Drive 保存
+                        if content_changed || is_final {
                             let os_c = os.clone();
-                            *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(200, move || { os_c.emit(false); }));
+                            let delay_ms = if is_final { 200 } else { 3000 };
+                            *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(delay_ms, move || { os_c.emit(false); }));
+                        }
+                        if is_final {
+                            load_editor_content(&content);
                         }
                     }
                 });
