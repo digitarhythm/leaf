@@ -4403,44 +4403,64 @@ pub fn app() -> Html {
                     crate::js_interop::init_split_editor("split-edit-editor", &content_c, &filename_c, &sheet_id_c);
                 }).forget();
                 // "split-editor-changed" イベントで自動保存
+                // detail.final=true の場合のみ Drive 保存 + メインエディタ再ロード
                 let split_pane_id_for_listener = split_pane_id.clone();
                 let window = web_sys::window().unwrap();
-                let listener = gloo::events::EventListener::new(&window, "split-editor-changed", move |_| {
+                let listener = gloo::events::EventListener::new(&window, "split-editor-changed", move |e: &web_sys::Event| {
+                    let is_final = e
+                        .dyn_ref::<web_sys::CustomEvent>()
+                        .and_then(|ce| {
+                            js_sys::Reflect::get(&ce.detail(), &JsValue::from_str("final")).ok()
+                        })
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
+
                     let content = crate::js_interop::get_split_editor_content();
                     let aid = split_pane_id_for_listener.clone().or_else(|| (*aid_r.borrow()).clone());
                     if let Some(id) = aid {
-                        // 保存中インジケータを表示（UI用のみ。saving_id_ref は on_save_cb の lock 専用なので触らない）
+                        // 保存中インジケータを表示（UI用のみ）
                         is_saving_split.set(Some(id.clone()));
                         let mut cur = (*sheets_r.borrow()).clone();
+                        let mut content_changed = false;
                         if let Some(sheet) = cur.iter_mut().find(|s| s.id == id) {
-                            if sheet.content == content {
-                                // 内容変更なしの場合は保存中表示を解除して終了
+                            if sheet.content != content {
+                                let now = js_sys::Date::now() as u64;
+                                sheet.content = content.clone();
+                                sheet.is_modified = true;
+                                sheet.temp_content = Some(content.clone());
+                                sheet.temp_timestamp = Some(now);
+                                content_changed = true;
+                                let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview, created_at: sheet.created_at };
+                                let is_saving_inner = is_saving_split.clone();
+                                spawn_local(async move {
+                                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                                    if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                                    // IndexedDB保存完了後にインジケータを解除
+                                    is_saving_inner.set(None);
+                                });
+                            } else {
                                 is_saving_split.set(None);
-                                return;
                             }
-                            let now = js_sys::Date::now() as u64;
-                            sheet.content = content.clone();
-                            sheet.is_modified = true;
-                            sheet.temp_content = Some(content.clone());
-                            sheet.temp_timestamp = Some(now);
-                            let js = JSSheet { id: sheet.id.clone(), guid: sheet.guid.clone(), category: sheet.category.clone(), title: sheet.title.clone(), content: content.clone(), is_modified: true, drive_id: sheet.drive_id.clone(), temp_content: Some(content.clone()), temp_timestamp: Some(now), last_sync_timestamp: sheet.last_sync_timestamp, tab_color: sheet.tab_color.clone(), total_size: sheet.total_size, loaded_bytes: sheet.loaded_bytes, needs_bom: sheet.needs_bom, is_preview: sheet.is_preview, created_at: sheet.created_at };
-                            let is_saving_inner = is_saving_split.clone();
-                            spawn_local(async move {
-                                let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                                // IndexedDB保存完了後にインジケータを解除
-                                is_saving_inner.set(None);
-                            });
                         }
-                        *sheets_r.borrow_mut() = cur.clone();
-                        sheets_s.set(cur);
+                        if content_changed {
+                            *sheets_r.borrow_mut() = cur.clone();
+                            sheets_s.set(cur);
+                        }
+
+                        if is_final {
+                            // スプリットビュー解除時: メインエディタに最新 content をロード
+                            load_editor_content(&content);
+                            // Drive 保存をスケジュール（case B の方針：Drive 保存は解除時のみ）
+                            let os_c = os.clone();
+                            *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(200, move || { os_c.emit(false); }));
+                        }
                     }
-                    let os_c = os.clone();
-                    *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(1000, move || { os_c.emit(false); }));
                 });
                 Box::new(move || {
-                    drop(listener);
+                    // destroy_split_editor は dirty な場合に split-editor-changed を dispatch するため、
+                    // listener を drop する前に呼ぶ必要がある。
                     crate::js_interop::destroy_split_editor();
+                    drop(listener);
                 }) as Box<dyn FnOnce()>
             } else {
                 Box::new(|| ()) as Box<dyn FnOnce()>

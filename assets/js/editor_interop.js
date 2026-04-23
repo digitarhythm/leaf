@@ -781,6 +781,7 @@ if (is_tauri() && window.__TAURI__ && window.__TAURI__.core) {
 // --- スプリット編集エディタ (Ace 第2インスタンス) ---
 let _splitEditor = null;
 let _splitEditorTimer = null;
+let _splitEditorDirty = false;
 let _splitEditorSheetId = null; // スプリットエディタで編集中のシートID
 
 export function init_split_editor(element_id, content, filename, sheetId) {
@@ -808,6 +809,7 @@ export function init_split_editor(element_id, content, filename, sheetId) {
     });
     _splitEditor.setValue(content || '', -1);
     _splitEditor.clearSelection();
+    _splitEditorDirty = false;
     // Undo履歴を復元（メインエディタと共有）
     if (_splitEditorSheetId && _undoStates.has(_splitEditorSheetId)) {
         const state = _undoStates.get(_splitEditorSheetId);
@@ -817,25 +819,24 @@ export function init_split_editor(element_id, content, filename, sheetId) {
     } else {
         _splitEditor.session.getUndoManager().reset();
     }
+    // リアルタイム: 200ms debounce で IndexedDB のみ更新（Drive 保存はスケジュールしない）
     _splitEditor.on('change', () => {
+        _splitEditorDirty = true;
         if (_splitEditorTimer) clearTimeout(_splitEditorTimer);
         _splitEditorTimer = setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('split-editor-changed'));
+            window.dispatchEvent(new CustomEvent('split-editor-changed', { detail: { final: false } }));
         }, 200);
     });
     setTimeout(() => { if (_splitEditor) { _splitEditor.resize(); _splitEditor.focus(); } }, 50);
 }
 
 export function destroy_split_editor() {
-    // 破棄前に未保存のデバウンス中変更を即時フラッシュ（sheets_refに反映させる）
-    if (_splitEditorTimer) {
-        clearTimeout(_splitEditorTimer);
-        _splitEditorTimer = null;
-        if (_splitEditor) {
-            // split-editor-changed イベントを同期的に発火してRust側の保存処理を走らせる
-            window.dispatchEvent(new CustomEvent('split-editor-changed'));
-        }
+    // 破棄時に未保存の変更を flush + Drive 保存 + メインエディタ再ロード
+    if (_splitEditorTimer) { clearTimeout(_splitEditorTimer); _splitEditorTimer = null; }
+    if (_splitEditor && _splitEditorDirty) {
+        window.dispatchEvent(new CustomEvent('split-editor-changed', { detail: { final: true } }));
     }
+    _splitEditorDirty = false;
     // Undo履歴を保存してからエディタを破棄
     if (_splitEditor && _splitEditorSheetId) {
         const um = _splitEditor.session.getUndoManager();
