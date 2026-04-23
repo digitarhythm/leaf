@@ -1357,6 +1357,7 @@ pub fn app() -> Html {
                                      if let Ok(tv) = js_sys::Reflect::get(&metadata, &JsValue::from_str("modifiedTime")) {
                                          if let Some(ts) = tv.as_string() {
                                              let drive_time = crate::drive_interop::parse_date(&ts) as u64;
+                                             gloo::console::log!(format!("[Leaf-DBG] Pre-save check: drive_time={} sync_ts={} diff={} ts_str={}", drive_time, sync_ts, drive_time as i64 - sync_ts as i64, ts));
                                              if drive_time > sync_ts + 1000 {
                                                  // Driveの方が新しい → コンフリクトダイアログを表示して保存中断
                                                  gloo::console::warn!(format!("[Leaf-SYSTEM] Pre-save conflict! drive_time({}) > sync_ts({}). Aborting save.", drive_time, sync_ts));
@@ -1386,7 +1387,11 @@ pub fn app() -> Html {
                          match res {
                              Ok(rv) => {
                                  if let Ok(iv) = js_sys::Reflect::get(&rv, &JsValue::from_str("id")) { if let Some(is) = iv.as_string() { n_did = Some(is); } }
-                                 if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { stime = Some(crate::drive_interop::parse_date(&ts) as u64); } }
+                                 let mut new_stime_str: Option<String> = None;
+                                 if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { new_stime_str = Some(ts.clone()); stime = Some(crate::drive_interop::parse_date(&ts) as u64); } }
+                                 // 応答全体のキー一覧を出力（modifiedTime が無い場合の診断用）
+                                 let keys: Vec<String> = js_sys::Object::keys(&rv.clone().unchecked_into::<js_sys::Object>()).iter().filter_map(|k| k.as_string()).collect();
+                                 gloo::console::log!(format!("[Leaf-DBG] Upload OK: sheet_id={} new_stime={:?} ts_str={:?} response_keys={:?}", sheet.id, stime, new_stime_str, keys));
                                  nc_inner.set(true); // 成功したのでオンラインに
                              },
                              Err(_) => {
