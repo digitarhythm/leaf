@@ -1080,8 +1080,13 @@ pub fn app() -> Html {
                 id.clone()
             } else { return; };
 
+            // 同一シートの並行保存をブロックするため ris_h を即時マーク
+            // （保存完了後またはエラー時に必ず None に戻す）
+            *ris_h.borrow_mut() = Some(id.clone());
+            is_saving_h.set(Some(id.clone()));
+
             // エディタの内容を「今この瞬間」にキャプチャする（超重要）
-            let captured_content = if let Some(s) = get_editor_content().as_string() { s } else { return; };
+            let captured_content = if let Some(s) = get_editor_content().as_string() { s } else { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; };
 
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
             let r_ncid = r_ncid.clone(); let nc_h = nc_h.clone();
@@ -1127,11 +1132,13 @@ pub fn app() -> Html {
                             match behavior {
                                 EmptySaveBehavior::Nothing => {
                                     gloo::console::log!("[Leaf-SYSTEM] Auto-save: empty content, doing nothing (user setting).");
+                                    *ris_h.borrow_mut() = None; is_saving_h.set(None);
                                     return;
                                 },
                                 EmptySaveBehavior::Confirm => {
                                     gloo::console::log!("[Leaf-SYSTEM] Auto-save: empty content, showing confirm dialog.");
                                     ped_h.set(Some(id.clone()));
+                                    *ris_h.borrow_mut() = None; is_saving_h.set(None);
                                     return;
                                 },
                                 EmptySaveBehavior::Delete => {
@@ -1171,12 +1178,13 @@ pub fn app() -> Html {
                                             spawn_local(async move { let _ = crate::db_interop::delete_sheet(&sheet_id).await; });
                                         }
                                     }).forget();
+                                    *ris_h.borrow_mut() = None; is_saving_h.set(None);
                                     return;
                                 },
                             }
                         }
 
-                        if !is_manual && !sheet.is_modified && sheet.content == cur_c { return; }
+                        if !is_manual && !sheet.is_modified && sheet.content == cur_c { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; }
                         
                         sheet.content = cur_c.clone(); 
                         sheet.is_modified = false;
@@ -1198,6 +1206,7 @@ pub fn app() -> Html {
                             // ... (local save logic)
                             let content_to_save = cur_c.clone();
                             let is_saving_inner = is_saving_h.clone();
+                            let ris_local = ris_h.clone();
                             let ild_inner = ild_h.clone();
                             let lock_inner = lock_h.clone();
                             let lock_fade_inner = lock_fade_h.clone();
@@ -1241,6 +1250,7 @@ pub fn app() -> Html {
                                     }
                                     *rs_cb_inner.borrow_mut() = us.clone();
                                     s_state_inner.set(us);
+                                    *ris_local.borrow_mut() = None;
                                     is_saving_inner.set(None);
                                     ild_inner.set(false);
                                     if *lock_inner {
@@ -1250,6 +1260,7 @@ pub fn app() -> Html {
                                         Timeout::new(300, move || { lf.set(false); l.set(false); _il.set(false); }).forget();
                                     }
                                 } else {
+                                    *ris_local.borrow_mut() = None;
                                     is_saving_inner.set(None);
                                     ild_inner.set(false);
                                     if *lock_inner {
@@ -1267,13 +1278,14 @@ pub fn app() -> Html {
                                 s_clone_opt = Some(sheet.clone());
                                 drive_save_prepared = true;
                             } else {
-                                ild_h.set(false); lock_h.set(false); return;
+                                ild_h.set(false); lock_h.set(false); *ris_h.borrow_mut() = None; is_saving_h.set(None); return;
                             }
                         }
                     }
 
+                    // local_save_triggered の場合、ris_h は spawn_local 内で後処理する
                     if local_save_triggered { return; }
-                    if !drive_save_prepared { return; }
+                    if !drive_save_prepared { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; }
 
                     let s_clone = s_clone_opt.unwrap();
                     *r_s.borrow_mut() = cur_s.clone();
