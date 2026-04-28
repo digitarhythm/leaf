@@ -1087,6 +1087,7 @@ pub fn app() -> Html {
 
             // エディタの内容を「今この瞬間」にキャプチャする（超重要）
             let captured_content = if let Some(s) = get_editor_content().as_string() { s } else { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; };
+            gloo::console::log!(format!("[Leaf-DBG] on_save_cb ENTER aid={} captured.first20={:?} is_manual={}", id, captured_content.chars().take(20).collect::<String>(), is_manual));
 
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
             let r_ncid = r_ncid.clone(); let nc_h = nc_h.clone();
@@ -2714,8 +2715,9 @@ pub fn app() -> Html {
                     else if cmd == "change" {
                         if *sp_ref_cb.borrow() { return; }
                         let cur_c_val = get_editor_content(); let cur_c = if let Some(s) = cur_c_val.as_string() { s } else { return; };
-                        
+
                         let aid = (*r_aid_i.borrow()).clone();
+                        gloo::console::log!(format!("[Leaf-DBG] CHANGE aid={:?} cur_c.len={} first20={:?}", aid, cur_c.len(), cur_c.chars().take(20).collect::<String>()));
                         if let Some(id) = aid {
                             let mut cur_s = (*r_s_i.borrow()).clone();
                             let mut trigger_drive_sync = false; let mut needs_upd = false;
@@ -2727,10 +2729,11 @@ pub fn app() -> Html {
                                     *is_first_done = true;
                                 }
 
-                                if sheet.content != cur_c { 
+                                if sheet.content != cur_c {
+                                    gloo::console::log!(format!("[Leaf-DBG] CHANGE update sheet.id={} OLD.first20={:?} NEW.first20={:?}", sheet.id, sheet.content.chars().take(20).collect::<String>(), cur_c.chars().take(20).collect::<String>()));
                                     let now = js_sys::Date::now() as u64;
-                                    sheet.content = cur_c.clone(); 
-                                    sheet.is_modified = true; 
+                                    sheet.content = cur_c.clone();
+                                    sheet.is_modified = true;
                                     sheet.temp_content = Some(cur_c.clone());
                                     sheet.temp_timestamp = Some(now);
                                     needs_upd = true; 
@@ -3774,6 +3777,7 @@ pub fn app() -> Html {
             // 新タブの内容をロード
             let sheets_list = (*rs.borrow()).clone();
             if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
+                gloo::console::log!(format!("[Leaf-DBG] TAB_SELECT load new_id={} content.first20={:?}", new_id, sheet.content.chars().take(20).collect::<String>()));
                 crate::js_interop::load_editor_content_raw(&sheet.content);
                 crate::js_interop::restore_undo_state(&new_id);
                 if let Some(ref state) = sheet.editor_state {
