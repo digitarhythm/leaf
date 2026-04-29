@@ -2937,6 +2937,7 @@ pub fn app() -> Html {
                 let is_char_code_ev = is_char_code_visible.clone();
                 let char_code_char_ev = char_code_char.clone();
                 let is_sheet_info_ev = is_sheet_info_visible.clone();
+                let local_auto_save_ref_ev = local_auto_save_ref.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -2951,6 +2952,7 @@ pub fn app() -> Html {
                     let is_creating_cat_c = is_creating_cat_ev.clone();
                     let os_c = os_cb_ev.clone(); let sheets_c = sheets_ev.clone();
                     let aid_c = aid_ev.clone();
+                    let las_c = local_auto_save_ref_ev.clone();
                     let file_close_trigger_c = file_close_trigger_ev.clone();
                     let _close_preview_c = close_preview_ev.clone();
                     let preview_overlay_opacity_c = preview_overlay_opacity_ev.clone();
@@ -3204,6 +3206,7 @@ pub fn app() -> Html {
                                         let cur_c_val = get_editor_content();
                                         if let Some(cur_c) = cur_c_val.as_string() {
                                             let mut us = current_sheets.clone();
+                                            let mut should_drive_save = false;
                                             if let Some(sheet) = us.iter_mut().find(|x| x.id == current_id) {
                                                 sheet.editor_state = Some(editor_state);
                                                 sheet.preview_scroll_top = preview_scroll;
@@ -3218,10 +3221,20 @@ pub fn app() -> Html {
                                                     let js = sheet.to_js();
                                                     let ser = serde_wasm_bindgen::Serializer::json_compatible();
                                                     if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
+                                                    let is_drive = (sheet.category != "__LOCAL__" && !sheet.category.is_empty())
+                                                        || (sheet.category != "__LOCAL__" && sheet.category.is_empty() && !sheet.title.starts_with("Untitled.txt"))
+                                                        || (sheet.category == "__LOCAL__" && *las_c.borrow());
+                                                    if is_drive {
+                                                        should_drive_save = true;
+                                                    }
                                                 }
                                             }
                                             *rs_c.borrow_mut() = us.clone();
                                             sheets_c.set(us);
+                                            // aid 切替前に Drive 保存を発火（on_save_cb は現在の aid_ref と editor 内容を捕捉）
+                                            if should_drive_save {
+                                                os_c.emit(false);
+                                            }
                                         }
                                     }
                                     let sheets_list = (*rs_c.borrow()).clone();
