@@ -1316,23 +1316,26 @@ pub fn app() -> Html {
                     spawn_local(async move {
                          let target_folder_id = target_folder_id_val;
                          let sheet = s_clone;
-                         let _structure = match ensure_directory_structure().await { Ok(res) => res, Err(_) => { 
-                             *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
+                         gloo::console::log!(format!("[Leaf-DBG] spawn_local START sheet.id={} drive_id={:?} category={} title={} content.len={}", sheet.id, sheet.drive_id, sheet.category, sheet.title, sheet.content.len()));
+                         let _structure = match ensure_directory_structure().await { Ok(res) => res, Err(_) => {
+                             gloo::console::warn!(format!("[Leaf-DBG] ensure_directory_structure FAILED sheet.id={}", sheet.id));
+                             *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
                              if *lock_inner {
                                  lock_fade_inner.set(true);
                                  let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
                                  let _il = ild_inner.clone();
                                  Timeout::new(300, move || { lf.set(false); l.set(false); _il.set(false); }).forget();
                              } else { ild_inner.set(false); }
-                             return; 
+                             return;
                          } };
-                         
+
                          if !sheet.category.is_empty() && sheet.category != "OTHERS" {
                              if let Err(_) = get_file_metadata(&sheet.category).await {
-                                 *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
+                                 gloo::console::warn!(format!("[Leaf-DBG] category metadata FAILED sheet.id={} category={}", sheet.id, sheet.category));
+                                 *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
                                  let mut u_s = (*rs_async.borrow()).clone();
-                                 if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { 
-                                     si.is_modified = true; 
+                                 if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) {
+                                     si.is_modified = true;
                                      let js = si.to_js();
                                      let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                                  }
@@ -1395,6 +1398,7 @@ pub fn app() -> Html {
                          }
 
                          let final_content = &sheet.content;
+                         gloo::console::log!(format!("[Leaf-DBG] upload_file CALL sheet.id={} fname={} drive_id={:?} content.len={}", sheet.id, fname, sheet.drive_id, final_content.len()));
                          let res = upload_file(&fname, &JsValue::from_str(final_content), &target_folder_id, sheet.drive_id.as_deref()).await;
                          let mut n_did = sheet.drive_id.clone(); let mut stime = sheet.last_sync_timestamp;
                          match res {
@@ -1424,7 +1428,8 @@ pub fn app() -> Html {
                                  gloo::console::log!(format!("[Leaf-DBG] Upload OK: sheet_id={} new_stime={:?} ts_str={:?} response_keys={:?}", sheet.id, stime, new_stime_str, keys));
                                  nc_inner.set(true); // 成功したのでオンラインに
                              },
-                             Err(_) => {
+                             Err(ref e) => {
+                                 gloo::console::warn!(format!("[Leaf-DBG] upload_file FAILED sheet.id={} err={:?}", sheet.id, e));
                                  nc_inner.set(false); // 失敗したのでオフライン状態へ
                                  let js = sheet.to_js();
                                  let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
@@ -1826,6 +1831,19 @@ pub fn app() -> Html {
         let spid_fo = split_pane_sheet_id.clone();
         let spid_ref_fo = split_pane_sheet_id_ref.clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
+            // アクティブシートに未保存変更があれば、aid 切替前に Drive 保存を発火
+            // （on_save_cb は現在の aid_ref と editor 内容を捕捉して非同期保存）
+            let aid_val = (*aid).clone();
+            let mut needs_save = false;
+            if let Some(id) = aid_val {
+                let cur_s = (*rs.borrow()).clone();
+                if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
+                    let cur_c_val = get_editor_content();
+                    if let Some(cur_c) = cur_c_val.as_string() { if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) { needs_save = true; } }
+                }
+            }
+            if needs_save { os.emit(false); }
+
             // 既に同じdrive_idのシートが開かれている場合はそのシートをアクティブにして終了
             {
                 let cur_s = (*rs.borrow()).clone();
@@ -1839,17 +1857,6 @@ pub fn app() -> Html {
                     return;
                 }
             }
-
-            let aid_val = (*aid).clone();
-            let mut needs_save = false;
-            if let Some(id) = aid_val {
-                let cur_s = (*rs.borrow()).clone();
-                if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
-                    let cur_c_val = get_editor_content();
-                    if let Some(cur_c) = cur_c_val.as_string() { if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) { needs_save = true; } }
-                }
-            }
-            if needs_save { os.emit(false); }
 
             iv.set(false); lmk.set("synchronizing"); il.set(true); ifo.set(false); sp.set(true);
             // ターミナルがアクティブな場合、スプリット状態をts_mapに保存してターミナルコンテキストを抜ける
