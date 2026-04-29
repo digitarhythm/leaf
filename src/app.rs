@@ -3682,6 +3682,8 @@ pub fn app() -> Html {
         let sps_tab = split_pane_sheet_id.clone();
         let sps_tab_ref = split_pane_sheet_id_ref.clone();
         let atref_tab = active_terminal_ref.clone();
+        let os_for_tab_select = on_save_cb.clone();
+        let las_for_tab_select = local_auto_save_ref.clone();
         Callback::from(move |new_id: String| {
             // シートタブかつターミナルのスプリットペインに選択されている場合はクリックを無効化
             if !new_id.starts_with("__TERM__")
@@ -3765,6 +3767,7 @@ pub fn app() -> Html {
                             .map(|el| el.scroll_top() as f64)
                             .unwrap_or(0.0);
                         let mut us = (*rs.borrow()).clone();
+                        let mut should_drive_save = false;
                         if let Some(sheet) = us.iter_mut().find(|x| x.id == old_id) {
                             sheet.editor_state = Some(editor_state);
                             sheet.preview_scroll_top = preview_scroll;
@@ -3784,10 +3787,23 @@ pub fn app() -> Html {
                                 if let Ok(v) = js.serialize(&ser) {
                                     spawn_local(async move { let _ = save_sheet(v).await; });
                                 }
+                                // タブ切り替え時の Drive/Local 保存トリガー条件
+                                // （change handler の trigger_drive_sync と同じロジック）
+                                let is_drive = (sheet.category != "__LOCAL__" && !sheet.category.is_empty())
+                                    || (sheet.category != "__LOCAL__" && sheet.category.is_empty() && !sheet.title.starts_with("Untitled.txt"))
+                                    || (sheet.category == "__LOCAL__" && *las_for_tab_select.borrow());
+                                if is_drive {
+                                    should_drive_save = true;
+                                }
                             }
                         }
                         *rs.borrow_mut() = us.clone();
                         s_state.set(us);
+                        // aid を切り替える前に Drive 保存を発火
+                        // （on_save_cb は現在の aid_ref=old_id とエディタ内容=old を捕捉して非同期保存）
+                        if should_drive_save {
+                            os_for_tab_select.emit(false);
+                        }
                     }
                 }
             }
