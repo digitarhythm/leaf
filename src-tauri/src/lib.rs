@@ -77,15 +77,35 @@ fn set_window_blur(app: tauri::AppHandle, blur: i32) -> Result<(), String> {
         use tauri::Manager;
         if let Some(window) = app.get_webview_window("main") {
             if blur > 0 {
-                // Windows 11: Mica, Windows 10: Acrylic
                 let opacity_byte = (255.0 * (1.0 - blur as f64 / 100.0)) as u8;
-                if window_vibrancy::apply_mica(&window, Some(true)).is_err() {
-                    let _ = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, opacity_byte)));
-                }
-            } else {
-                // Mica/Acrylic両方をクリア試みる
+                // 既存のエフェクトをクリアしてから適用（重複適用を避ける）
                 let _ = window_vibrancy::clear_mica(&window);
                 let _ = window_vibrancy::clear_acrylic(&window);
+                let _ = window_vibrancy::clear_blur(&window);
+
+                // Win11: Mica → 失敗時 Acrylic → さらに失敗時 Blur (Win10)
+                let mica_res = window_vibrancy::apply_mica(&window, Some(true));
+                if let Err(ref e) = mica_res {
+                    println!("[Tauri] apply_mica failed: {:?}", e);
+                    let acrylic_res = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, opacity_byte)));
+                    if let Err(ref e2) = acrylic_res {
+                        println!("[Tauri] apply_acrylic failed: {:?}", e2);
+                        if let Err(e3) = window_vibrancy::apply_blur(&window, Some((0, 0, 0, opacity_byte))) {
+                            println!("[Tauri] apply_blur failed: {:?}", e3);
+                            return Err(format!("blur effect failed: mica={:?} acrylic={:?} blur={:?}", mica_res, acrylic_res, e3));
+                        } else {
+                            println!("[Tauri] apply_blur OK");
+                        }
+                    } else {
+                        println!("[Tauri] apply_acrylic OK");
+                    }
+                } else {
+                    println!("[Tauri] apply_mica OK");
+                }
+            } else {
+                let _ = window_vibrancy::clear_mica(&window);
+                let _ = window_vibrancy::clear_acrylic(&window);
+                let _ = window_vibrancy::clear_blur(&window);
             }
         }
     }

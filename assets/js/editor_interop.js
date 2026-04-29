@@ -745,7 +745,9 @@ export function set_window_opacity(opacity) {
 export function set_window_blur(blur) {
     if (!is_tauri()) return;
     if (window.__TAURI__ && window.__TAURI__.core) {
-        window.__TAURI__.core.invoke('set_window_blur', { blur: blur });
+        window.__TAURI__.core.invoke('set_window_blur', { blur: blur })
+            .then(() => console.log('[Leaf-DBG] set_window_blur OK blur=' + blur))
+            .catch(e => console.error('[Leaf-DBG] set_window_blur FAILED:', e));
         // CSSカスタムプロパティ＋クラスで制御（動的に追加される要素にも自動適用）
         if (blur > 0) {
             const bgAlpha = (1.0 - (blur / 100.0) * 0.9).toFixed(2);
