@@ -1402,6 +1402,23 @@ pub fn app() -> Html {
                                  if let Ok(iv) = js_sys::Reflect::get(&rv, &JsValue::from_str("id")) { if let Some(is) = iv.as_string() { n_did = Some(is); } }
                                  let mut new_stime_str: Option<String> = None;
                                  if let Ok(tv) = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")) { if let Some(ts) = tv.as_string() { new_stime_str = Some(ts.clone()); stime = Some(crate::drive_interop::parse_date(&ts) as u64); } }
+                                 // PATCH 応答の modifiedTime と直後の GET metadata の modifiedTime が
+                                 // 数十秒ずれることがあるため、再取得して権威的な値を sync_ts として保存する
+                                 if let Some(ref did) = n_did {
+                                     if let Ok(metadata) = get_file_metadata(did).await {
+                                         if let Ok(tv) = js_sys::Reflect::get(&metadata, &JsValue::from_str("modifiedTime")) {
+                                             if let Some(ts) = tv.as_string() {
+                                                 let auth_ts = crate::drive_interop::parse_date(&ts) as u64;
+                                                 // 通常 PATCH 応答 ≦ GET の値。GET 側を採用
+                                                 if auth_ts >= stime.unwrap_or(0) {
+                                                     gloo::console::log!(format!("[Leaf-DBG] Upload sync_ts adjust: patch_resp={:?} authoritative={} ts_str={:?}", new_stime_str, auth_ts, ts));
+                                                     new_stime_str = Some(ts);
+                                                     stime = Some(auth_ts);
+                                                 }
+                                             }
+                                         }
+                                     }
+                                 }
                                  // 応答全体のキー一覧を出力（modifiedTime が無い場合の診断用）
                                  let keys: Vec<String> = js_sys::Object::keys(&rv.clone().unchecked_into::<js_sys::Object>()).iter().filter_map(|k| k.as_string()).collect();
                                  gloo::console::log!(format!("[Leaf-DBG] Upload OK: sheet_id={} new_stime={:?} ts_str={:?} response_keys={:?}", sheet.id, stime, new_stime_str, keys));
