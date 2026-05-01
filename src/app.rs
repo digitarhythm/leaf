@@ -517,7 +517,7 @@ fn trigger_conflict_check(
     ifo: UseStateHandle<bool>,
     lmk: UseStateHandle<&'static str>,
     is_init: Option<UseStateHandle<bool>>,
-    on_save: Callback<bool>
+    on_save: Callback<(bool, Option<String>)>
 ) {
     let aid = (*aid_ref.borrow()).clone();
     let sheets = (*s_ref.borrow()).clone();
@@ -590,7 +590,7 @@ fn trigger_conflict_check(
                                     // ローカルの方が新しい、または一致
                                     if is_modified || local_time > drive_time + 1000 {
                                         gloo::console::log!(format!("[Leaf-SYSTEM] Local is newer. Triggering silent auto-upload..."));
-                                        on_save_inner.emit(false);
+                                        on_save_inner.emit((false, None));
                                     } else {
                                         gloo::console::log!("[Leaf-SYSTEM] No sync needed.");
                                     }
@@ -1058,7 +1058,7 @@ pub fn app() -> Html {
         })
     };
 
-    let os_handle: Rc<RefCell<Option<Callback<bool>>>> = Rc::new(RefCell::new(None));
+    let os_handle: Rc<RefCell<Option<Callback<(bool, Option<String>)>>>> = Rc::new(RefCell::new(None));
     let on_save_cb = {
         let r_aid = active_id_ref.clone(); let r_s = sheets_ref.clone(); let s_state = sheets.clone();
         let r_ncid = no_category_id_ref.clone(); let nc_h = network_connected.clone();
@@ -1073,21 +1073,43 @@ pub fn app() -> Html {
         let osh_cb = os_handle.clone();
         let cq_save = conflict_queue.clone();
         let ifo_save = is_fading_out.clone();
-        Callback::from(move |is_manual: bool| {
-            let aid_opt = (*r_aid.borrow()).clone();
-            let id = if let Some(ref id) = aid_opt {
-                if let Some(ref saving_id) = *ris_h.borrow() { if saving_id == id { return; } }
-                id.clone()
-            } else { return; };
+        Callback::from(move |(is_manual, override_id): (bool, Option<String>)| {
+            // override_id があればそれを使う（タブ切替時など、aid と異なるシートを保存する場合）
+            // None の場合は現在の aid を使う
+            let id = match override_id.clone() {
+                Some(o) => {
+                    if let Some(ref saving_id) = *ris_h.borrow() { if saving_id == &o { return; } }
+                    o
+                },
+                None => {
+                    let aid_opt = (*r_aid.borrow()).clone();
+                    match aid_opt {
+                        Some(id) => {
+                            if let Some(ref saving_id) = *ris_h.borrow() { if saving_id == &id { return; } }
+                            id
+                        },
+                        None => return,
+                    }
+                }
+            };
 
             // 同一シートの並行保存をブロックするため ris_h を即時マーク
             // （保存完了後またはエラー時に必ず None に戻す）
             *ris_h.borrow_mut() = Some(id.clone());
             is_saving_h.set(Some(id.clone()));
 
-            // エディタの内容を「今この瞬間」にキャプチャする（超重要）
-            let captured_content = if let Some(s) = get_editor_content().as_string() { s } else { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; };
-            gloo::console::log!(format!("[Leaf-DBG] on_save_cb ENTER aid={} captured.first20={:?} is_manual={}", id, captured_content.chars().take(20).collect::<String>(), is_manual));
+            // 保存対象シートの content は IndexedDB と同期した sheets_ref から読む。
+            // override_id がある場合（タブ切替後等）は live editor 内容と異なるため必須。
+            // override_id が None でも、change handler が sheets_ref[aid] を即時更新するので
+            // 常に sheets_ref から読めば一貫性が保たれる。
+            let captured_content = {
+                let s_ref = r_s.borrow();
+                match s_ref.iter().find(|s| s.id == id) {
+                    Some(sheet) => sheet.content.clone(),
+                    None => { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; }
+                }
+            };
+            gloo::console::log!(format!("[Leaf-DBG] on_save_cb ENTER id={} captured.first20={:?} is_manual={} override={}", id, captured_content.chars().take(20).collect::<String>(), is_manual, override_id.is_some()));
 
             let r_aid = r_aid.clone(); let r_s = r_s.clone(); let s_state = s_state.clone();
             let r_ncid = r_ncid.clone(); let nc_h = nc_h.clone();
@@ -1466,7 +1488,8 @@ pub fn app() -> Html {
                              if lc != *final_content {
                                  if let Some(cb) = &*osh_async.borrow() {
                                      let cb = cb.clone();
-                                     Timeout::new(1000, move || { cb.emit(false); }).forget();
+                                     let id_for_retry = sheet.id.clone();
+                                     Timeout::new(1000, move || { cb.emit((false, Some(id_for_retry))); }).forget();
                                  }
                              }
                          }
@@ -1500,7 +1523,7 @@ pub fn app() -> Html {
                 let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
             }
             *rs.borrow_mut() = us.clone(); s_state.set(us); ncq.set(q);
-            let os_retry = os.clone(); Timeout::new(100, move || { os_retry.emit(true); }).forget();
+            let os_retry = os.clone(); Timeout::new(100, move || { os_retry.emit((true, None)); }).forget();
         })
     };
 
@@ -1539,7 +1562,7 @@ pub fn app() -> Html {
                     if saving_id == id {
                         gloo::console::log!("[Leaf-SYSTEM] Waiting for active sync before new sheet...");
                         let os_retry = os_cb.clone();
-                        Timeout::new(200, move || { os_retry.emit(false); }).forget();
+                        Timeout::new(200, move || { os_retry.emit((false, None)); }).forget();
                         return;
                     }
                 }
@@ -1559,7 +1582,7 @@ pub fn app() -> Html {
                 lmk_handle.set("saving");
                 is_loading_handle.set(true);
                 ifo_handle.set(false);
-                os_cb.emit(false);
+                os_cb.emit((false, None));
             }
 
             sp.set(true); 
@@ -1628,7 +1651,7 @@ pub fn app() -> Html {
                 let js = s.to_js();
                 let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
             }
-            *rs.borrow_mut() = us.clone(); s_state.set(us); fq.set(q); os.emit(true); 
+            *rs.borrow_mut() = us.clone(); s_state.set(us); fq.set(q); os.emit((true, None));
         })
     };
 
@@ -1803,10 +1826,10 @@ pub fn app() -> Html {
                         }
                         focus_editor(); 
                         
-                        // 自動保存の監視を再開（1秒後にチェック）
+                        // 自動保存の監視を再開（3秒後にチェック）
                         if let Some(osa_cb) = (*osa.borrow()).as_ref() {
                             let osa_cb = osa_cb.clone();
-                            timer.set(Some(Timeout::new(1000, move || { osa_cb.emit(false); })));
+                            timer.set(Some(Timeout::new(3000, move || { osa_cb.emit((false, None)); })));
                         }
                     }).forget(); 
                 }
@@ -1832,17 +1855,17 @@ pub fn app() -> Html {
         let spid_ref_fo = split_pane_sheet_id_ref.clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
             // アクティブシートに未保存変更があれば、aid 切替前に Drive 保存を発火
-            // （on_save_cb は現在の aid_ref と editor 内容を捕捉して非同期保存）
+            // （on_save_cb は override_id 付きで切替元シートを sheets_ref から読んで保存）
             let aid_val = (*aid).clone();
-            let mut needs_save = false;
-            if let Some(id) = aid_val {
+            let mut save_target_id: Option<String> = None;
+            if let Some(id) = aid_val.clone() {
                 let cur_s = (*rs.borrow()).clone();
                 if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
                     let cur_c_val = get_editor_content();
-                    if let Some(cur_c) = cur_c_val.as_string() { if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) { needs_save = true; } }
+                    if let Some(cur_c) = cur_c_val.as_string() { if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) { save_target_id = Some(id); } }
                 }
             }
-            if needs_save { os.emit(false); }
+            if let Some(target_id) = save_target_id { os.emit((false, Some(target_id))); }
 
             // 既に同じdrive_idのシートが開かれている場合はそのシートをアクティブにして終了
             {
@@ -1997,15 +2020,15 @@ pub fn app() -> Html {
                 *spid_ref_imp.borrow_mut() = None;
             }
             let aid_val = (*aid_state).clone();
-            let mut needs_save = false;
-            if let Some(id) = aid_val {
+            let mut save_target_id: Option<String> = None;
+            if let Some(id) = aid_val.clone() {
                 let cur_s = (*r_s.borrow()).clone();
                 if let Some(sheet) = cur_s.iter().find(|x| x.id == id) {
                     let cur_c_val = get_editor_content();
-                    if let Some(cur_c) = cur_c_val.as_string() { if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) { needs_save = true; } }
+                    if let Some(cur_c) = cur_c_val.as_string() { if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) { save_target_id = Some(id); } }
                 }
             }
-            if needs_save { os.emit(false); }
+            if let Some(target_id) = save_target_id { os.emit((false, Some(target_id))); }
 
             let s_state_c = s_state.clone(); let aid_state_c = aid_state.clone();
             let sp_state_c = sp_state.clone(); let r_s_c = r_s.clone();
@@ -2102,9 +2125,9 @@ pub fn app() -> Html {
                         clear_local_handle(); 
                         sheet.category = new_cat_id;
                         let mut us = current_sheets; us[pos] = sheet; *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
-                        Timeout::new(0, move || { os_inner.emit(true); }).forget(); return;
+                        Timeout::new(0, move || { os_inner.emit((true, None)); }).forget(); return;
                     }
-                    if new_cat_id == "__LOCAL__" { sheet.category = "__LOCAL__".to_string(); let mut us = current_sheets; us[pos] = sheet; *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us); Timeout::new(0, move || { os_inner.emit(true); }).forget(); return; }
+                    if new_cat_id == "__LOCAL__" { sheet.category = "__LOCAL__".to_string(); let mut us = current_sheets; us[pos] = sheet; *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us); Timeout::new(0, move || { os_inner.emit((true, None)); }).forget(); return; }
 
                     if let Some(fid) = file_id_opt {
                         lmk_inner.set("synchronizing"); il_inner.set(true); ifo_inner.set(false);
@@ -2704,7 +2727,7 @@ pub fn app() -> Html {
                 let is_first_done_i = is_first_edit_done_cb.clone();
                 let las_ref_i = local_auto_save_ref_cb.clone();
                 let callback = Closure::wrap(Box::new(move |cmd: String| {
-                    if cmd == "save" { os_i.emit(true); }
+                    if cmd == "save" { os_i.emit((true, None)); }
                     else if cmd == "new_sheet" { on_i.emit(()); }
                     else if cmd == "new_local_sheet" {
                         let s = s_state.clone(); let aid_ref = r_aid_i.clone(); let sp = sp_init.clone();
@@ -2718,7 +2741,7 @@ pub fn app() -> Html {
                                 if let Some(cur_c) = cur_c_val.as_string() { if !cur_c.trim().is_empty() && (sheet.is_modified || sheet.content != cur_c) { needs_save = true; } }
                             }
                         }
-                        if needs_save { os_cb.emit(false); }
+                        if needs_save { os_cb.emit((false, None)); }
                         sp.set(true); let delay = if needs_save { 100 } else { 0 };
                         Timeout::new(delay, move || {
                             clear_local_handle();
@@ -2729,7 +2752,7 @@ pub fn app() -> Html {
                             *rs.borrow_mut() = current_sheets.clone(); s.set(current_sheets); aid_ref.borrow_mut().replace(nid.clone()); aid_state.set(Some(nid.clone()));
                             focus_editor(); let spr = sp.clone(); Timeout::new(500, move || { spr.set(false); }).forget();
                             let os_final = os_cb.clone();
-                            spawn_local(async move { let js = ns.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } os_final.emit(true); });
+                            spawn_local(async move { let js = ns.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } os_final.emit((true, None)); });
                         }).forget();
                     }
                     else if cmd == "open" { let val = !*r_open_i.borrow(); iv_i.set(val); sp_init.set(val); }
@@ -2767,7 +2790,13 @@ pub fn app() -> Html {
                                 trigger_drive_sync = (sheet.category != "__LOCAL__" && !sheet.category.is_empty()) || (sheet.category != "__LOCAL__" && sheet.category.is_empty() && !sheet.title.starts_with("Untitled.txt")) || (sheet.category == "__LOCAL__" && *las_ref_i.borrow());
                             }
                             if needs_upd { *r_s_i.borrow_mut() = cur_s.clone(); s_state.set(cur_s); }
-                            if trigger_drive_sync && needs_upd { let osa = os_i.clone(); timer.set(Some(Timeout::new(1000, move || { osa.emit(false); }))); }
+                            // 3秒間変更がなければファイル保存。captured id (= 編集時の aid) を渡し、
+                            // タイマー発火時に aid が変わっていても元のシートを保存する。
+                            if trigger_drive_sync && needs_upd {
+                                let osa = os_i.clone();
+                                let id_for_timer = id.clone();
+                                timer.set(Some(Timeout::new(3000, move || { osa.emit((false, Some(id_for_timer))); })));
+                            }
                         }
                     }
                 }) as Box<dyn FnMut(String)>);
@@ -3231,9 +3260,9 @@ pub fn app() -> Html {
                                             }
                                             *rs_c.borrow_mut() = us.clone();
                                             sheets_c.set(us);
-                                            // aid 切替前に Drive 保存を発火（on_save_cb は現在の aid_ref と editor 内容を捕捉）
+                                            // aid 切替前に Drive 保存を発火（override_id で current_id を明示指定）
                                             if should_drive_save {
-                                                os_c.emit(false);
+                                                os_c.emit((false, Some(current_id.clone())));
                                             }
                                         }
                                     }
@@ -3480,7 +3509,7 @@ pub fn app() -> Html {
                                     if let Some(sheet) = sheets_c.iter().find(|s| s.id == aid) {
                                         if sheet.is_modified {
                                             gloo::console::log!("[Leaf-SYSTEM] Current sheet is modified. Saving before creating new sheet...");
-                                            os_c.emit(false); // サイレント保存
+                                            os_c.emit((false, Some(aid.clone()))); // 切替元シートを明示指定して保存
                                         }
                                     }
                                 }
@@ -3820,9 +3849,9 @@ pub fn app() -> Html {
                         *rs.borrow_mut() = us.clone();
                         s_state.set(us);
                         // aid を切り替える前に Drive 保存を発火
-                        // （on_save_cb は現在の aid_ref=old_id とエディタ内容=old を捕捉して非同期保存）
+                        // override_id で切替元シートを明示指定（on_save_cb は sheets_ref から content を読む）
                         if should_drive_save {
-                            os_for_tab_select.emit(false);
+                            os_for_tab_select.emit((false, Some(old_id.clone())));
                         }
                     }
                 }
@@ -4492,7 +4521,8 @@ pub fn app() -> Html {
                         if content_changed || is_final {
                             let os_c = os.clone();
                             let delay_ms = if is_final { 200 } else { 3000 };
-                            *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(delay_ms, move || { os_c.emit(false); }));
+                            let id_for_debounce = id.clone();
+                            *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(delay_ms, move || { os_c.emit((false, Some(id_for_debounce))); }));
                         }
                         if is_final {
                             load_editor_content(&content);
