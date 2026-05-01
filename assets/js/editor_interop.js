@@ -7,7 +7,66 @@ let previewActive = false;
 let localFileHandle = null;
 let localFilePath = null; // Tauri用: ネイティブファイルパス保持
 let internalChange = false;
-const _undoStates = new Map(); // シートIDごとのUndo/Redo履歴
+const _undoStates = new Map(); // シートIDごとのUndo/Redo履歴（旧API、後方互換のため残置）
+
+// シートIDごとの EditSession を管理
+// 各 session は独自の document + UndoManager を持つため、シート切替で undo が消えない。
+const _sheetSessions = new Map();
+let _activeSessionId = null;
+
+function _createSheetSession(content, filename) {
+    if (typeof ace === 'undefined') return null;
+    const session = ace.createEditSession(content || '', '');
+    if (filename) {
+        const modelist = ace.require("ace/ext/modelist");
+        const mode = modelist.getModeForPath(filename).mode;
+        session.setMode(mode);
+    }
+    session.setUseSoftTabs(true);
+    session.setTabSize(4);
+    session.setUseWrapMode(true);
+    session.on('change', () => {
+        if (internalChange) return;
+        if (commandCallback) commandCallback('change');
+    });
+    return session;
+}
+
+// アクティブシートを切替（セッション存在しなければ作成）
+export function activate_sheet_session(sheetId, content, filename) {
+    if (!editor || !sheetId) return;
+    let session;
+    if (_sheetSessions.has(sheetId)) {
+        session = _sheetSessions.get(sheetId);
+    } else {
+        session = _createSheetSession(content || '', filename || '');
+        if (session) _sheetSessions.set(sheetId, session);
+    }
+    if (session) {
+        internalChange = true;
+        try {
+            editor.setSession(session);
+        } finally { internalChange = false; }
+        _activeSessionId = sheetId;
+    }
+}
+
+// 外部要因（Drive 同期等）で sheet content を更新する
+export function update_sheet_content_external(sheetId, content) {
+    if (!sheetId) return;
+    const session = _sheetSessions.get(sheetId);
+    if (!session) return;
+    if (session.getValue() === content) return;
+    internalChange = true;
+    try {
+        session.setValue(content || '', -1);
+    } finally { internalChange = false; }
+}
+
+// シートクローズ時にセッションを破棄
+export function destroy_sheet_session(sheetId) {
+    if (sheetId) _sheetSessions.delete(sheetId);
+}
 const FONT_SIZE_KEY_BASE = 'leaf_font_size';
 function getFontSizeKey() {
     const email = localStorage.getItem('leaf_google_email');
@@ -383,7 +442,8 @@ export function set_editor_content(content) {
     }
 }
 
-// 新規シートロード・シート切替用（カーソルリセット＋UNDO履歴クリア）
+// 現在のセッションの content を更新する（セッション切替なし）
+// セッション管理移行後は UndoManager をリセットしない（sheet ごとに独立した session を使うため）
 export function load_editor_content(content) {
     pendingContent = content;
     if (!editor) return;
@@ -398,7 +458,6 @@ export function load_editor_content(content) {
     try {
         editor.setValue(content || "", -1);
         editor.clearSelection();
-        editor.session.getUndoManager().reset();
         pendingContent = null;
     } finally {
         internalChange = false;

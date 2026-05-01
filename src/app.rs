@@ -330,6 +330,7 @@ fn close_tab_direct(
     sp.set(true);
     // 閉じるシートのUndo履歴をクリア
     crate::js_interop::clear_undo_state(&close_id);
+    crate::js_interop::destroy_sheet_session(&close_id);
     let mut us = (*rs.borrow()).clone();
     let pos = us.iter().position(|s| s.id == close_id);
     if let Some(pos) = pos {
@@ -356,7 +357,7 @@ fn close_tab_direct(
             if let Some(ref r) = aid_ref { *r.borrow_mut() = Some(nid.clone()); }
             if let Some(ref h) = atid_handle { h.set(None); }
             if let Some(ref h) = atref_handle { *h.borrow_mut() = None; }
-            load_editor_content("");
+            crate::js_interop::activate_sheet_session(&nid, "", "Untitled.txt");
             set_gutter_status("unsaved");
             let sp_inner = sp.clone();
             Timeout::new(100, move || { sp_inner.set(false); focus_editor(); }).forget();
@@ -457,8 +458,7 @@ fn close_tab_direct(
                         if let Some(ref h) = atid_handle { h.set(None); }
                         if let Some(ref h) = atref_handle { *h.borrow_mut() = None; }
                         if let Some(sheet) = us.iter().find(|s| s.id == *next) {
-                            load_editor_content(&sheet.content);
-                            crate::js_interop::set_editor_mode(&sheet.title);
+                            crate::js_interop::activate_sheet_session(next, &sheet.content, &sheet.title);
                             if sheet.drive_id.is_none() && sheet.guid.is_none() {
                                 if sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
                             } else if sheet.is_modified {
@@ -539,7 +539,6 @@ fn trigger_conflict_check(
 
                 let s_ref_inner = s_ref.clone();
                 let s_state_inner = s_state.clone();
-                let aid_ref_inner = aid_ref.clone();
                 // 競合チェック開始（オーバーレイは出さず、バックグラウンドでメタデータを確認）
                 spawn_local(async move {
                     if let Ok(metadata) = get_file_metadata(&drive_id).await {
@@ -578,10 +577,8 @@ fn trigger_conflict_check(
                                         *s_ref_inner.borrow_mut() = us.clone();
                                         s_state_inner.set(us);
                                         // 現在アクティブなシートが同期対象と同じ場合のみエディタにロード（他のシートへの切り替え中は更新しない）
-                                        let current_aid = (*aid_ref_inner.borrow()).clone();
-                                        if current_aid.as_ref() == Some(&sheet_id) {
-                                            load_editor_content(&drive_content);
-                                        }
+                                        // セッション管理下では update_sheet_content_external で session の content を更新する
+                                        crate::js_interop::update_sheet_content_external(&sheet_id, &drive_content);
                                     }
                                     let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = is_init_inner.clone();
                                     ifo.set(true);
@@ -2831,9 +2828,10 @@ pub fn app() -> Html {
                             *timeout_cb.borrow_mut() = true;
                         }).forget();
 
-                        load_editor_content(&s.content);
+                        // シート別セッションに切替（既存なら content/undo を保持して再アクティブ化）
+                        crate::js_interop::activate_sheet_session(id, &s.content, &s.title);
                         let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" };
-                        set_gutter_status(mode); crate::js_interop::set_editor_mode(&s.title); focus_editor();
+                        set_gutter_status(mode); focus_editor();
                         ip_init.set(s.is_preview);
                         let sp_c = sp.clone();
                         Timeout::new(100, move || { sp_c.set(false); }).forget();
@@ -3268,12 +3266,10 @@ pub fn app() -> Html {
                                     }
                                     let sheets_list = (*rs_c.borrow()).clone();
                                     if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
-                                        crate::js_interop::load_editor_content_raw(&sheet.content);
-                                        crate::js_interop::restore_undo_state(&new_id);
+                                        crate::js_interop::activate_sheet_session(&new_id, &sheet.content, &sheet.title);
                                         if let Some(ref state) = sheet.editor_state {
                                             crate::js_interop::set_editor_state(state);
                                         }
-                                        crate::js_interop::set_editor_mode(&sheet.title);
                                         if sheet.drive_id.is_none() && sheet.guid.is_none() {
                                             if sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
                                         } else if sheet.is_modified { set_gutter_status("unsaved"); } else { set_gutter_status("none"); }
@@ -3856,16 +3852,14 @@ pub fn app() -> Html {
                     }
                 }
             }
-            // 新タブの内容をロード
+            // 新タブの内容をロード（シート別 EditSession に切替）
             let sheets_list = (*rs.borrow()).clone();
             if let Some(sheet) = sheets_list.iter().find(|s| s.id == new_id) {
                 gloo::console::log!(format!("[Leaf-DBG] TAB_SELECT load new_id={} content.first20={:?}", new_id, sheet.content.chars().take(20).collect::<String>()));
-                crate::js_interop::load_editor_content_raw(&sheet.content);
-                crate::js_interop::restore_undo_state(&new_id);
+                crate::js_interop::activate_sheet_session(&new_id, &sheet.content, &sheet.title);
                 if let Some(ref state) = sheet.editor_state {
                     crate::js_interop::set_editor_state(state);
                 }
-                crate::js_interop::set_editor_mode(&sheet.title);
                 if sheet.drive_id.is_none() && sheet.guid.is_none() {
                     if sheet.category == "__LOCAL__" { set_gutter_status("local"); } else { set_gutter_status("unsaved"); }
                 } else if sheet.is_modified {

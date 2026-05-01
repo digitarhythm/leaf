@@ -32,6 +32,9 @@ extern "C" {
     pub fn save_undo_state(sheet_id: &str);
     pub fn restore_undo_state(sheet_id: &str);
     pub fn clear_undo_state(sheet_id: &str);
+    pub fn activate_sheet_session(sheet_id: &str, content: &str, filename: &str);
+    pub fn update_sheet_content_external(sheet_id: &str, content: &str);
+    pub fn destroy_sheet_session(sheet_id: &str);
     pub fn preload_markdown_libs();
     pub fn is_marked_loaded() -> bool;
     pub fn exec_editor_command(command: &str);
