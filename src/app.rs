@@ -1234,6 +1234,7 @@ pub fn app() -> Html {
                             let sheet_id = id.clone();
                             let rs_cb_inner = r_s.clone();
                             let s_state_inner = s_state.clone();
+                            let r_aid_local = r_aid.clone();
                             let n_bom = sheet.needs_bom;
                             let local_path_for_save = sheet.local_path.clone();
 
@@ -1267,10 +1268,13 @@ pub fn app() -> Html {
                                         let js = s.to_js();
                                         let ser = serde_wasm_bindgen::Serializer::json_compatible();
                                         if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                                        crate::js_interop::set_editor_mode(&fname);
                                     }
                                     *rs_cb_inner.borrow_mut() = us.clone();
                                     s_state_inner.set(us);
+                                    // 保存対象がアクティブシートの場合のみ mode 更新
+                                    if (*r_aid_local.borrow()).as_ref() == Some(&sheet_id) {
+                                        crate::js_interop::set_editor_mode(&fname);
+                                    }
                                     *ris_local.borrow_mut() = None;
                                     is_saving_inner.set(None);
                                     ild_inner.set(false);
@@ -1471,14 +1475,18 @@ pub fn app() -> Html {
                          if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { 
                              si.drive_id = n_did; si.total_size = final_size; si.loaded_bytes = final_size;
                              if si.content == sheet.content { si.is_modified = false; }
-                             si.temp_content = None; si.temp_timestamp = None; si.last_sync_timestamp = stime; 
+                             si.temp_content = None; si.temp_timestamp = None; si.last_sync_timestamp = stime;
                              let js = si.to_js();
                              let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
-                             if si.title == fname { crate::js_interop::set_editor_mode(&fname); }
                          }
                          let is_active = (*r_aid.borrow()).as_ref() == Some(&sheet.id);
                          *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
-                         if is_active { set_gutter_status("none"); }
+                         if is_active {
+                             // 保存対象がアクティブシートの場合のみエディタの mode を更新
+                             // （非アクティブシートのモードを書き換えると highlight が壊れる）
+                             crate::js_interop::set_editor_mode(&fname);
+                             set_gutter_status("none");
+                         }
                          *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
 
                          let latest_content = get_editor_content();
