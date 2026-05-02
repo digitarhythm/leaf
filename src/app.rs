@@ -1927,8 +1927,11 @@ pub fn app() -> Html {
                     let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
                     let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else if let Some(idx) = existing_idx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
                     let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: sync_ts, tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else if let Some(idx) = existing_idx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: None, local_path: None };
+                    let was_replaced = tidx.is_some() || existing_idx.is_some();
                     if let Some(idx) = tidx { cs[idx] = ns.clone(); } else if let Some(idx) = existing_idx { cs[idx] = ns.clone(); } else { cs.push(ns.clone()); }
                     *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs);
+                    // シートを置換した場合は古いセッション（旧 content 持ち）を破棄して新しい content で作り直す
+                    if was_replaced { crate::js_interop::destroy_sheet_session(&nid); }
                     // 新シート用のセッションを作成・アクティブ化（aid 切替前に行う事で他シートのセッションを汚染しない）
                     crate::js_interop::activate_sheet_session(&nid, &c, &title);
                     set_gutter_status("none");
