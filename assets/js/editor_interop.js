@@ -36,18 +36,28 @@ function _createSheetSession(content, filename) {
 export function activate_sheet_session(sheetId, content, filename) {
     if (!editor || !sheetId) return;
     let session;
+    let created = false;
     if (_sheetSessions.has(sheetId)) {
         session = _sheetSessions.get(sheetId);
     } else {
         session = _createSheetSession(content || '', filename || '');
-        if (session) _sheetSessions.set(sheetId, session);
+        if (session) { _sheetSessions.set(sheetId, session); created = true; }
     }
     if (session) {
+        const prevValue = editor.getValue();
         internalChange = true;
         try {
             editor.setSession(session);
         } finally { internalChange = false; }
         _activeSessionId = sheetId;
+        const newValue = session.getValue();
+        const passedFirst = (content || '').slice(0, 30);
+        const sessionFirst = newValue.slice(0, 30);
+        const prevFirst = prevValue.slice(0, 30);
+        console.log("[Leaf-DBG] activate_sheet_session id=" + sheetId + " created=" + created
+            + " passed_content.first30=" + JSON.stringify(passedFirst)
+            + " session.first30=" + JSON.stringify(sessionFirst)
+            + " prev_editor.first30=" + JSON.stringify(prevFirst));
     }
 }
 
@@ -453,6 +463,11 @@ export function load_editor_content(content) {
         pendingContent = null;
         return;
     }
+
+    console.log("[Leaf-DBG] load_editor_content (active session) overwriting: prev.first30="
+        + JSON.stringify(currentVal.slice(0, 30))
+        + " new.first30=" + JSON.stringify((content || "").slice(0, 30))
+        + " active_session=" + _activeSessionId);
 
     internalChange = true;
     try {
