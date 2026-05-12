@@ -4541,7 +4541,16 @@ pub fn app() -> Html {
                             *debounce.borrow_mut() = Some(gloo::timers::callback::Timeout::new(delay_ms, move || { os_c.emit((false, Some(id_for_debounce))); }));
                         }
                         if is_final {
-                            load_editor_content(&content);
+                            // メインエディタが「保存対象シート」のセッションを表示している場合のみ
+                            // load_editor_content で同期する。タブ切替直後は既に新シートの
+                            // EditSession に切り替わっているため、ここで setValue すると
+                            // 新タブの内容が古いスプリット内容で上書きされる事故になる。
+                            let current_aid = (*aid_r.borrow()).clone();
+                            if current_aid.as_ref() == Some(&id) {
+                                load_editor_content(&content);
+                            } else {
+                                crate::js_interop::update_sheet_content_external(&id, &content);
+                            }
                         }
                     }
                 });
