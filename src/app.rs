@@ -1392,7 +1392,13 @@ pub fn app() -> Html {
 
                          // 保存前コンフリクトチェック: Driveのファイルが更新されていないか確認
                          if let Some(ref did) = sheet.drive_id {
-                             if let Some(sync_ts) = sheet.last_sync_timestamp {
+                             // sheets_ref から最新の sync_ts を取得する。
+                             // 同一シートで前段の保存処理が並行で完了している場合、s_clone は
+                             // 古い snapshot を持つため、ここで sheets_ref を見て最新値を反映する。
+                             // これを怠ると「自分の直前の保存」を「他人の更新」と誤検知する。
+                             let latest_sync_ts = rs_async.borrow().iter().find(|s| s.id == sheet.id)
+                                 .and_then(|s| s.last_sync_timestamp);
+                             if let Some(sync_ts) = latest_sync_ts {
                                  if let Ok(metadata) = get_file_metadata(did).await {
                                      if let Ok(tv) = js_sys::Reflect::get(&metadata, &JsValue::from_str("modifiedTime")) {
                                          if let Some(ts) = tv.as_string() {
