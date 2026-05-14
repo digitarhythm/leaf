@@ -774,7 +774,8 @@ pub fn app() -> Html {
     let active_id_ref = use_mut_ref(|| None::<String>);
     let no_category_id_ref = use_mut_ref(|| None::<String>);
     let is_loading_ref = use_mut_ref(|| true);
-    let saving_id_ref = use_mut_ref(|| None::<String>);
+    // 並行保存 lock 用。シート単位で管理して他シートの保存処理に上書きされない。
+    let saving_id_ref = use_mut_ref(|| std::collections::HashSet::<String>::new());
     let is_suppressing_ref = use_mut_ref(|| false);
     let empty_save_ref = use_mut_ref(|| EmptySaveBehavior::Confirm);
     let is_first_edit_done_ref = use_mut_ref(|| false);
@@ -856,16 +857,18 @@ pub fn app() -> Html {
         let r_s = sheets_ref.clone(); let r_aid = active_id_ref.clone();
         let r_ncid = no_category_id_ref.clone(); let r_ld = is_loading_ref.clone(); let r_sp = is_suppressing_ref.clone();
         let r_prev = is_preview_ref.clone(); let r_open = is_file_open_ref.clone(); let r_help = is_help_ref.clone();
-        let r_saving = saving_id_ref.clone();
+        // NOTE: saving_id_ref は on_save_cb の並行保存 lock 専用。
+        // 以前は UI state(saving_sheet_id) をここでミラーしていたが、
+        // 別経路（split-editor-changed など）が is_saving を None にした際に
+        // 進行中の lock まで解除されて二重起動を許す事故になっていた。
 
         let r_esb = empty_save_ref.clone();
         let esb = empty_save_behavior.clone();
-        use_effect_with((((*s).clone(), (*aid).clone(), (*ncid).clone()), (*ld, *sp, *prev, *open, *help, (*saving_sheet_id).clone()), *esb), move |deps| {
-            let ((s_val, aid_val, ncid_val), (ld_val, sp_val, prev_val, open_val, help_val, saving_val), esb_val) = deps;
+        use_effect_with((((*s).clone(), (*aid).clone(), (*ncid).clone()), (*ld, *sp, *prev, *open, *help), *esb), move |deps| {
+            let ((s_val, aid_val, ncid_val), (ld_val, sp_val, prev_val, open_val, help_val), esb_val) = deps;
             *r_s.borrow_mut() = s_val.clone(); *r_aid.borrow_mut() = aid_val.clone();
             *r_ncid.borrow_mut() = ncid_val.clone(); *r_ld.borrow_mut() = *ld_val; *r_sp.borrow_mut() = *sp_val;
             *r_prev.borrow_mut() = *prev_val; *r_open.borrow_mut() = *open_val; *r_help.borrow_mut() = *help_val;
-            *r_saving.borrow_mut() = saving_val.clone();
             *r_esb.borrow_mut() = *esb_val;
             || ()
         });
@@ -1077,14 +1080,14 @@ pub fn app() -> Html {
             // None の場合は現在の aid を使う
             let id = match override_id.clone() {
                 Some(o) => {
-                    if let Some(ref saving_id) = *ris_h.borrow() { if saving_id == &o { return; } }
+                    if ris_h.borrow().contains(&o) { return; }
                     o
                 },
                 None => {
                     let aid_opt = (*r_aid.borrow()).clone();
                     match aid_opt {
                         Some(id) => {
-                            if let Some(ref saving_id) = *ris_h.borrow() { if saving_id == &id { return; } }
+                            if ris_h.borrow().contains(&id) { return; }
                             id
                         },
                         None => return,
@@ -1092,9 +1095,9 @@ pub fn app() -> Html {
                 }
             };
 
-            // 同一シートの並行保存をブロックするため ris_h を即時マーク
-            // （保存完了後またはエラー時に必ず None に戻す）
-            *ris_h.borrow_mut() = Some(id.clone());
+            // 同一シートの並行保存をブロックするため ris_h に id を追加
+            // （保存完了後またはエラー時に必ず remove する）
+            ris_h.borrow_mut().insert(id.clone());
             is_saving_h.set(Some(id.clone()));
 
             // 保存対象シートの content は IndexedDB と同期した sheets_ref から読む。
@@ -1105,7 +1108,7 @@ pub fn app() -> Html {
                 let s_ref = r_s.borrow();
                 match s_ref.iter().find(|s| s.id == id) {
                     Some(sheet) => sheet.content.clone(),
-                    None => { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; }
+                    None => { ris_h.borrow_mut().remove(&id); is_saving_h.set(None); return; }
                 }
             };
             gloo::console::log!(format!("[Leaf-DBG] on_save_cb ENTER id={} captured.first20={:?} is_manual={} override={}", id, captured_content.chars().take(20).collect::<String>(), is_manual, override_id.is_some()));
@@ -1154,13 +1157,13 @@ pub fn app() -> Html {
                             match behavior {
                                 EmptySaveBehavior::Nothing => {
                                     gloo::console::log!("[Leaf-SYSTEM] Auto-save: empty content, doing nothing (user setting).");
-                                    *ris_h.borrow_mut() = None; is_saving_h.set(None);
+                                    ris_h.borrow_mut().remove(&id); is_saving_h.set(None);
                                     return;
                                 },
                                 EmptySaveBehavior::Confirm => {
                                     gloo::console::log!("[Leaf-SYSTEM] Auto-save: empty content, showing confirm dialog.");
                                     ped_h.set(Some(id.clone()));
-                                    *ris_h.borrow_mut() = None; is_saving_h.set(None);
+                                    ris_h.borrow_mut().remove(&id); is_saving_h.set(None);
                                     return;
                                 },
                                 EmptySaveBehavior::Delete => {
@@ -1199,13 +1202,13 @@ pub fn app() -> Html {
                                             spawn_local(async move { let _ = crate::db_interop::delete_sheet(&sheet_id).await; });
                                         }
                                     }).forget();
-                                    *ris_h.borrow_mut() = None; is_saving_h.set(None);
+                                    ris_h.borrow_mut().remove(&id); is_saving_h.set(None);
                                     return;
                                 },
                             }
                         }
 
-                        if !is_manual && !sheet.is_modified && sheet.content == cur_c { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; }
+                        if !is_manual && !sheet.is_modified && sheet.content == cur_c { ris_h.borrow_mut().remove(&id); is_saving_h.set(None); return; }
                         
                         sheet.content = cur_c.clone(); 
                         sheet.is_modified = false;
@@ -1275,7 +1278,7 @@ pub fn app() -> Html {
                                     if (*r_aid_local.borrow()).as_ref() == Some(&sheet_id) {
                                         crate::js_interop::set_editor_mode(&fname);
                                     }
-                                    *ris_local.borrow_mut() = None;
+                                    ris_local.borrow_mut().remove(&sheet_id);
                                     is_saving_inner.set(None);
                                     ild_inner.set(false);
                                     if *lock_inner {
@@ -1285,7 +1288,7 @@ pub fn app() -> Html {
                                         Timeout::new(300, move || { lf.set(false); l.set(false); _il.set(false); }).forget();
                                     }
                                 } else {
-                                    *ris_local.borrow_mut() = None;
+                                    ris_local.borrow_mut().remove(&sheet_id);
                                     is_saving_inner.set(None);
                                     ild_inner.set(false);
                                     if *lock_inner {
@@ -1303,14 +1306,14 @@ pub fn app() -> Html {
                                 s_clone_opt = Some(sheet.clone());
                                 drive_save_prepared = true;
                             } else {
-                                ild_h.set(false); lock_h.set(false); *ris_h.borrow_mut() = None; is_saving_h.set(None); return;
+                                ild_h.set(false); lock_h.set(false); ris_h.borrow_mut().remove(&id); is_saving_h.set(None); return;
                             }
                         }
                     }
 
                     // local_save_triggered の場合、ris_h は spawn_local 内で後処理する
                     if local_save_triggered { return; }
-                    if !drive_save_prepared { *ris_h.borrow_mut() = None; is_saving_h.set(None); return; }
+                    if !drive_save_prepared { ris_h.borrow_mut().remove(&id); is_saving_h.set(None); return; }
 
                     let s_clone = s_clone_opt.unwrap();
                     *r_s.borrow_mut() = cur_s.clone();
@@ -1324,7 +1327,7 @@ pub fn app() -> Html {
                     let lock_fade_inner = lock_fade_h.clone();
                     
                     // 手動・自動に関わらず「保存中」状態にする（右下インジケータ用）
-                    *ris_inner.borrow_mut() = Some(id.clone()); 
+                    ris_inner.borrow_mut().insert(id.clone());
                     is_saving_h.set(Some(id.clone()));
 
                     if is_manual {
@@ -1343,7 +1346,7 @@ pub fn app() -> Html {
                          gloo::console::log!(format!("[Leaf-DBG] spawn_local START sheet.id={} drive_id={:?} category={} title={} content.len={}", sheet.id, sheet.drive_id, sheet.category, sheet.title, sheet.content.len()));
                          let _structure = match ensure_directory_structure().await { Ok(res) => res, Err(_) => {
                              gloo::console::warn!(format!("[Leaf-DBG] ensure_directory_structure FAILED sheet.id={}", sheet.id));
-                             *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
+                             ris_inner.borrow_mut().remove(&sheet.id); is_saving_inner.set(None);
                              if *lock_inner {
                                  lock_fade_inner.set(true);
                                  let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
@@ -1356,7 +1359,7 @@ pub fn app() -> Html {
                          if !sheet.category.is_empty() && sheet.category != "OTHERS" {
                              if let Err(_) = get_file_metadata(&sheet.category).await {
                                  gloo::console::warn!(format!("[Leaf-DBG] category metadata FAILED sheet.id={} category={}", sheet.id, sheet.category));
-                                 *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
+                                 ris_inner.borrow_mut().remove(&sheet.id); is_saving_inner.set(None);
                                  let mut u_s = (*rs_async.borrow()).clone();
                                  if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) {
                                      si.is_modified = true;
@@ -1382,7 +1385,7 @@ pub fn app() -> Html {
                                          if let Some(eid_str) = eid.as_string() {
                                              let mut q = (*ncq_inner).clone();
                                              q.push(NameConflictData { sheet_id: sheet.id.clone(), filename: fname.clone(), folder_id: target_folder_id.clone(), existing_file_id: eid_str });
-                                             ncq_inner.set(q); *ris_inner.borrow_mut() = None; is_saving_inner.set(None); ild_inner.set(false); return;
+                                             ncq_inner.set(q); ris_inner.borrow_mut().remove(&sheet.id); is_saving_inner.set(None); ild_inner.set(false); return;
                                          }
                                      }
                                  }
@@ -1415,7 +1418,7 @@ pub fn app() -> Html {
                                                      });
                                                      cq_async.set(current_q);
                                                  }
-                                                 *ris_inner.borrow_mut() = None; is_saving_inner.set(None);
+                                                 ris_inner.borrow_mut().remove(&sheet.id); is_saving_inner.set(None);
                                                  ifo_async.set(true);
                                                  let ild = ild_inner.clone(); let ifo = ifo_async.clone();
                                                  Timeout::new(300, move || { ild.set(false); ifo.set(false); }).forget();
@@ -1466,7 +1469,7 @@ pub fn app() -> Html {
                                  let mut u_s = (*rs_async.borrow()).clone();
                                  if let Some(si) = u_s.iter_mut().find(|x| x.id == sheet.id) { si.is_modified = true; }
                                  *rs_async.borrow_mut() = u_s.clone(); s_inner.set(u_s);
-                                 *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
+                                 ris_inner.borrow_mut().remove(&sheet.id); is_saving_inner.set(None);
                                  if *lock_inner {
                                      lock_fade_inner.set(true);
                                      let l = lock_inner.clone(); let lf = lock_fade_inner.clone();
@@ -1493,7 +1496,7 @@ pub fn app() -> Html {
                              crate::js_interop::set_editor_mode(&fname);
                              set_gutter_status("none");
                          }
-                         *ris_inner.borrow_mut() = None; is_saving_inner.set(None); 
+                         ris_inner.borrow_mut().remove(&sheet.id); is_saving_inner.set(None);
 
                          let latest_content = get_editor_content();
                          if let Some(lc) = latest_content.as_string() {
@@ -1570,13 +1573,11 @@ pub fn app() -> Html {
             let aid_val = (*r_aid.borrow()).clone();
             let mut needs_save = false;
             if let Some(ref id) = aid_val {
-                if let Some(ref saving_id) = *ris_h.borrow() {
-                    if saving_id == id {
-                        gloo::console::log!("[Leaf-SYSTEM] Waiting for active sync before new sheet...");
-                        let os_retry = os_cb.clone();
-                        Timeout::new(200, move || { os_retry.emit((false, None)); }).forget();
-                        return;
-                    }
+                if ris_h.borrow().contains(id) {
+                    gloo::console::log!("[Leaf-SYSTEM] Waiting for active sync before new sheet...");
+                    let os_retry = os_cb.clone();
+                    Timeout::new(200, move || { os_retry.emit((false, None)); }).forget();
+                    return;
                 }
 
                 let cur_s = (*rs.borrow()).clone();
@@ -3567,7 +3568,7 @@ pub fn app() -> Html {
                                         sheets_c.set(us);
                                     }
                                     // 保存中チェック（RefCellから最新値を取得）
-                                    let is_saving = (*saving_ref_c.borrow()).as_ref() == Some(&close_id);
+                                    let is_saving = saving_ref_c.borrow().contains(&close_id);
                                     if is_saving {
                                         pending_save_close_c.set(Some(close_id));
                                         return;
