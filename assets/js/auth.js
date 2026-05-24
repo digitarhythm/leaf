@@ -153,15 +153,20 @@ export async function try_silent_refresh(clientId = window.leafClientId) {
     refreshPromise = { promise, resolve: res, reject: rej };
 
     if (is_tauri()) {
-        // Tauri用のリフレッシュ処理スタブ
         console.log("[Auth-Tauri] Refreshing token via backend...");
         try {
             const token = await window.__TAURI__.core.invoke('refresh_google_token', { refreshToken });
             saveSession({ access_token: token, expires_in: '3600' });
             refreshPromise.resolve(token);
         } catch (e) {
-            refreshPromise.reject(e);
-            refreshPromise = null;
+            const errStr = typeof e === 'string' ? e : (e.message || '');
+            const isNetworkError = errStr.includes('error sending request') || errStr.includes('network') || !navigator.onLine;
+            if (refreshPromise) { refreshPromise.resolve(null); refreshPromise = null; }
+            if (isNetworkError) {
+                console.warn("[Auth-Tauri] Refresh failed (network unavailable). Will retry later.");
+                return null;
+            }
+            console.error("[Auth-Tauri] Refresh token failed:", e);
             return force_reauth(clientId);
         }
         const p = refreshPromise.promise;
