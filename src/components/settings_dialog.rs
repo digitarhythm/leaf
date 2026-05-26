@@ -239,7 +239,7 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                                 <div class="text-sm font-bold text-[#ebdbb2]">{ i18n::t("window_opacity", lang) }</div>
                                 <span class="text-xs text-gray-400 font-mono">{ format!("{}%", props.window_opacity) }</span>
                             </div>
-                            <input type="range" min="50" max="100" step="5"
+                            <input type="range" min="50" max="100" step="1"
                                 value={props.window_opacity.to_string()}
                                 onchange={let cb = on_opacity.clone(); Callback::from(move |e: Event| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); if let Ok(v) = input.value().parse::<i32>() { cb.emit(v); } })}
                                 oninput={let cb = on_opacity.clone(); Callback::from(move |e: InputEvent| { let input: web_sys::HtmlInputElement = e.target_unchecked_into(); if let Ok(v) = input.value().parse::<i32>() { cb.emit(v); } })}
