@@ -4316,15 +4316,18 @@ pub fn app() -> Html {
     }
 
     // Tauri版: 起動時にウィンドウ透明度/ブラーを適用
+    // v0.19.100 で Windows Blur 起動時クラッシュ (WebView 透過化) があったため
+    // 起動時に保存済み Blur 値を 0 に強制リセットして救済する
     {
         let opacity = *window_opacity;
-        let blur = *window_blur;
+        let wb_reset = window_blur.clone();
         use_effect_with((), move |_| {
             if (crate::js_interop::is_macos_tauri() || crate::js_interop::is_windows_tauri()) && opacity < 100 {
                 crate::js_interop::set_window_opacity(opacity as f64 / 100.0);
             }
-            if crate::js_interop::is_windows_tauri() && blur > 0 {
-                crate::js_interop::set_window_blur(blur);
+            if crate::js_interop::is_windows_tauri() {
+                set_account_storage(WINDOW_BLUR_KEY, "0");
+                wb_reset.set(0);
             }
             || ()
         });
