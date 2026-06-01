@@ -285,25 +285,25 @@ export async function force_reauth(clientId = window.leafClientId) {
         try {
             if (!clientId) {
                 console.error("[Auth-Tauri] CRITICAL: clientId is undefined or null in force_reauth!");
-                // Fallback attempt: The Rust backend also has this hardcoded, but we must pass it since it expects it.
-                // We'll throw an error if it's genuinely missing so we see it in the console.
                 throw new Error("clientId is missing in force_reauth");
             }
 
             console.log(`[Auth-Tauri] Invoking authenticate_google_force with clientId: ${clientId}`);
 
-            // clientId を Tauri バックエンドの Rust 側(authenticate_google_force) に渡す
             const resultJson = await window.__TAURI__.core.invoke('authenticate_google_force', { clientId });
-            // Rust側はトークン交換の完全なJSONを文字列で返す
             const tokenData = JSON.parse(resultJson);
             saveSession(tokenData);
             reauthPromise.resolve(tokenData.access_token);
             if (window.onAuthSuccessCallback) window.onAuthSuccessCallback(tokenData.access_token);
         } catch (e) {
             console.error("[Auth-Tauri] Native OAuth failed:", e);
-            reauthPromise.reject(e);
+            // orphan rejection を防ぐため resolve(null) に変更
+            if (reauthPromise) { reauthPromise.resolve(null); }
+            // UI 側で認証エラーダイアログを表示するためのイベント発行
+            const errStr = typeof e === 'string' ? e : (e && e.message ? e.message : String(e));
+            window.dispatchEvent(new CustomEvent('leaf-auth-error', { detail: errStr }));
         }
-        const p = reauthPromise.promise;
+        const p = reauthPromise ? reauthPromise.promise : Promise.resolve(null);
         reauthPromise = null;
         return p;
     }

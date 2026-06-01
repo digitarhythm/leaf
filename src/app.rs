@@ -2321,6 +2321,10 @@ pub fn app() -> Html {
         let s_handle_effect = sheets.clone();
         let lmk_effect = loading_message_key.clone();
         let on_save_for_net = on_save_cb.clone();
+        let aev_listener = auth_error_visible.clone();
+        let isi_listener = is_initial_load.clone();
+        let ild_listener = is_loading.clone();
+        let ifo_listener = is_fading_out.clone();
 
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
@@ -2328,16 +2332,25 @@ pub fn app() -> Html {
             let is_ld_c = is_ld.clone();
             let is_fl_ld_c = is_fl_ld.clone();
             let is_fo_c = is_fo.clone();
-            
-            let listener_expired = EventListener::new(&window, "leaf-auth-expired", move |_| { 
-                gloo::console::warn!("[Leaf-SYSTEM] Auth expired event received. Logging out..."); 
-                is_auth_c.set(false); 
+
+            let listener_expired = EventListener::new(&window, "leaf-auth-expired", move |_| {
+                gloo::console::warn!("[Leaf-SYSTEM] Auth expired event received. Logging out...");
+                is_auth_c.set(false);
                 is_ld_c.set(false);
                 is_fl_ld_c.set(false);
                 is_fo_c.set(false);
             });
             let is_auth_r = is_auth.clone();
             let listener_refreshed = EventListener::new(&window, "leaf-token-refreshed", move |_| { gloo::console::log!("[Leaf-SYSTEM] Token refreshed event received."); is_auth_r.set(true); });
+
+            // 認証エラー (OAuth 後のトークン交換失敗等) でエラーダイアログを表示
+            let listener_auth_error = EventListener::new(&window, "leaf-auth-error", move |_| {
+                gloo::console::warn!("[Leaf-SYSTEM] Auth error event received.");
+                ild_listener.set(false);
+                ifo_listener.set(false);
+                isi_listener.set(false);
+                aev_listener.set(true);
+            });
             
             let nc_online = nc.clone();
             let listener_online = {
@@ -2385,7 +2398,7 @@ pub fn app() -> Html {
                 })
             };
 
-            move || { drop(listener_expired); drop(listener_refreshed); drop(listener_online); drop(listener_offline); drop(listener_visibility); }
+            move || { drop(listener_expired); drop(listener_refreshed); drop(listener_auth_error); drop(listener_online); drop(listener_offline); drop(listener_visibility); }
         });
     }
 
