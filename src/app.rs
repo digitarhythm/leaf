@@ -650,6 +650,7 @@ pub fn app() -> Html {
     });
     let is_authenticated = use_state(|| false);
     let is_auth_flag = use_mut_ref(|| false); // タイムアウトクロージャ用の共有フラグ
+    let auth_error_visible = use_state(|| false); // リフレッシュ失敗時のエラーダイアログ表示状態
     let no_category_folder_id = use_state(|| None::<String>);
     let leaf_data_folder_id = use_state(|| None::<String>);
     let auto_save_timer = use_state(|| None::<Timeout>);
@@ -875,6 +876,37 @@ pub fn app() -> Html {
     }
 
     let on_login = Callback::from(|_: MouseEvent| { request_access_token(); });
+
+    // 認証エラーダイアログ: リトライボタン
+    let on_auth_retry = {
+        let aev = auth_error_visible.clone();
+        let auth_flag = is_auth_flag.clone();
+        let ild = is_loading.clone();
+        let isi = is_initial_load.clone();
+        let nc = network_connected.clone();
+        Callback::from(move |_: MouseEvent| {
+            *auth_flag.borrow_mut() = false;
+            aev.set(false);
+            ild.set(true);
+            isi.set(true);
+            // network_connected をトグルして auth 効果を再実行
+            nc.set(false);
+            let nc_inner = nc.clone();
+            Timeout::new(100, move || { nc_inner.set(true); }).forget();
+        })
+    };
+
+    // 認証エラーダイアログ: 再ログインボタン (セッションをクリアしてログイン画面へ)
+    let on_auth_relogin = {
+        let aev = auth_error_visible.clone();
+        Callback::from(move |_: MouseEvent| {
+            let aev_inner = aev.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                crate::auth_interop::sign_out().await;
+                aev_inner.set(false);
+            });
+        })
+    };
 
     let on_guest_login_cb = {
         let is_auth = is_authenticated.clone();
@@ -2510,6 +2542,31 @@ pub fn app() -> Html {
         });
     }
 
+    // 安全網: ネットワーク状態に関わらず必ず動作するタイムアウト
+    // navigator.onLine が初期 false の場合に auth 効果が早期 return してログイン画面が
+    // 永久に出ない事故を防ぐ
+    {
+        let ild_safety = is_loading.clone();
+        let ifo_safety = is_fading_out.clone();
+        let isi_safety = is_initial_load.clone();
+        let auth_flag_safety = is_auth_flag.clone();
+        let aev_safety = auth_error_visible.clone();
+        use_effect_with((), move |_| {
+            Timeout::new(8000, move || {
+                if !*auth_flag_safety.borrow() && *ild_safety {
+                    gloo::console::warn!("[Leaf-SYSTEM] Safety timeout fired.");
+                    if crate::auth_interop::is_signed_in() {
+                        aev_safety.set(true);
+                    }
+                    ifo_safety.set(true);
+                    let ild = ild_safety.clone(); let ifo = ifo_safety.clone(); let isi = isi_safety.clone();
+                    Timeout::new(300, move || { ild.set(false); ifo.set(false); isi.set(false); }).forget();
+                }
+            }).forget();
+            || ()
+        });
+    }
+
     {
         let is_auth = is_authenticated.clone(); let ncid = no_category_folder_id.clone();
         let ldid = leaf_data_folder_id.clone(); let cats_init = categories.clone();
@@ -2522,6 +2579,7 @@ pub fn app() -> Html {
         let on_save_for_auth = on_save_cb.clone();
         let is_online = *network_connected;
         let is_auth_flag_h = is_auth_flag.clone();
+        let aev_h = auth_error_visible.clone();
         let is_ad_free_c = is_ad_free.clone();
         let vim_mode_auth = vim_mode.clone();
         let pfs_auth = preview_font_size.clone();
@@ -2547,9 +2605,13 @@ pub fn app() -> Html {
             let ifo_timeout = ifo_cb.clone();
             let isi_timeout = is_init_cb.clone();
             let auth_flag_timeout = is_auth_flag_h.clone();
+            let aev_timeout = aev_h.clone();
             Timeout::new(5000, move || {
                 if !*auth_flag_timeout.borrow() {
-                    gloo::console::warn!("[Leaf-SYSTEM] Auth initialization timed out or user not signed in. revealing login screen.");
+                    gloo::console::warn!("[Leaf-SYSTEM] Auth initialization timed out or user not signed in.");
+                    if crate::auth_interop::is_signed_in() {
+                        aev_timeout.set(true);
+                    }
                     ifo_timeout.set(true);
                     let ild = ild_timeout.clone(); let ifo = ifo_timeout.clone(); let isi = isi_timeout.clone();
                     Timeout::new(300, move || { ild.set(false); ifo.set(false); isi.set(false); }).forget();
@@ -4316,18 +4378,15 @@ pub fn app() -> Html {
     }
 
     // Tauri版: 起動時にウィンドウ透明度/ブラーを適用
-    // v0.19.100 で Windows Blur 起動時クラッシュ (WebView 透過化) があったため
-    // 起動時に保存済み Blur 値を 0 に強制リセットして救済する
     {
         let opacity = *window_opacity;
-        let wb_reset = window_blur.clone();
+        let blur = *window_blur;
         use_effect_with((), move |_| {
             if (crate::js_interop::is_macos_tauri() || crate::js_interop::is_windows_tauri()) && opacity < 100 {
                 crate::js_interop::set_window_opacity(opacity as f64 / 100.0);
             }
-            if crate::js_interop::is_windows_tauri() {
-                set_account_storage(WINDOW_BLUR_KEY, "0");
-                wb_reset.set(0);
+            if crate::js_interop::is_windows_tauri() && blur > 0 {
+                crate::js_interop::set_window_blur(blur);
             }
             || ()
         });
@@ -4829,6 +4888,22 @@ pub fn app() -> Html {
                                 />
             </main>
             <div id="overlays-layer" class="pointer-events-none fixed inset-0 z-[100]">
+                if *auth_error_visible {
+                    <div class="pointer-events-auto fixed inset-0 flex items-center justify-center bg-gray-900/95 p-4 z-[200]">
+                        <div class="bg-gray-800 rounded-lg shadow-2xl p-8 max-w-md w-full border border-white/10">
+                            <h2 class="text-xl font-bold text-white mb-4">{ i18n::t("auth_error_title", lang) }</h2>
+                            <p class="text-gray-300 text-sm mb-6 leading-relaxed">{ i18n::t("auth_error_message", lang) }</p>
+                            <div class="flex flex-col sm:flex-row items-center justify-end gap-3">
+                                <button onclick={on_auth_relogin.clone()} class="bg-gray-700 hover:bg-gray-600 text-gray-200 font-bold py-2 px-6 rounded-md transition-colors w-full sm:w-auto">
+                                    { i18n::t("relogin", lang) }
+                                </button>
+                                <button onclick={on_auth_retry.clone()} class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-6 rounded-md transition-colors w-full sm:w-auto">
+                                    { i18n::t("retry", lang) }
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                }
                 if !*is_authenticated && *network_connected && !crate::auth_interop::is_signed_in() {
                     <div class="pointer-events-auto fixed inset-0 flex items-center justify-center bg-gray-900 overflow-y-auto p-4">
                         <div class="text-center max-w-2xl">

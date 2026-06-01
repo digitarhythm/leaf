@@ -75,35 +75,62 @@ fn set_window_blur(app: tauri::AppHandle, blur: i32) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         use tauri::Manager;
+        use tauri::utils::config::{Color as CfgColor, WindowEffectsConfig};
+        use tauri::utils::WindowEffect;
+        use tauri::webview::Color;
+
         if let Some(window) = app.get_webview_window("main") {
             if blur > 0 {
-                let opacity_byte = (255.0 * (1.0 - blur as f64 / 100.0)) as u8;
-                let _ = window_vibrancy::clear_mica(&window);
-                let _ = window_vibrancy::clear_acrylic(&window);
-                let _ = window_vibrancy::clear_blur(&window);
+                let alpha = ((blur as f64 / 100.0) * 200.0).min(200.0) as u8;
 
-                let mica_res = window_vibrancy::apply_mica(&window, Some(true));
-                if let Err(ref e) = mica_res {
-                    println!("[Tauri] apply_mica failed: {:?}", e);
-                    let acrylic_res = window_vibrancy::apply_acrylic(&window, Some((0, 0, 0, opacity_byte)));
-                    if let Err(ref e2) = acrylic_res {
-                        println!("[Tauri] apply_acrylic failed: {:?}", e2);
-                        if let Err(e3) = window_vibrancy::apply_blur(&window, Some((0, 0, 0, opacity_byte))) {
-                            println!("[Tauri] apply_blur failed: {:?}", e3);
-                            return Err(format!("blur effect failed: mica={:?} acrylic={:?} blur={:?}", mica_res, acrylic_res, e3));
-                        } else {
-                            println!("[Tauri] apply_blur OK");
-                        }
-                    } else {
-                        println!("[Tauri] apply_acrylic OK");
-                    }
+                let _ = window.set_effects::<Option<WindowEffectsConfig>>(None);
+
+                let mut applied: Option<&'static str> = None;
+
+                let r_mica = window.set_effects(WindowEffectsConfig {
+                    effects: vec![WindowEffect::Mica],
+                    state: None,
+                    radius: None,
+                    color: None,
+                });
+                if r_mica.is_ok() {
+                    applied = Some("Mica");
                 } else {
-                    println!("[Tauri] apply_mica OK");
+                    println!("[Tauri] Mica failed: {:?}", r_mica);
+                    let r_acrylic = window.set_effects(WindowEffectsConfig {
+                        effects: vec![WindowEffect::Acrylic],
+                        state: None,
+                        radius: None,
+                        color: Some(CfgColor(0, 0, 0, alpha)),
+                    });
+                    if r_acrylic.is_ok() {
+                        applied = Some("Acrylic");
+                    } else {
+                        println!("[Tauri] Acrylic failed: {:?}", r_acrylic);
+                        let r_blur = window.set_effects(WindowEffectsConfig {
+                            effects: vec![WindowEffect::Blur],
+                            state: None,
+                            radius: None,
+                            color: Some(CfgColor(0, 0, 0, alpha)),
+                        });
+                        if r_blur.is_ok() {
+                            applied = Some("Blur");
+                        } else {
+                            println!("[Tauri] Blur failed: {:?}", r_blur);
+                        }
+                    }
+                }
+
+                if let Some(name) = applied {
+                    let _ = window.set_background_color(Some(Color(0, 0, 0, 0)));
+                    println!("[Tauri] {} effect applied successfully", name);
+                } else {
+                    let _ = window.set_background_color(Some(Color(3, 7, 18, 255)));
+                    return Err("All vibrancy effects failed".to_string());
                 }
             } else {
-                let _ = window_vibrancy::clear_mica(&window);
-                let _ = window_vibrancy::clear_acrylic(&window);
-                let _ = window_vibrancy::clear_blur(&window);
+                let _ = window.set_effects::<Option<WindowEffectsConfig>>(None);
+                let _ = window.set_background_color(Some(Color(3, 7, 18, 255)));
             }
         }
     }
