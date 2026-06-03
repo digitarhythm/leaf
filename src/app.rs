@@ -1973,7 +1973,9 @@ pub fn app() -> Html {
                     let existing_idx = cs.iter().position(|s| s.drive_id.as_ref() == Some(&did));
                     let guid = if title.ends_with(".txt") { Some(title.replace(".txt", "")) } else { Some(title.clone()) };
                     let nid = if let Some(idx) = tidx { cs[idx].id.clone() } else if let Some(idx) = existing_idx { cs[idx].id.clone() } else { js_sys::Date::now().to_string() };
-                    let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: sync_ts, tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else if let Some(idx) = existing_idx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: None, local_path: None };
+                    let title_lc = title.to_lowercase();
+                    let is_md_default_preview = title_lc.ends_with(".md") || title_lc.ends_with(".markdown");
+                    let ns = Sheet { id: nid.clone(), guid: guid.clone(), category: cat_id.clone(), title: title.clone(), content: c.clone(), is_modified: false, drive_id: Some(did.clone()), temp_content: None, temp_timestamp: None, last_sync_timestamp: sync_ts, tab_color: if let Some(idx) = tidx { cs[idx].tab_color.clone() } else if let Some(idx) = existing_idx { cs[idx].tab_color.clone() } else { generate_random_color() }, total_size: c_len, loaded_bytes: c_len, needs_bom: has_bom, is_preview: is_md_default_preview, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: None, local_path: None };
                     let was_replaced = tidx.is_some() || existing_idx.is_some();
                     if let Some(idx) = tidx { cs[idx] = ns.clone(); } else if let Some(idx) = existing_idx { cs[idx] = ns.clone(); } else { cs.push(ns.clone()); }
                     *rs_inner.borrow_mut() = cs.clone(); ss_inner.set(cs);
@@ -2120,7 +2122,9 @@ pub fn app() -> Html {
 
                     lmk_cb.set("synchronizing"); ifo_cb.set(false); lock_fade_cb.set(false); il_cb.set(true); lock_cb.set(true);
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: name.clone(), content: content.clone(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: content.len() as u64, loaded_bytes: content.len() as u64, needs_bom: has_bom, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: path_val };
+                    let name_lc = name.to_lowercase();
+                    let is_md_default_preview = name_lc.ends_with(".md") || name_lc.ends_with(".markdown");
+                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: name.clone(), content: content.clone(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: content.len() as u64, loaded_bytes: content.len() as u64, needs_bom: has_bom, is_preview: is_md_default_preview, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: path_val };
                     sp_state_c.set(true);
                     let mut current = (*r_s_c.borrow()).clone();
                     // 未保存の新規シート1枚のみなら置換、それ以外はpush
@@ -2911,20 +2915,21 @@ pub fn app() -> Html {
         let aid = active_sheet_id.clone(); let is_ld = is_loading.clone();
         let db_ready = db_ready_state.clone(); let sheets_rf = sheets_ref.clone();
         let ip_init = is_preview_visible.clone();
+        let op_init = preview_overlay_opacity.clone();
         let sp = is_suppressing_changes.clone();
         let is_first_edit_done_cb = is_first_edit_done_ref.clone();
         use_effect_with((aid, is_ld, db_ready), move |deps| {
             let (aid_val, ld_val, ready_val) = deps;
-            if **ready_val && !**ld_val { 
-                if let Some(id) = &**aid_val { 
+            if **ready_val && !**ld_val {
+                if let Some(id) = &**aid_val {
                     let current_sheets = (*sheets_rf.borrow()).clone();
-                    if let Some(s) = current_sheets.iter().find(|x| x.id == *id) { 
+                    if let Some(s) = current_sheets.iter().find(|x| x.id == *id) {
                         sp.set(true);
                         // 新しいシート（または別のシート）がロードされた時点で、初回編集フラグを落とす
                         // これで、意図的に空にして保存する際は 1 回何文字か打たないといけないのではなく、
                         // "ロード直後の自動セーブだけ" 防ぐ形になる
                         *is_first_edit_done_cb.borrow_mut() = false;
-                        
+
                         // エディタ起動時のバグが起きなかった場合、フラグが永遠に false のままになるのを防ぐため、
                         // 1.5秒経過したら自動的に「保護」を解除する。
                         let timeout_cb = is_first_edit_done_cb.clone();
@@ -2937,10 +2942,17 @@ pub fn app() -> Html {
                         let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" };
                         set_gutter_status(mode); focus_editor();
                         ip_init.set(s.is_preview);
+                        if s.is_preview {
+                            op_init.set(false);
+                            let op_c = op_init.clone();
+                            Timeout::new(10, move || { op_c.set(true); }).forget();
+                        } else {
+                            op_init.set(false);
+                        }
                         let sp_c = sp.clone();
                         Timeout::new(100, move || { sp_c.set(false); }).forget();
-                    } 
-                } 
+                    }
+                }
             }
             || ()
         });
