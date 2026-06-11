@@ -1352,6 +1352,41 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         }
     };
 
+    // 横画面用: 右半分に表示する選択シートのプレビュー（プリロード済データを使用）
+    let side_preview_html = {
+        let selected_file = (*selected_file_idx).and_then(|i| files.list.get(i).cloned());
+        html! {
+            <div class="flex flex-col bg-gray-900 min-w-0 h-full w-full">
+                <div class="p-3 border-b border-white/5 flex items-center justify-between bg-gray-950/20 flex-shrink-0">
+                    <div class="flex items-center space-x-2 overflow-hidden">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">
+                            { if let Some(ref f) = selected_file { f.name.clone() } else { i18n::t("preview", lang) } }
+                        </h2>
+                    </div>
+                </div>
+                if let Some(file) = selected_file {
+                    <Preview
+                        key={file.id.clone()}
+                        content={file.content.clone()}
+                        lang={file.lang.clone()}
+                        on_close={Callback::noop()}
+                        is_embedded={true}
+                        is_loading={!file.is_loaded}
+                        has_more={file.is_loaded && file.loaded_bytes < file.total_size}
+                    />
+                } else {
+                    <div class="flex-1 flex items-center justify-center text-gray-600">
+                        <p class="text-xs uppercase tracking-widest font-bold opacity-40">{ i18n::t("preview", lang) }</p>
+                    </div>
+                }
+            </div>
+        }
+    };
+
     // カテゴリー変更ドロップダウン（fixedポジションでoverflow-hidden回避）
     let dropdown_menu_html = if let Some(ref dropdown_fid) = *active_dropdown_file_id {
         let (dd_right, dd_top) = *dropdown_pos;
@@ -1406,25 +1441,52 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 "relative", "flex", "flex-col", "bg-gray-900", "overflow-hidden",
                 "h-full", "shadow-2xl",
                 "border-2", "border-emerald-500", "rounded-lg",
-                if *is_wide_layout { vec!["w-[100vh]"] } else { vec!["w-full"] },
+                if *is_wide_layout { vec!["w-[80vw]"] } else { vec!["w-full"] },
                 if *is_wide_layout {
                     if *is_fading_out { "animate-slide-out" } else { "animate-slide-in" }
                 } else {
                     if *is_fading_out { "animate-dialog-out" } else { "animate-dialog-in" }
                 }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
-                // カテゴリー一覧
-                <div class={classes!("overflow-hidden", "min-h-0", "border-b", "border-white/5", "bg-gray-900", "p-1", "flex-1")}>
-                    <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
-                        { categories_html }
+                if *is_wide_layout {
+                    // 横画面: 左半分にカテゴリー一覧＋シート一覧、右半分に選択シートのプレビュー
+                    <div class="flex flex-row flex-1 min-h-0">
+                        <div class="flex flex-col w-1/2 min-w-0">
+                            // カテゴリー一覧
+                            <div class={classes!("overflow-hidden", "min-h-0", "border-b", "border-white/5", "bg-gray-900", "p-1", "flex-1")}>
+                                <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
+                                    { categories_html }
+                                </div>
+                            </div>
+                            // シート一覧
+                            <div class={classes!("flex", "flex-col", "overflow-hidden", "min-h-0", "bg-gray-950", "p-1", "flex-1")}>
+                                <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
+                                    { files_html }
+                                </div>
+                            </div>
+                        </div>
+                        // プレビュー（プリロード済データ）
+                        <div class="flex flex-col w-1/2 min-w-0 overflow-hidden bg-gray-950 p-1">
+                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden flex flex-col">
+                                { side_preview_html }
+                            </div>
+                        </div>
                     </div>
-                </div>
-                // シート一覧
-                <div class={classes!("flex", "flex-col", "overflow-hidden", "min-h-0", "bg-gray-950", "p-1", "flex-1")}>
-                    <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
-                        { files_html }
+                } else {
+                    // 縦画面: 従来通りカテゴリー一覧＋シート一覧の縦積み
+                    // カテゴリー一覧
+                    <div class={classes!("overflow-hidden", "min-h-0", "border-b", "border-white/5", "bg-gray-900", "p-1", "flex-1")}>
+                        <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
+                            { categories_html }
+                        </div>
                     </div>
-                </div>
+                    // シート一覧
+                    <div class={classes!("flex", "flex-col", "overflow-hidden", "min-h-0", "bg-gray-950", "p-1", "flex-1")}>
+                        <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
+                            { files_html }
+                        </div>
+                    </div>
+                }
                 // フッターエリア
                 <div class="bg-gray-950/50 border-t border-white/5 flex items-center justify-between p-3">
                     <div class={classes!("flex", if *is_wide_layout { vec!["flex-row", "space-x-2", "w-full", "items-center"] } else { vec!["flex-col", "space-y-2", "w-full"] })}>
