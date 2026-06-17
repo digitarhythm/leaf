@@ -539,26 +539,34 @@
 
     window.initMermaid = function (el) {
       if (!el) return;
-      window.ensureMermaid(function() {
-        // code.language-mermaid または code.hljs.language-mermaid を両方検出
-        el.querySelectorAll('code.language-mermaid, code.hljs.language-mermaid').forEach(function(code) {
-          var pre = code.parentElement;
-          if (pre && pre.tagName === 'PRE') {
-            var div = document.createElement('div');
-            div.className = 'mermaid';
-            div.textContent = code.textContent;
-            pre.replaceWith(div);
+      // mermaid.run() が同期/非同期いずれで例外を投げても WASM 側が abort して
+      // アプリがハングしないよう、関数本体全体を try/catch で囲み、
+      // suppressErrors と Promise の .catch() の両方でエラーを遮断する。
+      try {
+        window.ensureMermaid(function() {
+          try {
+            // code.language-mermaid または code.hljs.language-mermaid を両方検出
+            el.querySelectorAll('code.language-mermaid, code.hljs.language-mermaid').forEach(function(code) {
+              var pre = code.parentElement;
+              if (pre && pre.tagName === 'PRE') {
+                var div = document.createElement('div');
+                div.className = 'mermaid';
+                div.textContent = code.textContent;
+                pre.replaceWith(div);
+              }
+            });
+            var mermaidNodes = Array.from(el.querySelectorAll('.mermaid'));
+            if (mermaidNodes.length > 0) {
+              mermaid.run({ nodes: mermaidNodes, suppressErrors: true })
+                .catch(function(err) { console.warn('[Leaf] Mermaid render error (suppressed):', err); });
+            }
+          } catch (err) {
+            console.warn('[Leaf] Mermaid render error (suppressed):', err);
           }
         });
-        var mermaidNodes = Array.from(el.querySelectorAll('.mermaid'));
-        if (mermaidNodes.length > 0) {
-          try {
-            mermaid.run({ nodes: mermaidNodes });
-          } catch (err) {
-            console.error('[Leaf] Mermaid render error:', err);
-          }
-        }
-      });
+      } catch (err) {
+        console.warn('[Leaf] Mermaid init error (suppressed):', err);
+      }
     };
 
     if (typeof ace !== 'undefined') {

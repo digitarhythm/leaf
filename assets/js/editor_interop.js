@@ -1197,14 +1197,22 @@ export function terminal_focus(id) {
 }
 
 export function init_mermaid(element) {
-    if (typeof mermaid === 'undefined') return;
-    mermaid.run({
-        nodes: element.querySelectorAll('.language-mermaid'),
-        suppressErrors: true,
-    }).then(() => {
-        // Mermaid描画完了後にカーソル同期を再実行（SVGの高さが変わるため）
-        requestAnimationFrame(() => syncPreviewToLine());
-    }).catch(() => {});
+    if (typeof mermaid === 'undefined' || !element) return;
+    // mermaid.run() が同期的に例外を投げると wasm-bindgen 経由で WASM が abort し
+    // アプリ全体がハングするため、関数本体全体を try/catch で囲んで遮断する。
+    try {
+        mermaid.run({
+            nodes: element.querySelectorAll('.language-mermaid'),
+            suppressErrors: true,
+        }).then(() => {
+            // Mermaid描画完了後にカーソル同期を再実行（SVGの高さが変わるため）
+            requestAnimationFrame(() => syncPreviewToLine());
+        }).catch((err) => {
+            console.warn('[Leaf] Mermaid render error (suppressed):', err);
+        });
+    } catch (err) {
+        console.warn('[Leaf] Mermaid init error (suppressed):', err);
+    }
 }
 
 export function set_preview_active(active) {
