@@ -422,6 +422,30 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "OK",
         }.to_string(),
 
+        "change" => match lang {
+            Language::Ja => "変更",
+            Language::Zh => "更改",
+            Language::Ko => "변경",
+            Language::Es => "Cambiar",
+            Language::De => "Ändern",
+            Language::Fr => "Modifier",
+            Language::It => "Modifica",
+            Language::Nl => "Wijzigen",
+            _ => "Change",
+        }.to_string(),
+
+        "edit_category_name" => match lang {
+            Language::Ja => "カテゴリー名を編集",
+            Language::Zh => "编辑类别名称",
+            Language::Ko => "카테고리 이름 편집",
+            Language::Es => "Editar nombre de categoría",
+            Language::De => "Kategoriename bearbeiten",
+            Language::Fr => "Modifier le nom de la catégorie",
+            Language::It => "Modifica nome categoria",
+            Language::Nl => "Categorienaam bewerken",
+            _ => "Edit category name",
+        }.to_string(),
+
         // --- Dialog Shortcut Hints ---
         "key_navigate" => match lang {
             Language::Ja => "移動",

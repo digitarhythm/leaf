@@ -100,6 +100,37 @@ enum FocusedArea { Categories, Files }
 
 const STORAGE_KEY_LAST_CAT: &str = "leaf_last_category";
 
+// 横画面のカテゴリータブは画面幅の1/10なので常に10個表示される
+const VISIBLE_TABS: usize = 10;
+
+// カテゴリータブのスクロール位置(左端に表示するインデックス)を、
+// 「選択タブが端に来た時に隣のタブを1つ覗かせる(peek)」ルールで計算する純粋関数。
+// - 右端に表示中のタブを選択 かつ それが最後のカテゴリーでない場合 → 選択タブが右から2番目になる
+// - 右端のタブが最後のカテゴリーの場合 → 右端のまま選択できる
+// - 左側も同様
+fn peek_offset(new_idx: usize, cur_off: usize, total: usize, visible: usize) -> usize {
+    if total <= visible {
+        return 0;
+    }
+    let max_off = total - visible;
+    let mut off = cur_off;
+    if new_idx == 0 {
+        off = 0;
+    } else if new_idx == total - 1 {
+        off = max_off;
+    } else if new_idx <= off {
+        // 左端に来た → 1つ左を覗かせる(選択タブが左から2番目)
+        off = new_idx - 1;
+    } else if new_idx >= off + visible - 1 {
+        // 右端に来た → 1つ右を覗かせる(選択タブが右から2番目)
+        off = new_idx + 2 - visible;
+    }
+    if off > max_off {
+        off = max_off;
+    }
+    off
+}
+
 #[function_component(FileOpenDialog)]
 pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let lang = Language::detect();
@@ -140,6 +171,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let cat_swipe_start_y = use_mut_ref(|| 0.0_f64);
     let cat_swipe_is_horizontal = use_mut_ref(|| None::<bool>);
     let cat_swipe_is_dragging = use_state(|| false);
+    // 横画面カテゴリータブ用ステート
+    let tab_offset = use_state(|| 0usize); // 左端に表示するタブのインデックス
+    let cat_edit = use_state(|| None::<(String, String)>); // カテゴリー名編集ダイアログ (id, 現在名)
+    let cat_edit_input = use_state(|| String::new());
+    let cat_edit_input_ref = use_node_ref();
     let root_ref = use_node_ref();
     let dropdown_ref = use_node_ref();
     let edit_input_ref = use_node_ref();
@@ -448,6 +484,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
+    // 横画面タブ用: peekルールでカテゴリーを選択(タブスクロール込み)し、ファイルを読み込む
+    let select_category = {
+        let sorted_cats = sorted_categories.clone();
+        let s_idx = selected_cat_idx.clone();
+        let t_off = tab_offset.clone();
+        let load_files_sc = load_files.clone();
+        Callback::from(move |new_idx: usize| {
+            let total = sorted_cats.len();
+            if new_idx >= total { return; }
+            let new_off = peek_offset(new_idx, *t_off, total, VISIBLE_TABS);
+            t_off.set(new_off);
+            s_idx.set(new_idx);
+            load_files_sc.emit((sorted_cats[new_idx].id.clone(), sorted_cats[new_idx].name.clone(), false));
+        })
+    };
+
     // ファイルリストが更新されたらバックグラウンド読み込みを開始 + キャッシュ更新
     // Categories フォーカス時は1KBプリフェッチ、Files フォーカス時は10KBプリフェッチ
     {
@@ -486,6 +538,37 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         use_effect_with((*editing_id).clone(), move |id| {
             if id.is_some() { Timeout::new(10, move || { if let Some(el) = edit_ref.cast::<web_sys::HtmlInputElement>() { let _ = el.focus(); let _ = el.select(); } }).forget(); }
             || ()
+        });
+    }
+    // カテゴリー名編集ダイアログ表示時に入力欄へフォーカス
+    {
+        let edit_ref = cat_edit_input_ref.clone();
+        let is_open = cat_edit.is_some();
+        use_effect_with(is_open, move |open| {
+            if *open { Timeout::new(20, move || { if let Some(el) = edit_ref.cast::<web_sys::HtmlInputElement>() { let _ = el.focus(); let _ = el.select(); } }).forget(); }
+            || ()
+        });
+    }
+    // カテゴリー名編集ダイアログ表示中: Escapeでキャンセル(フォーカス位置に依らずwindowで捕捉)
+    {
+        let cat_edit_esc = cat_edit.clone();
+        use_effect_with(cat_edit.is_some(), move |open| {
+            let mut _listener: Option<EventListener> = None;
+            if *open {
+                let h = cat_edit_esc.clone();
+                let window = web_sys::window().unwrap();
+                let mut opts = EventListenerOptions::run_in_capture_phase();
+                opts.passive = false;
+                _listener = Some(EventListener::new_with_options(&window, "keydown", opts, move |e| {
+                    let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
+                    if ke.key() == "Escape" {
+                        e.prevent_default();
+                        e.stop_immediate_propagation();
+                        h.set(None);
+                    }
+                }));
+            }
+            move || { drop(_listener); }
         });
     }
     // ドロップダウンの外側クリックで閉じる
@@ -560,6 +643,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let active_drive_id_for_cat = props.active_drive_id.clone();
         let focused_area_c = focused_area.clone();
         let cache_ref = files_cache.clone();
+        let tab_offset_c = tab_offset.clone();
         use_effect_with((refresh_trigger, cats_len), move |_| {
             // 外部リフレッシュ時はキャッシュをクリア
             cache_ref.borrow_mut().clear();
@@ -579,6 +663,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     others_idx
                 });
                 selected_cat_idx_c.set(target_idx);
+                // 選択カテゴリーのタブが見えるようスクロール位置を同期
+                tab_offset_c.set(peek_offset(target_idx, 0, sorted_cats.len(), VISIBLE_TABS));
                 load_files_c.emit((sorted_cats[target_idx].id.clone(), sorted_cats[target_idx].name.clone(), false));
             }
             || ()
@@ -625,19 +711,37 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let on_create_toggle_c = props.on_create_category_toggle.clone();
         let root_ref_for_esc = root_ref.clone();
         let on_prev_toggle_c = props.on_preview_toggle.clone();
+        let is_wide_k = is_wide_layout.clone();
         let is_sub_dialog_open = props.is_sub_dialog_open;
         let is_creating_cat = props.is_creating_category;
         let is_loading_prev_val = *is_loading_preview;
         let has_pending_del = pending_delete_file.clone(); // ステートとしてキャプチャ
         let handle_close_c = handle_close.clone();
         let editing_cat_for_key = editing_category_id.clone();
+        let select_category_k = select_category.clone();
+        let cat_edit_k = cat_edit.clone();
+        let selected_cat_for_key = selected_cat_idx.clone();
+        let cats_len_for_key = sorted_categories.len();
 
         Callback::from(move |e: KeyboardEvent| {
-            // カテゴリー名編集中はダイアログ側のキー処理をスキップ
-            if (*editing_cat_for_key).is_some() { return; }
+            // カテゴリー名編集中／編集ダイアログ表示中はダイアログ側のキー処理をスキップ
+            if (*editing_cat_for_key).is_some() || (*cat_edit_k).is_some() { return; }
 
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
             let key = ke.key();
+
+            // Alt + カーソル左右: カテゴリー切替(peekスクロール込み)
+            if ke.alt_key() && (key == "ArrowLeft" || key == "ArrowRight") {
+                e.prevent_default();
+                e.stop_immediate_propagation();
+                let cur = *selected_cat_for_key;
+                if key == "ArrowLeft" {
+                    if cur > 0 { select_category_k.emit(cur - 1); }
+                } else if cur + 1 < cats_len_for_key {
+                    select_category_k.emit(cur + 1);
+                }
+                return;
+            }
 
             // サブダイアログ表示中の Escape キー処理
             if key == "Escape" {
@@ -676,6 +780,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             if *is_fading_out_cc || is_deleting_cc.is_some() { return; }
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
             let key = ke.key();
+            // 横画面アイコングリッドの列数を画面幅から概算(左ペイン=画面幅の半分、アイコン1個≒140px)
+            let is_wide = *is_wide_k;
+            let grid_cols = {
+                let w = web_sys::window().and_then(|win| win.inner_width().ok()).and_then(|v| v.as_f64()).unwrap_or(1200.0);
+                let pane = (w * 0.5) - 40.0;
+                (((pane / 140.0).floor()) as i64).max(1) as usize
+            };
             match key.as_str() {
                 " " => {
                     e.prevent_default();
@@ -720,24 +831,62 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         focused_area_c.set(FocusedArea::Categories);
                     }
                 }
-                "ArrowUp" => { 
-                    e.prevent_default(); 
-                    if current_focus == FocusedArea::Categories { 
-                        if *selected_cat_idx_c > 0 { let new_idx = *selected_cat_idx_c - 1; selected_cat_idx_c.set(new_idx); load_files_cc.emit((categories_c[new_idx].id.clone(), categories_c[new_idx].name.clone(), false)); } 
+                "ArrowUp" => {
+                    e.prevent_default();
+                    if is_wide {
+                        // アイコングリッド: 1行上へ
+                        let len = files_reducer.list.len();
+                        if len > 0 {
+                            let cur = selected_file_idx_c.unwrap_or(0);
+                            let new = if cur >= grid_cols { cur - grid_cols } else { cur };
+                            selected_file_idx_c.set(Some(new));
+                        }
+                    } else if current_focus == FocusedArea::Categories {
+                        if *selected_cat_idx_c > 0 { let new_idx = *selected_cat_idx_c - 1; selected_cat_idx_c.set(new_idx); load_files_cc.emit((categories_c[new_idx].id.clone(), categories_c[new_idx].name.clone(), false)); }
                     } else {
                         let cur_idx = selected_file_idx_c.unwrap_or(0);
                         if cur_idx > 0 { selected_file_idx_c.set(Some(cur_idx - 1)); }
                         else if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); }
                     }
                 }
-                "ArrowDown" => { 
-                    e.prevent_default(); 
-                    if current_focus == FocusedArea::Categories { 
-                        if *selected_cat_idx_c + 1 < categories_c.len() { let new_idx = *selected_cat_idx_c + 1; selected_cat_idx_c.set(new_idx); load_files_cc.emit((categories_c[new_idx].id.clone(), categories_c[new_idx].name.clone(), false)); } 
+                "ArrowDown" => {
+                    e.prevent_default();
+                    if is_wide {
+                        // アイコングリッド: 1行下へ
+                        let len = files_reducer.list.len();
+                        if len > 0 {
+                            let cur = selected_file_idx_c.unwrap_or(0);
+                            let new = if cur + grid_cols < len { cur + grid_cols } else { cur };
+                            selected_file_idx_c.set(Some(new));
+                        }
+                    } else if current_focus == FocusedArea::Categories {
+                        if *selected_cat_idx_c + 1 < categories_c.len() { let new_idx = *selected_cat_idx_c + 1; selected_cat_idx_c.set(new_idx); load_files_cc.emit((categories_c[new_idx].id.clone(), categories_c[new_idx].name.clone(), false)); }
                     } else {
                         let cur_idx = selected_file_idx_c.unwrap_or(0);
                         if selected_file_idx_c.is_none() && !files_reducer.list.is_empty() { selected_file_idx_c.set(Some(0)); }
                         else if cur_idx + 1 < files_reducer.list.len() { selected_file_idx_c.set(Some(cur_idx + 1)); }
+                    }
+                }
+                "ArrowLeft" => {
+                    // 横画面アイコングリッド: 1つ前へ(Alt併用は上部で処理済み)
+                    if is_wide {
+                        e.prevent_default();
+                        let len = files_reducer.list.len();
+                        if len > 0 {
+                            let cur = selected_file_idx_c.unwrap_or(0);
+                            if cur > 0 { selected_file_idx_c.set(Some(cur - 1)); } else { selected_file_idx_c.set(Some(0)); }
+                        }
+                    }
+                }
+                "ArrowRight" => {
+                    // 横画面アイコングリッド: 1つ次へ(Alt併用は上部で処理済み)
+                    if is_wide {
+                        e.prevent_default();
+                        let len = files_reducer.list.len();
+                        if len > 0 {
+                            let cur = selected_file_idx_c.unwrap_or(0);
+                            if cur + 1 < len { selected_file_idx_c.set(Some(cur + 1)); }
+                        }
                     }
                 }
                 "Enter" => {
@@ -1387,6 +1536,210 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         }
     };
 
+    // 横画面用: カテゴリータブバー(幅=画面幅/10、translateXでスクロール、peekスクロール対応)
+    let category_tabs_html = {
+        let cats = (*sorted_categories).clone();
+        let sel = *selected_cat_idx;
+        let off = *tab_offset;
+        let select_cb = select_category.clone();
+        let cat_edit_h = cat_edit.clone();
+        let cat_edit_input_h = cat_edit_input.clone();
+        let on_create_toggle = props.on_create_category_toggle.clone();
+        html! {
+            <div class="flex items-stretch bg-gray-950/40 border-b-2 border-emerald-500/40 flex-shrink-0 overflow-hidden">
+                // 一番左端: 新規カテゴリー作成ボタン
+                <button
+                    onclick={move |_| on_create_toggle.emit(true)}
+                    title={i18n::t("new_category", lang)}
+                    class="flex-shrink-0 w-12 flex items-center justify-center h-11 border-r border-white/10 bg-gray-950/60 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                </button>
+                <div class="flex-1 overflow-hidden">
+                <div class="flex transition-transform duration-300 ease-out"
+                     style={format!("transform: translateX(calc(-{} * 10vw));", off)}>
+                    { for cats.iter().enumerate().map(|(i, cat)| {
+                        let is_sel = i == sel;
+                        let is_others = cat.name == "OTHERS";
+                        let disp = if is_others { i18n::t("OTHERS", lang) } else { cat.name.clone() };
+                        let select_cb = select_cb.clone();
+                        let cat_edit_hh = cat_edit_h.clone();
+                        let cat_edit_input_hh = cat_edit_input_h.clone();
+                        let cid = cat.id.clone();
+                        let cname = cat.name.clone();
+                        html! {
+                            <div
+                                style="width: 10vw;"
+                                class={classes!(
+                                    "flex-shrink-0","flex","items-center","justify-center","gap-1.5",
+                                    "h-11","px-2","cursor-pointer","border-r","border-white/5","select-none",
+                                    "transition-colors","overflow-hidden",
+                                    if is_sel { vec!["bg-emerald-600","text-white","font-bold"] }
+                                    else { vec!["text-gray-400","hover:bg-white/5","hover:text-gray-200"] }
+                                )}
+                                onclick={move |_| select_cb.emit(i)}
+                                ondblclick={move |_| {
+                                    if !is_others {
+                                        cat_edit_input_hh.set(cname.clone());
+                                        cat_edit_hh.set(Some((cid.clone(), cname.clone())));
+                                    }
+                                }}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-3.5","w-3.5","flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                <span class="truncate text-xs">{ disp }</span>
+                            </div>
+                        }
+                    }) }
+                </div>
+                </div>
+            </div>
+        }
+    };
+
+    // 横画面用: ファイルをアイコン表示(拡張子を大きく+先頭行先頭10文字をファイル名風に)
+    let files_icon_grid_html = {
+        let file_list = files.list.clone();
+        let sel = *selected_file_idx;
+        let s_idx_state = selected_file_idx.clone();
+        let f_area_h = focused_area.clone();
+        let on_ok = on_ok_click.clone();
+        let p_del_state = pending_delete_file.clone();
+        let ads_state = active_dropdown_file_id.clone();
+        let dp_state = dropdown_pos.clone();
+        let cat_name = (*current_category_name).clone();
+        let is_loading = props.is_loading;
+        html! {
+            <div class="flex flex-col h-full w-full bg-gray-900">
+                <div class="p-3 border-b border-white/5 flex items-center gap-2 bg-gray-950/20 flex-shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">{ format!("{} ({})", if cat_name == "OTHERS" { i18n::t("OTHERS", lang) } else { cat_name.clone() }, file_list.len()) }</h2>
+                </div>
+                <div class="flex-1 overflow-y-auto custom-scrollbar p-4">
+                    if is_loading && file_list.is_empty() {
+                        <div class="h-full flex items-center justify-center">
+                            <div class="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                        </div>
+                    } else if file_list.is_empty() {
+                        <div class="h-full flex flex-col items-center justify-center text-gray-600 space-y-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
+                            <p class="text-xs uppercase tracking-widest font-bold">{ i18n::t("no_files_found", lang) }</p>
+                        </div>
+                    } else {
+                        <div class="flex flex-wrap content-start gap-x-7 gap-y-8">
+                            { for file_list.into_iter().enumerate().map(|(i, file)| {
+                                let is_sel = sel == Some(i);
+                                let ext_disp = if file.lang.is_empty() { "—".to_string() } else { file.lang.to_uppercase() };
+                                let label = {
+                                    let first = file.content.lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
+                                    match first {
+                                        Some(l) => l.chars().take(30).collect::<String>(),
+                                        None => file.name.chars().take(30).collect::<String>(),
+                                    }
+                                };
+                                let s_idx_inner = s_idx_state.clone();
+                                let f_area_inner = f_area_h.clone();
+                                let on_ok_inner = on_ok.clone();
+                                let p_del_inner = p_del_state.clone();
+                                let ads_inner = ads_state.clone();
+                                let dp_inner = dp_state.clone();
+                                let fid = file.id.clone();
+                                let fname = file.name.clone();
+                                html! {
+                                    <div
+                                        class="group relative w-32 flex flex-col items-center cursor-pointer"
+                                        onclick={move |_| { s_idx_inner.set(Some(i)); f_area_inner.set(FocusedArea::Files); }}
+                                        ondblclick={move |_| on_ok_inner.emit(())}
+                                    >
+                                        <div class={classes!(
+                                            "relative","w-24","h-28","rounded-lg","flex","items-center","justify-center","border-2","transition-all",
+                                            if is_sel { vec!["bg-emerald-600","border-white","shadow-lg","ring-4","ring-emerald-500/30"] }
+                                            else { vec!["bg-gray-800","border-white/20","group-hover:border-emerald-500/60"] }
+                                        )}>
+                                            <span class={classes!("text-2xl","font-black","uppercase","tracking-tighter", if is_sel { "text-white" } else { "text-emerald-400/90" })}>{ ext_disp }</span>
+                                            if !file.is_loaded {
+                                                <div class="absolute bottom-1 right-1 w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                                            }
+                                            <div class="absolute top-0.5 right-0.5 hidden group-hover:flex gap-0.5">
+                                                <button
+                                                    onclick={let ads = ads_inner.clone(); let fid_m = fid.clone(); let dp = dp_inner.clone(); move |e: MouseEvent| {
+                                                        e.stop_propagation();
+                                                        let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                                        if let Some(el) = btn { let rect = el.get_bounding_client_rect(); dp.set((rect.right(), rect.bottom() + 4.0)); }
+                                                        ads.set(Some(fid_m.clone()));
+                                                    }}
+                                                    class="p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                                    title="Move"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                                </button>
+                                                <button
+                                                    onclick={let p_del = p_del_inner.clone(); let fid_d = fid.clone(); let fname_d = fname.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
+                                                    class="p-0.5 rounded bg-black/40 hover:bg-red-600 text-white"
+                                                    title="Delete"
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <span class={classes!("mt-2","text-[9px]","leading-tight","text-center","max-w-full","line-clamp-2","break-all","px-2","py-0.5","rounded", if is_sel { vec!["bg-emerald-600","text-white","font-bold"] } else { vec!["text-gray-300"] })}>{ label }</span>
+                                    </div>
+                                }
+                            }) }
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    };
+
+    // カテゴリー名編集ダイアログ(半透明黒バック)
+    let cat_edit_dialog_html = if let Some((cid, _cur)) = (*cat_edit).clone() {
+        let cat_edit_h = cat_edit.clone();
+        let input_h = cat_edit_input.clone();
+        let on_rename = props.on_rename_category.clone();
+        let value = (*cat_edit_input).clone();
+        let on_cancel = { let h = cat_edit_h.clone(); Callback::from(move |_: ()| h.set(None)) };
+        let on_change = {
+            let on_rename = on_rename.clone();
+            let input_h = input_h.clone();
+            let h = cat_edit_h.clone();
+            let cid = cid.clone();
+            Callback::from(move |_: ()| {
+                let new_name = (*input_h).clone();
+                if !new_name.trim().is_empty() { on_rename.emit((cid.clone(), new_name)); }
+                h.set(None);
+            })
+        };
+        html! {
+            <div class="fixed inset-0 z-[420] flex items-center justify-center bg-black/60 animate-in fade-in duration-150"
+                 onclick={let c = on_cancel.clone(); move |_| c.emit(())}>
+                <div class="w-[90vw] max-w-md bg-gray-900 border-2 border-emerald-500 rounded-xl shadow-2xl p-6 animate-in zoom-in-95 duration-150"
+                     onclick={|e: MouseEvent| e.stop_propagation()}>
+                    <h2 class="text-base font-bold text-gray-100 mb-4">{ i18n::t("edit_category_name", lang) }</h2>
+                    <input
+                        ref={cat_edit_input_ref.clone()}
+                        type="text"
+                        value={value}
+                        oninput={let ih = input_h.clone(); move |e: InputEvent| { let inp: web_sys::HtmlInputElement = e.target_unchecked_into(); ih.set(inp.value()); }}
+                        onkeydown={let ch = on_change.clone(); let cn = on_cancel.clone(); move |e: KeyboardEvent| {
+                            if e.is_composing() { return; }
+                            e.stop_propagation();
+                            if e.key() == "Enter" { e.prevent_default(); ch.emit(()); }
+                            else if e.key() == "Escape" { e.prevent_default(); cn.emit(()); }
+                        }}
+                        class="w-full bg-gray-800 text-white text-sm rounded px-3 py-2 outline-none border border-white/10 focus:border-emerald-500 mb-5"
+                    />
+                    <div class="flex justify-start gap-3">
+                        <button onclick={let c = on_cancel.clone(); move |_| c.emit(())} class="px-5 py-2 rounded text-sm font-bold text-gray-300 hover:bg-white/5 transition-colors border border-white/10">{ i18n::t("cancel", lang) }</button>
+                        <button onclick={let c = on_change.clone(); move |_| c.emit(())} class="px-5 py-2 rounded text-sm font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors">{ i18n::t("change", lang) }</button>
+                    </div>
+                </div>
+            </div>
+        }
+    } else {
+        html! {}
+    };
+
     // カテゴリー変更ドロップダウン（fixedポジションでoverflow-hidden回避）
     let dropdown_menu_html = if let Some(ref dropdown_fid) = *active_dropdown_file_id {
         let (dd_right, dd_top) = *dropdown_pos;
@@ -1441,7 +1794,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 "relative", "flex", "flex-col", "bg-gray-900", "overflow-hidden",
                 "h-full", "shadow-2xl",
                 "border-2", "border-emerald-500", "rounded-lg",
-                if *is_wide_layout { vec!["w-[80vw]"] } else { vec!["w-full"] },
+                if *is_wide_layout { vec!["w-full"] } else { vec!["w-full"] },
                 if *is_wide_layout {
                     if *is_fading_out { "animate-slide-out" } else { "animate-slide-in" }
                 } else {
@@ -1449,25 +1802,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 if *is_wide_layout {
-                    // 横画面: 左半分にカテゴリー一覧＋シート一覧、右半分に選択シートのプレビュー
-                    <div class="flex flex-row flex-1 min-h-0">
-                        <div class="flex flex-col w-1/2 min-w-0">
-                            // カテゴリー一覧
-                            <div class={classes!("overflow-hidden", "min-h-0", "border-b", "border-white/5", "bg-gray-900", "p-1", "flex-1")}>
-                                <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
-                                    { categories_html }
-                                </div>
+                    // 横画面: 上部にカテゴリータブ、下段は左=ファイルアイコン、右=プレビュー
+                    <div class="flex flex-col flex-1 min-h-0">
+                        { category_tabs_html }
+                        <div class="flex flex-row flex-1 min-h-0">
+                            // ファイルアイコン一覧
+                            <div class="w-1/2 min-w-0 overflow-hidden border-r border-white/10 bg-gray-900">
+                                { files_icon_grid_html }
                             </div>
-                            // シート一覧
-                            <div class={classes!("flex", "flex-col", "overflow-hidden", "min-h-0", "bg-gray-950", "p-1", "flex-1")}>
-                                <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden">
-                                    { files_html }
-                                </div>
-                            </div>
-                        </div>
-                        // プレビュー（プリロード済データ）
-                        <div class="flex flex-col w-1/2 min-w-0 overflow-hidden bg-gray-950 p-1">
-                            <div class="w-full h-full border-2 border-emerald-500 rounded-lg overflow-hidden flex flex-col">
+                            // プレビュー（プリロード済データ）
+                            <div class="w-1/2 min-w-0 overflow-hidden bg-gray-950">
                                 { side_preview_html }
                             </div>
                         </div>
@@ -1491,12 +1835,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 <div class="bg-gray-950/50 border-t border-white/5 flex items-center justify-between p-3">
                     <div class={classes!("flex", if *is_wide_layout { vec!["flex-row", "space-x-2", "w-full", "items-center"] } else { vec!["flex-col", "space-y-2", "w-full"] })}>
                         if *is_wide_layout {
-                            <div class="flex-1 flex items-center gap-3 text-[10px] text-gray-500 select-none">
-                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"↑↓"}</kbd>{ i18n::t("key_navigate", lang) }</span>
-                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Tab"}</kbd>{ i18n::t("key_toggle", lang) }</span>
-                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Enter"}</kbd>{ i18n::t("key_confirm", lang) }</span>
-                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Esc"}</kbd>{ i18n::t("key_back", lang) }</span>
-                                <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Space"}</kbd>{ i18n::t("key_preview", lang) }</span>
+                            <div class="flex-1 flex items-center gap-3 select-none">
+                                <button onclick={let ic = props.on_create_category_toggle.clone(); move |_| ic.emit(true)} class="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
+                                    <span>{ i18n::t("new_category", lang) }</span>
+                                </button>
+                                <button onclick={let on_ref = props.on_refresh.clone(); move |_| on_ref.emit(())} class="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold text-gray-400 hover:bg-white/5 transition-all border border-white/10">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                    <span>{ i18n::t("refresh_categories", lang) }</span>
+                                </button>
+                                <div class="flex items-center gap-3 text-[10px] text-gray-500 ml-2">
+                                    <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Alt+←→"}</kbd>{ i18n::t("key_navigate", lang) }</span>
+                                    <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Enter"}</kbd>{ i18n::t("key_confirm", lang) }</span>
+                                    <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Space"}</kbd>{ i18n::t("key_preview", lang) }</span>
+                                </div>
                             </div>
                         }
                         if !*is_wide_layout {
@@ -1529,6 +1881,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             </div>
 
             { dropdown_menu_html.clone() }
+
+            { cat_edit_dialog_html }
 
             if props.is_creating_category {
                 <div class="z-[210]">

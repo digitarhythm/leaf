@@ -34,7 +34,8 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
     let lang = Language::detect();
     let dragging_id = use_state(|| None::<String>);
 
-    if props.sheets.len() <= 1 {
+    // シートが1つでもタブを表示する(空の時のみ非表示)
+    if props.sheets.is_empty() {
         return html! {};
     }
 
