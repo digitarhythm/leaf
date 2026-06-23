@@ -100,37 +100,6 @@ enum FocusedArea { Categories, Files }
 
 const STORAGE_KEY_LAST_CAT: &str = "leaf_last_category";
 
-// 横画面のカテゴリータブは画面幅の1/10なので常に10個表示される
-const VISIBLE_TABS: usize = 10;
-
-// カテゴリータブのスクロール位置(左端に表示するインデックス)を、
-// 「選択タブが端に来た時に隣のタブを1つ覗かせる(peek)」ルールで計算する純粋関数。
-// - 右端に表示中のタブを選択 かつ それが最後のカテゴリーでない場合 → 選択タブが右から2番目になる
-// - 右端のタブが最後のカテゴリーの場合 → 右端のまま選択できる
-// - 左側も同様
-fn peek_offset(new_idx: usize, cur_off: usize, total: usize, visible: usize) -> usize {
-    if total <= visible {
-        return 0;
-    }
-    let max_off = total - visible;
-    let mut off = cur_off;
-    if new_idx == 0 {
-        off = 0;
-    } else if new_idx == total - 1 {
-        off = max_off;
-    } else if new_idx <= off {
-        // 左端に来た → 1つ左を覗かせる(選択タブが左から2番目)
-        off = new_idx - 1;
-    } else if new_idx >= off + visible - 1 {
-        // 右端に来た → 1つ右を覗かせる(選択タブが右から2番目)
-        off = new_idx + 2 - visible;
-    }
-    if off > max_off {
-        off = max_off;
-    }
-    off
-}
-
 #[function_component(FileOpenDialog)]
 pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let lang = Language::detect();
@@ -172,7 +141,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let cat_swipe_is_horizontal = use_mut_ref(|| None::<bool>);
     let cat_swipe_is_dragging = use_state(|| false);
     // 横画面カテゴリータブ用ステート
-    let tab_offset = use_state(|| 0usize); // 左端に表示するタブのインデックス
     let cat_edit = use_state(|| None::<(String, String)>); // カテゴリー名編集ダイアログ (id, 現在名)
     let cat_edit_input = use_state(|| String::new());
     let cat_edit_input_ref = use_node_ref();
@@ -484,17 +452,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
-    // 横画面タブ用: peekルールでカテゴリーを選択(タブスクロール込み)し、ファイルを読み込む
+    // 縦カテゴリータブ用: カテゴリーを選択してファイルを読み込む
     let select_category = {
         let sorted_cats = sorted_categories.clone();
         let s_idx = selected_cat_idx.clone();
-        let t_off = tab_offset.clone();
         let load_files_sc = load_files.clone();
         Callback::from(move |new_idx: usize| {
             let total = sorted_cats.len();
             if new_idx >= total { return; }
-            let new_off = peek_offset(new_idx, *t_off, total, VISIBLE_TABS);
-            t_off.set(new_off);
             s_idx.set(new_idx);
             load_files_sc.emit((sorted_cats[new_idx].id.clone(), sorted_cats[new_idx].name.clone(), false));
         })
@@ -546,6 +511,19 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let is_open = cat_edit.is_some();
         use_effect_with(is_open, move |open| {
             if *open { Timeout::new(20, move || { if let Some(el) = edit_ref.cast::<web_sys::HtmlInputElement>() { let _ = el.focus(); let _ = el.select(); } }).forget(); }
+            || ()
+        });
+    }
+    // 縦カテゴリータブ: 選択中タブを表示領域内へスクロール
+    {
+        let sel_idx = *selected_cat_idx;
+        use_effect_with(sel_idx, move |idx| {
+            let id = format!("cat-vtab-{}", idx);
+            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                if let Some(el) = doc.get_element_by_id(&id) {
+                    el.scroll_into_view_with_bool(false);
+                }
+            }
             || ()
         });
     }
@@ -643,7 +621,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let active_drive_id_for_cat = props.active_drive_id.clone();
         let focused_area_c = focused_area.clone();
         let cache_ref = files_cache.clone();
-        let tab_offset_c = tab_offset.clone();
         use_effect_with((refresh_trigger, cats_len), move |_| {
             // 外部リフレッシュ時はキャッシュをクリア
             cache_ref.borrow_mut().clear();
@@ -663,8 +640,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     others_idx
                 });
                 selected_cat_idx_c.set(target_idx);
-                // 選択カテゴリーのタブが見えるようスクロール位置を同期
-                tab_offset_c.set(peek_offset(target_idx, 0, sorted_cats.len(), VISIBLE_TABS));
                 load_files_c.emit((sorted_cats[target_idx].id.clone(), sorted_cats[target_idx].name.clone(), false));
             }
             || ()
@@ -730,12 +705,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
             let key = ke.key();
 
-            // Alt + カーソル左右: カテゴリー切替(peekスクロール込み)
-            if ke.alt_key() && (key == "ArrowLeft" || key == "ArrowRight") {
+            // Alt + カーソル上下: カテゴリー切替(タブが縦並びのため)
+            if ke.alt_key() && (key == "ArrowUp" || key == "ArrowDown") {
                 e.prevent_default();
                 e.stop_immediate_propagation();
                 let cur = *selected_cat_for_key;
-                if key == "ArrowLeft" {
+                if key == "ArrowUp" {
                     if cur > 0 { select_category_k.emit(cur - 1); }
                 } else if cur + 1 < cats_len_for_key {
                     select_category_k.emit(cur + 1);
@@ -1540,24 +1515,24 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let category_tabs_html = {
         let cats = (*sorted_categories).clone();
         let sel = *selected_cat_idx;
-        let off = *tab_offset;
         let select_cb = select_category.clone();
         let cat_edit_h = cat_edit.clone();
         let cat_edit_input_h = cat_edit_input.clone();
         let on_create_toggle = props.on_create_category_toggle.clone();
+        let on_del_cat = props.on_delete_category.clone();
         html! {
-            <div class="flex items-stretch bg-gray-950/40 border-b-2 border-emerald-500/40 flex-shrink-0 overflow-hidden">
-                // 一番左端: 新規カテゴリー作成ボタン
+            // 左端に縦並び: 幅 = 画面幅/10
+            <div class="flex flex-col flex-shrink-0 h-full bg-gray-950/40 border-r-2 border-emerald-500/40 overflow-hidden" style="width: 10vw;">
+                // 最上部: 新規カテゴリー作成ボタン
                 <button
                     onclick={move |_| on_create_toggle.emit(true)}
                     title={i18n::t("new_category", lang)}
-                    class="flex-shrink-0 w-12 flex items-center justify-center h-11 border-r border-white/10 bg-gray-950/60 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
+                    class="flex-shrink-0 w-full h-11 flex items-center justify-center gap-1 border-b border-white/10 bg-gray-950/60 text-emerald-400 hover:bg-emerald-500/20 transition-colors"
                 >
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
                 </button>
-                <div class="flex-1 overflow-hidden">
-                <div class="flex transition-transform duration-300 ease-out"
-                     style={format!("transform: translateX(calc(-{} * 10vw));", off)}>
+                // カテゴリータブ(縦並び・スクロール)
+                <div class="flex-1 overflow-y-auto custom-scrollbar">
                     { for cats.iter().enumerate().map(|(i, cat)| {
                         let is_sel = i == sel;
                         let is_others = cat.name == "OTHERS";
@@ -1565,14 +1540,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         let select_cb = select_cb.clone();
                         let cat_edit_hh = cat_edit_h.clone();
                         let cat_edit_input_hh = cat_edit_input_h.clone();
+                        let on_del_cat_inner = on_del_cat.clone();
                         let cid = cat.id.clone();
+                        let cid_del = cat.id.clone();
                         let cname = cat.name.clone();
                         html! {
                             <div
-                                style="width: 10vw;"
+                                id={format!("cat-vtab-{}", i)}
                                 class={classes!(
-                                    "flex-shrink-0","flex","items-center","justify-center","gap-1.5",
-                                    "h-11","px-2","cursor-pointer","border-r","border-white/5","select-none",
+                                    "group","w-full","flex","items-center","gap-1.5","px-3","py-3",
+                                    "cursor-pointer","border-b","border-white/5","select-none",
                                     "transition-colors","overflow-hidden",
                                     if is_sel { vec!["bg-emerald-600","text-white","font-bold"] }
                                     else { vec!["text-gray-400","hover:bg-white/5","hover:text-gray-200"] }
@@ -1585,12 +1562,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     }
                                 }}
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-3.5","w-3.5","flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                                <span class="truncate text-xs">{ disp }</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4","w-4","flex-shrink-0", if is_sel { "text-white" } else { "text-gray-600" })} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                <span class="flex-1 min-w-0 truncate text-xs">{ disp }</span>
+                                if !is_others {
+                                    <button
+                                        onclick={let on_del = on_del_cat_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); on_del.emit(cid_del.clone()); }}
+                                        class="ml-auto hidden group-hover:flex flex-shrink-0 p-0.5 rounded hover:bg-red-600/70 text-gray-400 hover:text-white"
+                                        title="Delete category"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                    </button>
+                                }
                             </div>
                         }
                     }) }
-                </div>
                 </div>
             </div>
         }
@@ -1659,27 +1644,27 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                             if !file.is_loaded {
                                                 <div class="absolute bottom-1 right-1 w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
                                             }
-                                            <div class="absolute top-0.5 right-0.5 hidden group-hover:flex gap-0.5">
-                                                <button
-                                                    onclick={let ads = ads_inner.clone(); let fid_m = fid.clone(); let dp = dp_inner.clone(); move |e: MouseEvent| {
-                                                        e.stop_propagation();
-                                                        let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
-                                                        if let Some(el) = btn { let rect = el.get_bounding_client_rect(); dp.set((rect.right(), rect.bottom() + 4.0)); }
-                                                        ads.set(Some(fid_m.clone()));
-                                                    }}
-                                                    class="p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
-                                                    title="Move"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
-                                                </button>
-                                                <button
-                                                    onclick={let p_del = p_del_inner.clone(); let fid_d = fid.clone(); let fname_d = fname.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
-                                                    class="p-0.5 rounded bg-black/40 hover:bg-red-600 text-white"
-                                                    title="Delete"
-                                                >
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                                </button>
-                                            </div>
+                                            // 移動ボタン: ホバー時に左上へ表示
+                                            <button
+                                                onclick={let ads = ads_inner.clone(); let fid_m = fid.clone(); let dp = dp_inner.clone(); move |e: MouseEvent| {
+                                                    e.stop_propagation();
+                                                    let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                                    if let Some(el) = btn { let rect = el.get_bounding_client_rect(); dp.set((rect.right(), rect.bottom() + 4.0)); }
+                                                    ads.set(Some(fid_m.clone()));
+                                                }}
+                                                class="absolute top-1 left-1 hidden group-hover:flex p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                                title="Move"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                            </button>
+                                            // 削除ボタン(ゴミ箱): 常時、右上に表示
+                                            <button
+                                                onclick={let p_del = p_del_inner.clone(); let fid_d = fid.clone(); let fname_d = fname.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
+                                                class="absolute top-1 right-1 p-0.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
+                                                title="Delete"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                            </button>
                                         </div>
                                         <span class={classes!("mt-2","text-[9px]","leading-tight","text-center","max-w-full","line-clamp-2","break-all","px-2","py-0.5","rounded", if is_sel { vec!["bg-emerald-600","text-white","font-bold"] } else { vec!["text-gray-300"] })}>{ label }</span>
                                     </div>
@@ -1802,8 +1787,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 }
             )} onclick={|e: MouseEvent| e.stop_propagation()}>
                 if *is_wide_layout {
-                    // 横画面: 上部にカテゴリータブ、下段は左=ファイルアイコン、右=プレビュー
-                    <div class="flex flex-col flex-1 min-h-0">
+                    // 横画面: 左端にカテゴリータブ(縦・幅=画面幅/10)、残り幅を半分ずつでファイルアイコンとプレビュー
+                    <div class="flex flex-row flex-1 min-h-0">
                         { category_tabs_html }
                         <div class="flex flex-row flex-1 min-h-0">
                             // ファイルアイコン一覧
@@ -1845,7 +1830,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     <span>{ i18n::t("refresh_categories", lang) }</span>
                                 </button>
                                 <div class="flex items-center gap-3 text-[10px] text-gray-500 ml-2">
-                                    <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Alt+←→"}</kbd>{ i18n::t("key_navigate", lang) }</span>
+                                    <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Alt+↑↓"}</kbd>{ i18n::t("key_navigate", lang) }</span>
                                     <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Enter"}</kbd>{ i18n::t("key_confirm", lang) }</span>
                                     <span class="flex items-center gap-1"><kbd class="px-1 py-0.5 bg-gray-800 rounded text-gray-400 font-mono">{"Space"}</kbd>{ i18n::t("key_preview", lang) }</span>
                                 </div>
