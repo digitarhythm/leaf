@@ -112,3 +112,45 @@
   mask-image: linear-gradient(to right, black 80%, transparent 100%);
   -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
 }
+
+/* --- Mermaid フォールバック配色 ---
+   Mermaid は図ごとに id でスコープした配色スタイルを SVG に注入するが、
+   同一内容を複数箇所で描画して id が衝突すると、後発の図にスタイルが効かず
+   SVG 既定の黒塗り・黒文字になり「黒い四角＋黒い文字」で潰れる。
+   ここでは低詳細度(クラスセレクタ)で既定の読みやすい配色を用意しておき、
+   Mermaid 本来の id スコープ(高詳細度)が効く図はそのまま尊重しつつ、
+   効かなかった図にだけフォールバックが当たるようにする。 */
+:is(.mermaid, .mermaid-pre) .node rect,
+:is(.mermaid, .mermaid-pre) .node circle,
+:is(.mermaid, .mermaid-pre) .node ellipse,
+:is(.mermaid, .mermaid-pre) .node polygon,
+:is(.mermaid, .mermaid-pre) .node path {
+  fill: #ececff;
+  stroke: #9370db;
+}
+:is(.mermaid, .mermaid-pre) .cluster rect {
+  fill: #ffffde;
+  stroke: #aaaa33;
+}
+:is(.mermaid, .mermaid-pre) .label,
+:is(.mermaid, .mermaid-pre) .nodeLabel,
+:is(.mermaid, .mermaid-pre) .edgeLabel,
+:is(.mermaid, .mermaid-pre) text {
+  fill: #1f2937;
+  color: #1f2937;
+}
+:is(.mermaid, .mermaid-pre) .edgeLabel rect,
+:is(.mermaid, .mermaid-pre) .edgeLabel .label-container {
+  fill: #fdf6e3;
+}
+:is(.mermaid, .mermaid-pre) .edgePath .path,
+:is(.mermaid, .mermaid-pre) .flowchart-link,
+:is(.mermaid, .mermaid-pre) .messageLine0,
+:is(.mermaid, .mermaid-pre) .messageLine1 {
+  stroke: #334155;
+}
+:is(.mermaid, .mermaid-pre) .arrowheadPath,
+:is(.mermaid, .mermaid-pre) marker path {
+  fill: #334155;
+  stroke: none;
+}
