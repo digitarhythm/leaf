@@ -654,7 +654,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         });
     }
 
-    // ファイル選択インデックス変更時の自動スクロール
+    // ファイル選択インデックス変更時の自動スクロール(縦画面の旧リスト用)
     {
         let file_list_ref_c = file_list_ref.clone();
         let selected_idx = *selected_file_idx;
@@ -663,6 +663,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 if let Some(container) = file_list_ref_c.cast::<web_sys::Element>() {
                     crate::js_interop::scroll_into_view_graceful(&container, i as u32, 200.0);
                 }
+            }
+            || ()
+        });
+    }
+
+    // 横画面(グリッド/リスト): 選択中アイテムが見切れていたら全体が見えるようスクロール
+    {
+        let view = *view_mode;
+        let selected_idx = *selected_file_idx;
+        use_effect_with((selected_idx, view), move |(idx, view)| {
+            if let Some(i) = *idx {
+                // グリッドはアイコン、リストは行をスクロール対象にする
+                let selector = match view { ViewMode::List => ".leaf-file-row", ViewMode::Grid => ".leaf-file-icon" };
+                crate::js_interop::scroll_nth_into_view(selector, i as u32);
             }
             || ()
         });
@@ -1791,8 +1805,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         if !is_loaded {
                             <div class="absolute bottom-1 right-1 w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
                         }
-                        if show_actions {
-                            // 移動ボタン: 常時、左上に表示
+                        if show_actions && is_sel {
+                            // 移動ボタン: 選択時のみ左上に表示
                             <button
                                 onclick={let ads = ads_inner.clone(); let fid_m = fid.clone(); let dp = dp_inner.clone(); move |e: MouseEvent| {
                                     e.stop_propagation();
@@ -1896,7 +1910,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 html! {
                                     <div
                                         class={classes!(
-                                            "group","relative","flex","items-stretch","gap-3","p-2","rounded-lg","border","transition-colors","cursor-pointer",
+                                            "leaf-file-row","group","relative","flex","items-stretch","gap-3","p-2","rounded-lg","border","transition-colors","cursor-pointer",
                                             if is_sel { vec!["bg-emerald-600/10","border-emerald-500/50"] } else { vec!["border-white/10","hover:bg-white/5"] }
                                         )}
                                         onclick={move |_| { s_idx_row.set(Some(i)); f_area_row.set(FocusedArea::Files); }}

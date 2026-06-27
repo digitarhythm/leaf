@@ -1269,6 +1269,17 @@ export function set_editor_mode(filename) {
     pendingMode = null;
 }
 
+// selector に一致するn番目の要素を、見切れている場合だけ全体が見えるようスクロールする。
+// block:'nearest' は完全に見えていれば何もせず、はみ出していれば最小限スクロールする。
+export function scroll_nth_into_view(selector, index) {
+    const items = document.querySelectorAll(selector);
+    const el = items[index];
+    if (el) {
+        try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
+        catch (_) { el.scrollIntoView(false); }
+    }
+}
+
 export function scroll_into_view_graceful(container, index, duration_ms) {
     if (!container) return;
     const item = container.children[index];

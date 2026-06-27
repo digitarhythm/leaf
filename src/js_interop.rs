@@ -68,4 +68,5 @@ extern "C" {
     pub fn set_local_file_path(path: &str);
     pub fn clear_local_handle();
     pub fn scroll_into_view_graceful(container: &web_sys::Element, index: u32, duration_ms: f64);
+    pub fn scroll_nth_into_view(selector: &str, index: u32);
 }
