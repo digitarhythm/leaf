@@ -124,7 +124,10 @@
 :is(.mermaid, .mermaid-pre) .node circle,
 :is(.mermaid, .mermaid-pre) .node ellipse,
 :is(.mermaid, .mermaid-pre) .node polygon,
-:is(.mermaid, .mermaid-pre) .node path {
+:is(.mermaid, .mermaid-pre) .node path,
+:is(.mermaid, .mermaid-pre) polygon {
+  /* 菱形(判断ノード)等は .node 配下に無い場合があるため polygon を直接対象にする。
+     エッジは path、エッジラベル背景は rect なので polygon=ノード図形のみに当たり安全。 */
   fill: #ececff;
   stroke: #9370db;
 }

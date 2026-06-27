@@ -434,6 +434,30 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Change",
         }.to_string(),
 
+        "modified_date" => match lang {
+            Language::Ja => "更新日",
+            Language::Zh => "修改日期",
+            Language::Ko => "수정일",
+            Language::Es => "Modificado",
+            Language::De => "Geändert",
+            Language::Fr => "Modifié",
+            Language::It => "Modificato",
+            Language::Nl => "Gewijzigd",
+            _ => "Modified",
+        }.to_string(),
+
+        "created_date" => match lang {
+            Language::Ja => "作成日",
+            Language::Zh => "创建日期",
+            Language::Ko => "생성일",
+            Language::Es => "Creado",
+            Language::De => "Erstellt",
+            Language::Fr => "Créé",
+            Language::It => "Creato",
+            Language::Nl => "Aangemaakt",
+            _ => "Created",
+        }.to_string(),
+
         "edit_category_name" => match lang {
             Language::Ja => "カテゴリー名を編集",
             Language::Zh => "编辑类别名称",

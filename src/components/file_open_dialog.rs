@@ -25,6 +25,30 @@ struct FilePreview {
     is_markdown: bool,
     lang: String,
     is_loaded: bool, // 読み込み完了フラグ
+    modified_time: f64, // 最終更新日時(ミリ秒)
+    created_time: f64,  // 作成日時(ミリ秒)
+}
+
+// 並べ替えの基準
+#[derive(Clone, Copy, PartialEq)]
+enum SortKey { Modified, Created }
+
+// アイコンの表示方法: Grid=3x3グリッド, List=1シート1行で縦に並べる
+#[derive(Clone, Copy, PartialEq)]
+enum ViewMode { Grid, List }
+
+// ファイル一覧を指定キー(更新日/作成日)・方向(desc=降順)で並べ替える。
+// 同値時はファイル名で安定させる。
+fn sort_file_list(list: &mut [FilePreview], key: SortKey, desc: bool) {
+    list.sort_by(|a, b| {
+        let (va, vb) = match key {
+            SortKey::Modified => (a.modified_time, b.modified_time),
+            SortKey::Created => (a.created_time, b.created_time),
+        };
+        let ord = va.partial_cmp(&vb).unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        if desc { ord.reverse() } else { ord }
+    });
 }
 
 enum FileAction {
@@ -99,6 +123,22 @@ pub struct FileOpenDialogProps {
 enum FocusedArea { Categories, Files }
 
 const STORAGE_KEY_LAST_CAT: &str = "leaf_last_category";
+// 表示形式・ソート方法の保存キー
+const STORAGE_KEY_VIEW: &str = "leaf_file_view_mode";
+const STORAGE_KEY_SORT: &str = "leaf_file_sort_key";
+const STORAGE_KEY_MOD_DESC: &str = "leaf_file_sort_mod_desc";
+const STORAGE_KEY_CRE_DESC: &str = "leaf_file_sort_cre_desc";
+
+fn ls_get(key: &str) -> Option<String> {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item(key).ok().flatten())
+}
+fn ls_set(key: &str, val: &str) {
+    if let Some(s) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = s.set_item(key, val);
+    }
+}
 
 #[function_component(FileOpenDialog)]
 pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
@@ -140,6 +180,35 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let cat_swipe_start_y = use_mut_ref(|| 0.0_f64);
     let cat_swipe_is_horizontal = use_mut_ref(|| None::<bool>);
     let cat_swipe_is_dragging = use_state(|| false);
+    // 表示方法ステート(localStorageから復元、既定: グリッド)
+    let view_mode = use_state(|| match ls_get(STORAGE_KEY_VIEW).as_deref() {
+        Some("list") => ViewMode::List,
+        _ => ViewMode::Grid,
+    });
+    // 並べ替えステート(localStorageから復元、既定: 更新日の降順)
+    let sort_active = use_state(|| match ls_get(STORAGE_KEY_SORT).as_deref() {
+        Some("created") => SortKey::Created,
+        _ => SortKey::Modified,
+    });
+    let modified_desc = use_state(|| ls_get(STORAGE_KEY_MOD_DESC).as_deref() != Some("0")); // 既定 true=降順↓
+    let created_desc = use_state(|| ls_get(STORAGE_KEY_CRE_DESC).as_deref() != Some("0"));
+    // 表示形式・ソート方法の変更を localStorage へ保存
+    {
+        let v = *view_mode;
+        use_effect_with(v, move |m| { ls_set(STORAGE_KEY_VIEW, match m { ViewMode::Grid => "grid", ViewMode::List => "list" }); || () });
+    }
+    {
+        let s = *sort_active;
+        use_effect_with(s, move |k| { ls_set(STORAGE_KEY_SORT, match k { SortKey::Modified => "modified", SortKey::Created => "created" }); || () });
+    }
+    {
+        let d = *modified_desc;
+        use_effect_with(d, move |desc| { ls_set(STORAGE_KEY_MOD_DESC, if *desc { "1" } else { "0" }); || () });
+    }
+    {
+        let d = *created_desc;
+        use_effect_with(d, move |desc| { ls_set(STORAGE_KEY_CRE_DESC, if *desc { "1" } else { "0" }); || () });
+    }
     // 横画面カテゴリータブ用ステート
     let cat_edit = use_state(|| None::<(String, String)>); // カテゴリー名編集ダイアログ (id, 現在名)
     let cat_edit_input = use_state(|| String::new());
@@ -367,7 +436,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let processing_move = processing_move_id.clone();
         let active_drive_id_outer = props.active_drive_id.clone();
         let files_cache = files_cache.clone();
+        let sort_active_lf = sort_active.clone();
+        let modified_desc_lf = modified_desc.clone();
+        let created_desc_lf = created_desc.clone();
         Callback::from(move |(cat_id, cat_name, is_initial): (String, String, bool)| {
+            let sort_key_now = *sort_active_lf;
+            let sort_desc_now = match sort_key_now { SortKey::Modified => *modified_desc_lf, SortKey::Created => *created_desc_lf };
             if let Some(ctrl) = (*abort_ctrl_state).as_ref() { ctrl.abort(); }
             let new_ctrl = AbortController::new().unwrap();
             let signal = new_ctrl.signal();
@@ -384,7 +458,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
             // キャッシュにある場合はAPIコールをスキップ
             if let Some(cached) = files_cache.borrow().get(&cat_id) {
-                let cached_list = cached.clone();
+                let mut cached_list = cached.clone();
+                sort_file_list(&mut cached_list, sort_key_now, sort_desc_now);
                 if let Some(ref target_id) = active_drive_id_outer {
                     if let Some(idx) = cached_list.iter().position(|f| f.id == *target_id) {
                         selected_file_idx.set(Some(idx));
@@ -425,10 +500,16 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let name = js_sys::Reflect::get(&v, &JsValue::from_str("name")).unwrap().as_string().unwrap();
                             let size_val = js_sys::Reflect::get(&v, &JsValue::from_str("size")).unwrap_or(JsValue::UNDEFINED);
                             let total_size = size_val.as_string().and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+                            let modified_time = js_sys::Reflect::get(&v, &JsValue::from_str("modifiedTime")).ok()
+                                .and_then(|t| t.as_string())
+                                .map(|s| crate::drive_interop::parse_date(&s)).unwrap_or(0.0);
+                            let created_time = js_sys::Reflect::get(&v, &JsValue::from_str("createdTime")).ok()
+                                .and_then(|t| t.as_string())
+                                .map(|s| crate::drive_interop::parse_date(&s)).unwrap_or(0.0);
                             let ext = name.split('.').last().unwrap_or("").to_lowercase();
-                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext, is_loaded: false });
+                            all_metadata.push(FilePreview { id, name, content: "".to_string(), total_size, loaded_bytes: 0, is_markdown: ext == "md" || ext == "markdown", lang: ext, is_loaded: false, modified_time, created_time });
                         }
-                        all_metadata.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                        sort_file_list(&mut all_metadata, sort_key_now, sort_desc_now);
                         // 空リストの場合はここでキャッシュに保存
                         if all_metadata.is_empty() {
                             cache_inner.borrow_mut().insert(cid_inner.clone(), Vec::new());
@@ -755,12 +836,34 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             if *is_fading_out_cc || is_deleting_cc.is_some() { return; }
             let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
             let key = ke.key();
-            // 横画面アイコングリッドの列数を画面幅から概算(左ペイン=画面幅の半分、アイコン1個≒140px)
+            // 横画面アイコングリッドの実際の列数を DOM レイアウトから測定する。
+            // 1行目のアイコン(先頭要素と同じ画面Y座標を持つ要素)の個数 = 列数。
+            // getBoundingClientRect().top はビューポート基準で offsetParent に依らないため、
+            // グリッドでもリスト(各行が relative)でも正しく測定できる(リストは列数1になる)。
             let is_wide = *is_wide_k;
             let grid_cols = {
-                let w = web_sys::window().and_then(|win| win.inner_width().ok()).and_then(|v| v.as_f64()).unwrap_or(1200.0);
-                let pane = (w * 0.5) - 40.0;
-                (((pane / 140.0).floor()) as i64).max(1) as usize
+                let mut cols = 1usize;
+                if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                    if let Ok(list) = doc.query_selector_all(".leaf-file-icon") {
+                        let n = list.length();
+                        if n > 0 {
+                            let first_top = list.item(0)
+                                .and_then(|el| el.dyn_into::<web_sys::Element>().ok())
+                                .map(|el| el.get_bounding_client_rect().top());
+                            if let Some(top0) = first_top {
+                                let mut c = 0usize;
+                                for i in 0..n {
+                                    if let Some(el) = list.item(i).and_then(|el| el.dyn_into::<web_sys::Element>().ok()) {
+                                        // 同一行判定(サブピクセル誤差を許容)
+                                        if (el.get_bounding_client_rect().top() - top0).abs() < 1.0 { c += 1; } else { break; }
+                                    }
+                                }
+                                if c > 0 { cols = c; }
+                            }
+                        }
+                    }
+                }
+                cols
             };
             match key.as_str() {
                 " " => {
@@ -772,12 +875,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let file_id = file.id.clone(); let file_name = file.name.clone(); let total_size = file.total_size;
                             let p_modal = preview_modal_c.clone(); let is_ld_prev = is_loading_preview_cc.clone();
                             let is_md = file.is_markdown; let lang_c = file.lang.clone();
+                            let mtime = file.modified_time; let ctime = file.created_time;
                             let is_fade = is_preview_fading_out_c.clone();
-                            
+
                             if file.is_loaded {
                                 is_fade.set(false);
                                 on_prev_toggle_c.emit(true);
-                                p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: file.content.clone(), total_size, loaded_bytes: file.loaded_bytes, is_markdown: is_md, lang: lang_c, is_loaded: true }));
+                                p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: file.content.clone(), total_size, loaded_bytes: file.loaded_bytes, is_markdown: is_md, lang: lang_c, is_loaded: true, modified_time: mtime, created_time: ctime }));
                             } else {
                                 is_ld_prev.set(true);
                                 let on_pt = on_prev_toggle_c.clone();
@@ -788,7 +892,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         let b = js_sys::Reflect::get(&safe, &JsValue::from_str("bytes_consumed")).unwrap().as_f64().unwrap_or(0.0) as u64;
                                         is_fade.set(false);
                                         on_pt.emit(true);
-                                        p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: t, total_size, loaded_bytes: b, is_markdown: is_md, lang: lang_c, is_loaded: true }));
+                                        p_modal.set(Some(FilePreview { id: file_id, name: file_name, content: t, total_size, loaded_bytes: b, is_markdown: is_md, lang: lang_c, is_loaded: true, modified_time: mtime, created_time: ctime }));
                                     }
                                     is_ld_prev.set(false);
                                 });
@@ -827,11 +931,20 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                 "ArrowDown" => {
                     e.prevent_default();
                     if is_wide {
-                        // アイコングリッド: 1行下へ
+                        // アイコングリッド: 1行下へ。
+                        // 真下にアイコンがあればそれを選択。真下が無くても次の行が存在する場合は
+                        // その行の一番右(=最後のアイコン)を選択。最終行なら移動しない。
                         let len = files_reducer.list.len();
                         if len > 0 {
                             let cur = selected_file_idx_c.unwrap_or(0);
-                            let new = if cur + grid_cols < len { cur + grid_cols } else { cur };
+                            let below = cur + grid_cols;
+                            let new = if below < len {
+                                below
+                            } else {
+                                let cur_row = cur / grid_cols;
+                                let last_row = (len - 1) / grid_cols;
+                                if cur_row < last_row { len - 1 } else { cur }
+                            };
                             selected_file_idx_c.set(Some(new));
                         }
                     } else if current_focus == FocusedArea::Categories {
@@ -1581,6 +1694,34 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         }
     };
 
+    // ソートボタン押下:
+    //  - 別のボタンへ切り替えた時は、そのボタンの現在の昇順/降順をそのまま適用(反転しない)
+    //  - 既に適用中のボタンを再度押した時は、昇順/降順を反転して適用
+    // 選択はファイルidで維持。
+    let on_sort = {
+        let sort_active = sort_active.clone();
+        let modified_desc = modified_desc.clone();
+        let created_desc = created_desc.clone();
+        let files_reducer = files.clone();
+        let selected_file_idx = selected_file_idx.clone();
+        Callback::from(move |key: SortKey| {
+            let already_active = *sort_active == key;
+            let new_desc = match key {
+                SortKey::Modified => { let d = if already_active { !*modified_desc } else { *modified_desc }; modified_desc.set(d); d }
+                SortKey::Created => { let d = if already_active { !*created_desc } else { *created_desc }; created_desc.set(d); d }
+            };
+            sort_active.set(key);
+            // 現在の選択ファイルidを覚えてから並べ替え、並べ替え後に同idの位置へ選択を移す
+            let sel_id = (*selected_file_idx).and_then(|i| files_reducer.list.get(i).map(|f| f.id.clone()));
+            let mut list = files_reducer.list.clone();
+            sort_file_list(&mut list, key, new_desc);
+            if let Some(id) = sel_id {
+                if let Some(pos) = list.iter().position(|f| f.id == id) { selected_file_idx.set(Some(pos)); }
+            }
+            files_reducer.dispatch(FileAction::Set(list));
+        })
+    };
+
     // 横画面用: ファイルをアイコン表示(拡張子を大きく+先頭行先頭10文字をファイル名風に)
     let files_icon_grid_html = {
         let file_list = files.list.clone();
@@ -1593,11 +1734,135 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let dp_state = dropdown_pos.clone();
         let cat_name = (*current_category_name).clone();
         let is_loading = props.is_loading;
+        // Tauri(デスクトップ)版ではファイル名ラベルの文字が小さく見えるため一回り大きくする
+        let label_size_class = if crate::js_interop::is_tauri() { "text-xs" } else { "text-[9px]" };
+        // ソートボタン用
+        let active_key = *sort_active;
+        let mod_desc = *modified_desc;
+        let cre_desc = *created_desc;
+        let on_sort_m = on_sort.clone();
+        let on_sort_c = on_sort.clone();
+        let sort_btn_class = |is_active: bool| -> Vec<&'static str> {
+            if is_active { vec!["bg-emerald-600","text-white","border-emerald-500"] }
+            else { vec!["bg-gray-800","text-gray-400","border-white/10","hover:bg-gray-700"] }
+        };
+        // 表示方法ボタン用
+        let mode = *view_mode;
+        let vm_grid = view_mode.clone();
+        let vm_list = view_mode.clone();
+        let view_btn_class = |is_active: bool| -> Vec<&'static str> {
+            if is_active { vec!["bg-emerald-600","text-white","border-emerald-500"] }
+            else { vec!["bg-gray-800","text-gray-400","border-white/10","hover:bg-gray-700"] }
+        };
+        // 1ファイル分のアイコンカード(拡張子の四角+ファイル名ラベル)。グリッド/リスト両モードで共用。
+        // show_label=false でアイコン下のファイル名ラベルを非表示(リスト表示は右に本文が出るため不要)。
+        // show_actions=false でアイコン内の移動/削除ボタンを非表示(リスト表示は行右上に出すため)。
+        let make_card = |i: usize, file: &FilePreview, show_label: bool, show_actions: bool| -> Html {
+            let is_sel = sel == Some(i);
+            let ext_disp = if file.lang.is_empty() { "—".to_string() } else { file.lang.to_uppercase() };
+            let label = {
+                let first = file.content.lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
+                match first {
+                    Some(l) => l.chars().take(30).collect::<String>(),
+                    None => file.name.chars().take(30).collect::<String>(),
+                }
+            };
+            let s_idx_inner = s_idx_state.clone();
+            let f_area_inner = f_area_h.clone();
+            let on_ok_inner = on_ok.clone();
+            let p_del_inner = p_del_state.clone();
+            let ads_inner = ads_state.clone();
+            let dp_inner = dp_state.clone();
+            let fid = file.id.clone();
+            let fname = file.name.clone();
+            let is_loaded = file.is_loaded;
+            html! {
+                <div
+                    class="leaf-file-icon group relative w-32 flex flex-col items-center cursor-pointer"
+                    onclick={move |_| { s_idx_inner.set(Some(i)); f_area_inner.set(FocusedArea::Files); }}
+                    ondblclick={move |_| on_ok_inner.emit(())}
+                >
+                    <div class={classes!(
+                        "relative","w-24","h-28","rounded-lg","flex","items-center","justify-center","border-2","transition-all",
+                        if is_sel { vec!["bg-emerald-600","border-white","shadow-lg","ring-4","ring-emerald-500/30"] }
+                        else { vec!["bg-gray-800","border-white/20","group-hover:border-emerald-500/60"] }
+                    )}>
+                        <span class={classes!("text-2xl","font-black","uppercase","tracking-tighter", if is_sel { "text-white" } else { "text-emerald-400/90" })}>{ ext_disp }</span>
+                        if !is_loaded {
+                            <div class="absolute bottom-1 right-1 w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
+                        }
+                        if show_actions {
+                            // 移動ボタン: 常時、左上に表示
+                            <button
+                                onclick={let ads = ads_inner.clone(); let fid_m = fid.clone(); let dp = dp_inner.clone(); move |e: MouseEvent| {
+                                    e.stop_propagation();
+                                    let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                    if let Some(el) = btn { let rect = el.get_bounding_client_rect(); dp.set((rect.right(), rect.bottom() + 4.0)); }
+                                    ads.set(Some(fid_m.clone()));
+                                }}
+                                class="absolute top-1 left-1 flex p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                title="Move"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                            </button>
+                            // 削除ボタン(ゴミ箱): 常時、右上に表示
+                            <button
+                                onclick={let p_del = p_del_inner.clone(); let fid_d = fid.clone(); let fname_d = fname.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
+                                class="absolute top-1 right-1 p-0.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
+                                title="Delete"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                        }
+                    </div>
+                    if show_label {
+                        <span class={classes!("mt-2",label_size_class,"leading-tight","text-center","max-w-full","line-clamp-2","break-all","px-2","py-0.5","rounded", if is_sel { vec!["bg-emerald-600","text-white","font-bold"] } else { vec!["text-gray-300"] })}>{ label }</span>
+                    }
+                </div>
+            }
+        };
+        // リストモード用: アイコン高さに収まるだけ表示できるよう多めに先頭行を取り出す(CSSで高さ制限)
+        let first_lines = |file: &FilePreview| -> String {
+            file.content.lines().take(12).collect::<Vec<_>>().join("\n")
+        };
         html! {
             <div class="flex flex-col h-full w-full bg-gray-900">
                 <div class="p-3 border-b border-white/5 flex items-center gap-2 bg-gray-950/20 flex-shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                     <h2 class="text-sm font-bold text-gray-200 tracking-tight truncate">{ format!("{} ({})", if cat_name == "OTHERS" { i18n::t("OTHERS", lang) } else { cat_name.clone() }, file_list.len()) }</h2>
+                    // 表示方法ボタン(グリッド / リスト) + ソートボタン — ヘッダ右端
+                    <div class="ml-auto flex items-center gap-1.5 flex-shrink-0">
+                        // グリッド表示(3x3)
+                        <button
+                            onclick={move |_| vm_grid.set(ViewMode::Grid)}
+                            title="Grid"
+                            class={classes!("flex","items-center","justify-center","p-1.5","rounded","border","transition-colors", view_btn_class(mode == ViewMode::Grid))}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="9.5" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/><rect x="3" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="16" y="9.5" width="5" height="5" rx="1"/><rect x="3" y="16" width="5" height="5" rx="1"/><rect x="9.5" y="16" width="5" height="5" rx="1"/><rect x="16" y="16" width="5" height="5" rx="1"/></svg>
+                        </button>
+                        // リスト表示(四角+横棒が縦に3つ)
+                        <button
+                            onclick={move |_| vm_list.set(ViewMode::List)}
+                            title="List"
+                            class={classes!("flex","items-center","justify-center","p-1.5","rounded","border","transition-colors", view_btn_class(mode == ViewMode::List))}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="4" height="4" rx="1"/><rect x="9" y="5" width="12" height="2" rx="1"/><rect x="3" y="10" width="4" height="4" rx="1"/><rect x="9" y="11" width="12" height="2" rx="1"/><rect x="3" y="16" width="4" height="4" rx="1"/><rect x="9" y="17" width="12" height="2" rx="1"/></svg>
+                        </button>
+                        <button
+                            onclick={move |_| on_sort_m.emit(SortKey::Modified)}
+                            class={classes!("flex","items-center","gap-1","px-2","py-1","rounded","text-xs","font-bold","border","transition-colors", sort_btn_class(active_key == SortKey::Modified))}
+                        >
+                            <span>{ i18n::t("modified_date", lang) }</span>
+                            <span>{ if mod_desc { "↓" } else { "↑" } }</span>
+                        </button>
+                        <button
+                            onclick={move |_| on_sort_c.emit(SortKey::Created)}
+                            class={classes!("flex","items-center","gap-1","px-2","py-1","rounded","text-xs","font-bold","border","transition-colors", sort_btn_class(active_key == SortKey::Created))}
+                        >
+                            <span>{ i18n::t("created_date", lang) }</span>
+                            <span>{ if cre_desc { "↓" } else { "↑" } }</span>
+                        </button>
+                    </div>
                 </div>
                 <div class="flex-1 overflow-y-auto custom-scrollbar p-4">
                     if is_loading && file_list.is_empty() {
@@ -1609,64 +1874,63 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" /></svg>
                             <p class="text-xs uppercase tracking-widest font-bold">{ i18n::t("no_files_found", lang) }</p>
                         </div>
-                    } else {
+                    } else if mode == ViewMode::Grid {
+                        // グリッド表示(3x3)
                         <div class="flex flex-wrap content-start gap-x-7 gap-y-8">
-                            { for file_list.into_iter().enumerate().map(|(i, file)| {
+                            { for file_list.iter().enumerate().map(|(i, file)| make_card(i, file, true, true)) }
+                        </div>
+                    } else {
+                        // リスト表示(1シート1行: 左にアイコン、右にアイコンの高さに収まるだけの行)
+                        <div class="flex flex-col gap-2">
+                            { for file_list.iter().enumerate().map(|(i, file)| {
                                 let is_sel = sel == Some(i);
-                                let ext_disp = if file.lang.is_empty() { "—".to_string() } else { file.lang.to_uppercase() };
-                                let label = {
-                                    let first = file.content.lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty());
-                                    match first {
-                                        Some(l) => l.chars().take(30).collect::<String>(),
-                                        None => file.name.chars().take(30).collect::<String>(),
-                                    }
-                                };
-                                let s_idx_inner = s_idx_state.clone();
-                                let f_area_inner = f_area_h.clone();
-                                let on_ok_inner = on_ok.clone();
-                                let p_del_inner = p_del_state.clone();
-                                let ads_inner = ads_state.clone();
-                                let dp_inner = dp_state.clone();
-                                let fid = file.id.clone();
-                                let fname = file.name.clone();
+                                let lines = first_lines(file);
+                                let s_idx_row = s_idx_state.clone();
+                                let f_area_row = f_area_h.clone();
+                                let on_ok_row = on_ok.clone();
+                                let ads_row = ads_state.clone();
+                                let dp_row = dp_state.clone();
+                                let p_del_row = p_del_state.clone();
+                                let fid_row = file.id.clone();
+                                let fname_row = file.name.clone();
                                 html! {
                                     <div
-                                        class="group relative w-32 flex flex-col items-center cursor-pointer"
-                                        onclick={move |_| { s_idx_inner.set(Some(i)); f_area_inner.set(FocusedArea::Files); }}
-                                        ondblclick={move |_| on_ok_inner.emit(())}
+                                        class={classes!(
+                                            "group","relative","flex","items-stretch","gap-3","p-2","rounded-lg","border","transition-colors","cursor-pointer",
+                                            if is_sel { vec!["bg-emerald-600/10","border-emerald-500/50"] } else { vec!["border-white/10","hover:bg-white/5"] }
+                                        )}
+                                        onclick={move |_| { s_idx_row.set(Some(i)); f_area_row.set(FocusedArea::Files); }}
+                                        ondblclick={move |_| on_ok_row.emit(())}
                                     >
-                                        <div class={classes!(
-                                            "relative","w-24","h-28","rounded-lg","flex","items-center","justify-center","border-2","transition-all",
-                                            if is_sel { vec!["bg-emerald-600","border-white","shadow-lg","ring-4","ring-emerald-500/30"] }
-                                            else { vec!["bg-gray-800","border-white/20","group-hover:border-emerald-500/60"] }
-                                        )}>
-                                            <span class={classes!("text-2xl","font-black","uppercase","tracking-tighter", if is_sel { "text-white" } else { "text-emerald-400/90" })}>{ ext_disp }</span>
-                                            if !file.is_loaded {
-                                                <div class="absolute bottom-1 right-1 w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
-                                            }
-                                            // 移動ボタン: ホバー時に左上へ表示
+                                        <div class="flex-shrink-0">
+                                            { make_card(i, file, false, false) }
+                                        </div>
+                                        // アイコンの高さ(h-28=7rem)に収まるだけの行を表示。はみ出しは隠す。
+                                        <div class={classes!("flex-1","min-w-0","max-h-28","overflow-hidden","text-xs","leading-snug","break-all","whitespace-pre-wrap", if is_sel { "text-emerald-50" } else { "text-gray-300" })}>
+                                            { lines }
+                                        </div>
+                                        // 行の右上: カテゴリー変更(移動) / 削除 ボタン
+                                        <div class="absolute top-1.5 right-1.5 flex items-center gap-1">
                                             <button
-                                                onclick={let ads = ads_inner.clone(); let fid_m = fid.clone(); let dp = dp_inner.clone(); move |e: MouseEvent| {
+                                                onclick={let ads = ads_row.clone(); let fid_m = fid_row.clone(); let dp = dp_row.clone(); move |e: MouseEvent| {
                                                     e.stop_propagation();
                                                     let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
                                                     if let Some(el) = btn { let rect = el.get_bounding_client_rect(); dp.set((rect.right(), rect.bottom() + 4.0)); }
                                                     ads.set(Some(fid_m.clone()));
                                                 }}
-                                                class="absolute top-1 left-1 hidden group-hover:flex p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                                class="flex p-1 rounded bg-black/40 hover:bg-emerald-600 text-white"
                                                 title="Move"
                                             >
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                                             </button>
-                                            // 削除ボタン(ゴミ箱): 常時、右上に表示
                                             <button
-                                                onclick={let p_del = p_del_inner.clone(); let fid_d = fid.clone(); let fname_d = fname.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
-                                                class="absolute top-1 right-1 p-0.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
+                                                onclick={let p_del = p_del_row.clone(); let fid_d = fid_row.clone(); let fname_d = fname_row.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
+                                                class="p-1 rounded bg-black/50 hover:bg-red-600 text-white shadow"
                                                 title="Delete"
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                             </button>
                                         </div>
-                                        <span class={classes!("mt-2","text-[9px]","leading-tight","text-center","max-w-full","line-clamp-2","break-all","px-2","py-0.5","rounded", if is_sel { vec!["bg-emerald-600","text-white","font-bold"] } else { vec!["text-gray-300"] })}>{ label }</span>
                                     </div>
                                 }
                             }) }

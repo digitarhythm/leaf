@@ -192,7 +192,7 @@ export async function upload_file(filename, content, folderId, fileId = null) {
 
 export async function list_files(folderId, signal = null) {
     const query = `'${folderId}' in parents and mimeType != '${FOLDER_MIME_TYPE}' and trashed=false`;
-    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name, size, modifiedTime)`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id, name, size, modifiedTime, createdTime)`;
     const response = await authenticatedFetch(url, { signal });
     if (!response.ok) throw new Error(`List files failed: ${response.status}`);
     return await response.json();

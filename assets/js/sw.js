@@ -1,5 +1,5 @@
 // sw.js - Precision Caching & Fallback
-const CACHE_NAME = 'leaf-cache-v10';
+const CACHE_NAME = 'leaf-cache-v11';
 
 const PRECACHE_ASSETS = [
   './',
