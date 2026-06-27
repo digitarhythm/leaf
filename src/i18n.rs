@@ -434,6 +434,30 @@ pub fn t(key: &str, lang: Language) -> String {
             _ => "Change",
         }.to_string(),
 
+        "select_file_type" => match lang {
+            Language::Ja => "ファイルタイプを選択",
+            Language::Zh => "选择文件类型",
+            Language::Ko => "파일 형식 선택",
+            Language::Es => "Seleccionar tipo de archivo",
+            Language::De => "Dateityp auswählen",
+            Language::Fr => "Sélectionner le type de fichier",
+            Language::It => "Seleziona tipo di file",
+            Language::Nl => "Bestandstype selecteren",
+            _ => "Select file type",
+        }.to_string(),
+
+        "move_to_category" => match lang {
+            Language::Ja => "カテゴリーへ移動",
+            Language::Zh => "移动到类别",
+            Language::Ko => "카테고리로 이동",
+            Language::Es => "Mover a categoría",
+            Language::De => "In Kategorie verschieben",
+            Language::Fr => "Déplacer vers la catégorie",
+            Language::It => "Sposta nella categoria",
+            Language::Nl => "Verplaats naar categorie",
+            _ => "Move to category",
+        }.to_string(),
+
         "modified_date" => match lang {
             Language::Ja => "更新日",
             Language::Zh => "修改日期",

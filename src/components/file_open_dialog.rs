@@ -54,6 +54,7 @@ fn sort_file_list(list: &mut [FilePreview], key: SortKey, desc: bool) {
 enum FileAction {
     Set(Vec<FilePreview>),
     UpdateContent(String, String, u64), // id, content, loaded_bytes
+    Rename(String, String, String), // id, new_name, new_lang(拡張子)
     Remove(String),
     Clear,
 }
@@ -73,6 +74,15 @@ impl Reducible for FileState {
                     f.content = content; 
                     f.loaded_bytes = loaded_bytes;
                     f.is_loaded = true; // 内容が（空であっても）確定した
+                }
+                Rc::new(FileState { list })
+            }
+            FileAction::Rename(id, new_name, new_lang) => {
+                let mut list = self.list.clone();
+                if let Some(f) = list.iter_mut().find(|x| x.id == id) {
+                    f.name = new_name;
+                    f.is_markdown = new_lang == "md" || new_lang == "markdown";
+                    f.lang = new_lang;
                 }
                 Rc::new(FileState { list })
             }
@@ -156,6 +166,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let current_category_name = use_state(|| "".to_string());
     let active_dropdown_file_id = use_state(|| None::<String>);
     let dropdown_pos = use_state(|| (0.0_f64, 0.0_f64)); // ドロップダウンの固定位置 (right from viewport right, top)
+    let active_filetype_file_id = use_state(|| None::<String>); // 拡張子変更ドロップダウンを開いているファイル
+    let filetype_dropdown_pos = use_state(|| (0.0_f64, 0.0_f64));
     let preview_modal_data = use_state(|| None::<FilePreview>);
     let is_preview_fading_out = use_state(|| false); 
     let is_loading_preview = use_state(|| false); 
@@ -1048,6 +1060,38 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         })
     };
 
+    // 拡張子(ファイルタイプ)変更: Drive上でリネームし、ローカル一覧も更新
+    let on_change_filetype = {
+        let files_reducer = files.clone();
+        let ft_state = active_filetype_file_id.clone();
+        let proc_move = processing_move_id.clone();
+        let cur_cid_c = current_category_id.clone();
+        let cache_ref = files_cache.clone();
+        Callback::from(move |(file_id, new_ext): (String, String)| {
+            ft_state.set(None);
+            let cur = files_reducer.list.clone();
+            let Some(file) = cur.iter().find(|f| f.id == file_id) else { return; };
+            // 現在の拡張子を除いたベース名 + 新しい拡張子
+            let name = file.name.clone();
+            let base = match name.rfind('.') { Some(pos) => name[..pos].to_string(), None => name.clone() };
+            let new_name = format!("{}.{}", base, new_ext);
+            if new_name == name { return; }
+            let reducer = files_reducer.clone();
+            let proc_m = proc_move.clone();
+            let f_id = file_id.clone();
+            let cache = cache_ref.clone();
+            let cid = (*cur_cid_c).clone();
+            proc_m.set(Some(f_id.clone()));
+            spawn_local(async move {
+                if crate::drive_interop::rename_file(&f_id, &new_name).await.is_ok() {
+                    cache.borrow_mut().remove(&cid);
+                    reducer.dispatch(FileAction::Rename(f_id.clone(), new_name, new_ext));
+                }
+                proc_m.set(None);
+            });
+        })
+    };
+
     let on_delete_file_confirm = {
         let pending_delete_c = pending_delete_file.clone();
         let is_del_id_c = is_deleting_id.clone();
@@ -1787,6 +1831,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let p_del_inner = p_del_state.clone();
             let ads_inner = ads_state.clone();
             let dp_inner = dp_state.clone();
+            let ft_inner = active_filetype_file_id.clone();
+            let ftp_inner = filetype_dropdown_pos.clone();
             let fid = file.id.clone();
             let fname = file.name.clone();
             let is_loaded = file.is_loaded;
@@ -1805,8 +1851,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                         if !is_loaded {
                             <div class="absolute bottom-1 right-1 w-3 h-3 border-2 border-emerald-500/30 border-t-emerald-500 rounded-full animate-spin"></div>
                         }
-                        if show_actions && is_sel {
-                            // 移動ボタン: 選択時のみ左上に表示
+                        if show_actions {
+                            // ホバー時に表示: カテゴリー選択(左上) / ファイルタイプ選択(最上部中央) / 削除(右上)
                             <button
                                 onclick={let ads = ads_inner.clone(); let fid_m = fid.clone(); let dp = dp_inner.clone(); move |e: MouseEvent| {
                                     e.stop_propagation();
@@ -1814,15 +1860,26 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                     if let Some(el) = btn { let rect = el.get_bounding_client_rect(); dp.set((rect.right(), rect.bottom() + 4.0)); }
                                     ads.set(Some(fid_m.clone()));
                                 }}
-                                class="absolute top-1 left-1 flex p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
-                                title="Move"
+                                class="absolute top-1 left-1 hidden group-hover:flex p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                title="Category"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                             </button>
-                            // 削除ボタン(ゴミ箱): 常時、右上に表示
+                            <button
+                                onclick={let ft = ft_inner.clone(); let fid_t = fid.clone(); let ftp = ftp_inner.clone(); move |e: MouseEvent| {
+                                    e.stop_propagation();
+                                    let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                    if let Some(el) = btn { let rect = el.get_bounding_client_rect(); ftp.set((rect.right(), rect.bottom() + 4.0)); }
+                                    ft.set(Some(fid_t.clone()));
+                                }}
+                                class="absolute top-1 left-1/2 -translate-x-1/2 hidden group-hover:flex p-0.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                title="File type"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+                            </button>
                             <button
                                 onclick={let p_del = p_del_inner.clone(); let fid_d = fid.clone(); let fname_d = fname.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
-                                class="absolute top-1 right-1 p-0.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
+                                class="absolute top-1 right-1 hidden group-hover:flex p-0.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
                                 title="Delete"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
@@ -1904,6 +1961,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 let on_ok_row = on_ok.clone();
                                 let ads_row = ads_state.clone();
                                 let dp_row = dp_state.clone();
+                                let ft_row = active_filetype_file_id.clone();
+                                let ftp_row = filetype_dropdown_pos.clone();
                                 let p_del_row = p_del_state.clone();
                                 let fid_row = file.id.clone();
                                 let fname_row = file.name.clone();
@@ -1923,8 +1982,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         <div class={classes!("flex-1","min-w-0","max-h-28","overflow-hidden","text-xs","leading-snug","break-all","whitespace-pre-wrap", if is_sel { "text-emerald-50" } else { "text-gray-300" })}>
                                             { lines }
                                         </div>
-                                        // 行の右上: カテゴリー変更(移動) / 削除 ボタン
-                                        <div class="absolute top-1.5 right-1.5 flex items-center gap-1">
+                                        // 行の右端: カテゴリー選択 / ファイルタイプ選択 / 削除 を縦に並べる
+                                        <div class="flex-shrink-0 w-10 flex flex-col items-center justify-center gap-2 border-l border-white/10 pl-1">
                                             <button
                                                 onclick={let ads = ads_row.clone(); let fid_m = fid_row.clone(); let dp = dp_row.clone(); move |e: MouseEvent| {
                                                     e.stop_propagation();
@@ -1932,17 +1991,29 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                     if let Some(el) = btn { let rect = el.get_bounding_client_rect(); dp.set((rect.right(), rect.bottom() + 4.0)); }
                                                     ads.set(Some(fid_m.clone()));
                                                 }}
-                                                class="flex p-1 rounded bg-black/40 hover:bg-emerald-600 text-white"
-                                                title="Move"
+                                                class="flex p-1.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                                title="Category"
                                             >
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                                            </button>
+                                            <button
+                                                onclick={let ft = ft_row.clone(); let fid_t = fid_row.clone(); let ftp = ftp_row.clone(); move |e: MouseEvent| {
+                                                    e.stop_propagation();
+                                                    let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                                    if let Some(el) = btn { let rect = el.get_bounding_client_rect(); ftp.set((rect.right(), rect.bottom() + 4.0)); }
+                                                    ft.set(Some(fid_t.clone()));
+                                                }}
+                                                class="flex p-1.5 rounded bg-black/40 hover:bg-emerald-600 text-white"
+                                                title="File type"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
                                             </button>
                                             <button
                                                 onclick={let p_del = p_del_row.clone(); let fid_d = fid_row.clone(); let fname_d = fname_row.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
-                                                class="p-1 rounded bg-black/50 hover:bg-red-600 text-white shadow"
+                                                class="flex p-1.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
                                                 title="Delete"
                                             >
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                                             </button>
                                         </div>
                                     </div>
@@ -2020,12 +2091,51 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     style={format!("left: {}px; top: {}px;", dropdown_left, use_top)}
                     onclick={|e: MouseEvent| e.stop_propagation()}
                 >
-                    <div class="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mb-1">{ "Move to category" }</div>
+                    <div class="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mb-1">{ i18n::t("move_to_category", lang) }</div>
                     <div class="max-h-48 overflow-y-auto custom-scrollbar">
                         { for sorted_categories.iter().filter(|c| c.id != current_cid_for_dd).map(|c| {
                             let on_mv = on_move_file.clone(); let fid = fid_dd.clone(); let tcid = c.id.clone();
                             let cname = c.name.clone();
                             html! { <button onclick={move |e: MouseEvent| { e.stop_propagation(); on_mv.emit((fid.clone(), tcid.clone())); }} class="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-emerald-600 hover:text-white transition-colors flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg><span>{ if cname == "OTHERS" { i18n::t("OTHERS", lang) } else { cname } }</span></button> }
+                        }) }
+                    </div>
+                </div>
+            </>
+        }
+    } else {
+        html! {}
+    };
+
+    // 拡張子(ファイルタイプ)変更ドロップダウン
+    let filetype_dropdown_html = if let Some(ref ft_fid) = *active_filetype_file_id {
+        let (dd_right, dd_top) = *filetype_dropdown_pos;
+        let vh = web_sys::window().map(|w| w.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(800.0)).unwrap_or(800.0);
+        let dropdown_left = (dd_right - 192.0).max(4.0);
+        let max_dropdown_h = 280.0;
+        let use_top = if dd_top + max_dropdown_h > vh { (dd_top - max_dropdown_h - 8.0).max(4.0) } else { dd_top };
+        let ft_dd = active_filetype_file_id.clone();
+        let fid_dd = ft_fid.clone();
+        let cur_ext = files.list.iter().find(|f| f.id == *ft_fid).map(|f| f.lang.clone()).unwrap_or_default();
+        html! {
+            <>
+                <div class="fixed inset-0 z-[350]" onclick={let ft = ft_dd.clone(); move |_| ft.set(None)}></div>
+                <div class="fixed z-[360] w-48 bg-gray-800 border border-white/10 rounded-lg shadow-2xl py-1 animate-in fade-in zoom-in-95 duration-100"
+                    style={format!("left: {}px; top: {}px;", dropdown_left, use_top)}
+                    onclick={|e: MouseEvent| e.stop_propagation()}
+                >
+                    <div class="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mb-1">{ i18n::t("select_file_type", lang) }</div>
+                    <div class="max-h-64 overflow-y-auto custom-scrollbar">
+                        { for crate::app::SUPPORTED_EXTENSIONS.iter().map(|(ext, key)| {
+                            let on_ct = on_change_filetype.clone(); let fid = fid_dd.clone(); let e2 = ext.to_string();
+                            let is_cur = *ext == cur_ext;
+                            html! {
+                                <button onclick={move |e: MouseEvent| { e.stop_propagation(); on_ct.emit((fid.clone(), e2.clone())); }}
+                                    class={classes!("w-full","text-left","px-4","py-2","text-xs","transition-colors","flex","items-center","gap-2",
+                                        if is_cur { vec!["bg-emerald-600/30","text-emerald-300","font-bold"] } else { vec!["text-gray-300","hover:bg-emerald-600","hover:text-white"] })}>
+                                    <span class="font-mono text-[10px] opacity-70 w-10">{ format!(".{}", ext) }</span>
+                                    <span>{ i18n::t(key, lang) }</span>
+                                </button>
+                            }
                         }) }
                     </div>
                 </div>
@@ -2144,6 +2254,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             </div>
 
             { dropdown_menu_html.clone() }
+
+            { filetype_dropdown_html }
 
             { cat_edit_dialog_html }
 

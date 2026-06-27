@@ -430,7 +430,9 @@
       stroke-width: 2.5px !important;
       stroke-opacity: 1 !important;
     }
-    .mermaid svg polygon,
+    /* 矢印(marker/arrowhead)のみ黒くする。
+       かつて .mermaid svg polygon を含めていたが、判断ノードの菱形も polygon のため
+       !important で黒潰れしていた。矢印は marker 配下なので polygon 単体は対象から除外する。 */
     .mermaid svg marker path,
     .mermaid svg marker polygon,
     .mermaid svg #arrowhead path {

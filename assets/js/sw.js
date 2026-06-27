@@ -1,5 +1,5 @@
 // sw.js - Precision Caching & Fallback
-const CACHE_NAME = 'leaf-cache-v11';
+const CACHE_NAME = 'leaf-cache-v12';
 
 const PRECACHE_ASSETS = [
   './',
@@ -67,6 +67,21 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       }).catch(() => caches.match('index.html'))
+    );
+    return;
+  }
+
+  // CSS: ネットワーク優先（tailwind.css は固定パスでキャッシュバスティングが効かないため、
+  // cache-first だと変更が永久に反映されない。常に最新を取得しオフライン時のみキャッシュへフォールバック）
+  if (event.request.destination === 'style' || url.pathname.endsWith('.css')) {
+    event.respondWith(
+      fetch(event.request).then((network) => {
+        if (network && (network.status === 200 || network.status === 0)) {
+          const clone = network.clone();
+          caches.open(CACHE_NAME).then(c => c.put(event.request, clone));
+        }
+        return network;
+      }).catch(() => caches.match(event.request, { ignoreSearch: true }))
     );
     return;
   }
