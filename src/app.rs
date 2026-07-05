@@ -345,7 +345,7 @@ fn close_tab_direct(
                 id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(),
                 content: "".to_string(), is_modified: false, drive_id: None, temp_content: None,
                 temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(),
-                total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0,
+                total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0,
                 created_at: Some(js_sys::Date::now() as u64),
                 local_path: None,
 
@@ -983,7 +983,7 @@ pub fn app() -> Html {
                 }
                 if !has_sheets {
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                    let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                     *r.borrow_mut() = vec![ns.clone()]; s.set(vec![ns]); a.set(Some(nid));
                 }
                 // 設定の読み込み
@@ -1064,7 +1064,7 @@ pub fn app() -> Html {
                     }
                     if us.is_empty() {
                         let nid = js_sys::Date::now().to_string();
-                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                         us.push(ns.clone());
                         crate::js_interop::activate_sheet_session(&nid, "", "Untitled 1.txt");
                         aid_inner.set(Some(nid.clone())); focus_editor();
@@ -1214,7 +1214,7 @@ pub fn app() -> Html {
                                             us.remove(pos);
                                             if us.is_empty() {
                                                 let nid = js_sys::Date::now().to_string();
-                                                let ns = Sheet { id: nid.clone(), guid: None, category: ncid_val.unwrap_or_default(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                                                let ns = Sheet { id: nid.clone(), guid: None, category: ncid_val.unwrap_or_default(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                                                 us.push(ns.clone());
                                                 *rs_del.borrow_mut() = us.clone();
                                                 s_del.set(us);
@@ -1646,7 +1646,7 @@ pub fn app() -> Html {
                 clear_local_handle();
                 let nid = js_sys::Date::now().to_string();
                 let cat_id = (*ncid_for_new).clone().unwrap_or_else(|| "".to_string());
-                let ns = Sheet { id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                let ns = Sheet { id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
 
                 let mut current_sheets = (*rs.borrow()).clone();
                 current_sheets.push(ns.clone());
@@ -1848,7 +1848,7 @@ pub fn app() -> Html {
                 }
                 if us.is_empty() {
                     let nid = js_sys::Date::now().to_string();
-                    let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                    let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                     us.push(ns.clone());
                     crate::js_interop::activate_sheet_session(&nid, "", "Untitled 1.txt");
                     aid_inner.set(Some(nid.clone())); focus_editor();
@@ -1958,6 +1958,8 @@ pub fn app() -> Html {
                     let decoder_instance = js_sys::Reflect::construct(&decoder.into(), &js_sys::Array::of1(&JsValue::from_str("utf-8"))).unwrap();
                     let decode_fn = js_sys::Reflect::get(&decoder_instance, &JsValue::from_str("decode")).unwrap();
                     let c = js_sys::Reflect::apply(&decode_fn.into(), &decoder_instance, &js_sys::Array::of1(&cv)).unwrap().as_string().unwrap_or_default();
+                    // デコード後に残った先頭BOM(U+FEFF)を除去（多重BOMファイルも確実にクリーン化）
+                    let c = c.trim_start_matches('\u{feff}').to_string();
                     let c_len = c.len() as u64;
                     
                     // DriveのmodifiedTimeを取得して正確なタイムスタンプを使用
@@ -2119,6 +2121,8 @@ pub fn app() -> Html {
                 if let (Some(name), Some(content), Some(bytes_js)) = (name_val, content_val, bytes_val) {
                     let bytes = js_sys::Uint8Array::new(&bytes_js).to_vec();
                     let has_bom = has_utf8_bom(&bytes);
+                    // デコード後に残った先頭BOM(U+FEFF)を除去（多重BOMファイルも確実にクリーン化）
+                    let content = content.trim_start_matches('\u{feff}').to_string();
 
                     lmk_cb.set("synchronizing"); ifo_cb.set(false); lock_fade_cb.set(false); il_cb.set(true); lock_cb.set(true);
                     let nid = js_sys::Date::now().to_string();
@@ -2181,8 +2185,8 @@ pub fn app() -> Html {
                         
                         sheet.guid = Some(guid.clone()); 
                         sheet.title = format!("{}.{}", guid, final_ext); 
-                        sheet.needs_bom = true;
-                        clear_local_handle(); 
+                        sheet.needs_bom = false;
+                        clear_local_handle();
                         sheet.category = new_cat_id;
                         let mut us = current_sheets; us[pos] = sheet; *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                         Timeout::new(0, move || { os_inner.emit((true, None)); }).forget(); return;
@@ -2329,6 +2333,8 @@ pub fn app() -> Html {
         let isi_listener = is_initial_load.clone();
         let ild_listener = is_loading.clone();
         let ifo_listener = is_fading_out.clone();
+        let lmk_migrate_start = loading_message_key.clone();
+        let lmk_migrate_end = loading_message_key.clone();
 
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
@@ -2354,6 +2360,16 @@ pub fn app() -> Html {
                 ifo_listener.set(false);
                 isi_listener.set(false);
                 aev_listener.set(true);
+            });
+
+            // データ移行（appDataFolderへのコンバート）中の表示切り替え
+            let listener_migrate_start = EventListener::new(&window, "leaf-migration-start", move |_| {
+                gloo::console::log!("[Leaf-SYSTEM] Migration started.");
+                lmk_migrate_start.set("migrating_data");
+            });
+            let listener_migrate_end = EventListener::new(&window, "leaf-migration-end", move |_| {
+                gloo::console::log!("[Leaf-SYSTEM] Migration finished.");
+                lmk_migrate_end.set("synchronizing");
             });
             
             let nc_online = nc.clone();
@@ -2402,7 +2418,7 @@ pub fn app() -> Html {
                 })
             };
 
-            move || { drop(listener_expired); drop(listener_refreshed); drop(listener_auth_error); drop(listener_online); drop(listener_offline); drop(listener_visibility); }
+            move || { drop(listener_expired); drop(listener_refreshed); drop(listener_auth_error); drop(listener_migrate_start); drop(listener_migrate_end); drop(listener_online); drop(listener_offline); drop(listener_visibility); }
         });
     }
 
@@ -2471,7 +2487,7 @@ pub fn app() -> Html {
                     }
                     if !has_sheets {
                         let nid = js_sys::Date::now().to_string();
-                        let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                         *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
                     }
                     // 設定の読み込み
@@ -2524,7 +2540,7 @@ pub fn app() -> Html {
                     }
                     if initial {
                         let nid = js_sys::Date::now().to_string();
-                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                        let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                         *rs.borrow_mut() = vec![ns.clone()]; s_handle.set(vec![ns]); aid_handle.set(Some(nid));
                     }
                 }
@@ -2728,7 +2744,7 @@ pub fn app() -> Html {
                             }
                             if !has_sheets {
                                 let nid = js_sys::Date::now().to_string();
-                                let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                                let ns = Sheet { id: nid.clone(), guid: None, category: "".to_string(), title: "Untitled 1.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                                 *rs_ref.borrow_mut() = vec![ns.clone()];
                                 s_handle.set(vec![ns]);
                                 aid_h.set(Some(nid));
@@ -2849,7 +2865,7 @@ pub fn app() -> Html {
                         Timeout::new(delay, move || {
                             clear_local_handle();
                             let nid = js_sys::Date::now().to_string();
-                            let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: true, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                            let ns = Sheet { id: nid.clone(), guid: None, category: "__LOCAL__".to_string(), title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
                             let mut current_sheets = (*rs.borrow()).clone(); current_sheets.push(ns.clone());
                             *rs.borrow_mut() = current_sheets.clone(); s.set(current_sheets);
                             crate::js_interop::activate_sheet_session(&nid, "", "Untitled.txt");
@@ -4773,11 +4789,36 @@ pub fn app() -> Html {
                     let updated = sheet.temp_timestamp.or(sheet.last_sync_timestamp).filter(|&t| t > 0);
                     (sheet.title.clone(), sheet.content.chars().count(), sheet.created_at, updated, sheet.needs_bom, cat_name)
                 } else {
-                    ("".to_string(), 0, None, None, true, "".to_string())
+                    ("".to_string(), 0, None, None, false, "".to_string())
                 }
             } else {
                 ("".to_string(), 0, None, None, true, "".to_string())
             }
+        };
+        let on_toggle_bom = {
+            let rs = sheets_ref.clone();
+            let ss = sheets.clone();
+            let aid = active_sheet_id.clone();
+            let spid = split_pane_sheet_id.clone();
+            Callback::from(move |new_bom: bool| {
+                let target_id = (*spid).clone().or_else(|| (*aid).clone());
+                if let Some(tid) = target_id {
+                    let mut us = (*rs.borrow()).clone();
+                    let mut updated: Option<Sheet> = None;
+                    for s in us.iter_mut() {
+                        if s.id == tid { s.needs_bom = new_bom; updated = Some(s.clone()); }
+                    }
+                    *rs.borrow_mut() = us.clone();
+                    ss.set(us.clone());
+                    if let Some(s) = updated {
+                        spawn_local(async move {
+                            let js = s.to_js();
+                            let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                            if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+                        });
+                    }
+                }
+            })
         };
         html! {
             <div class="pointer-events-auto">
@@ -4787,6 +4828,7 @@ pub fn app() -> Html {
                     created_at={info_created_at}
                     updated_at={info_updated_at}
                     needs_bom={info_needs_bom}
+                    on_toggle_bom={on_toggle_bom}
                     category_name={info_category_name}
                     on_close={Callback::from(move |_| { isiv.set(false); focus_editor(); })}
                 />

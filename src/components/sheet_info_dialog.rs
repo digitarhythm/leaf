@@ -11,6 +11,7 @@ pub struct SheetInfoDialogProps {
     pub created_at: Option<u64>,
     pub updated_at: Option<u64>,
     pub needs_bom: bool,
+    pub on_toggle_bom: Callback<bool>,
     pub category_name: String,
 }
 
@@ -76,9 +77,10 @@ pub fn sheet_info_dialog(props: &SheetInfoDialogProps) -> Html {
         (i18n::t("info_char_count", lang).to_string(), format!("{}", char_count)),
         (i18n::t("info_created_at", lang).to_string(), format_ts(created_ts, lang)),
         (i18n::t("info_updated_at", lang).to_string(), format_ts(updated_ts, lang)),
-        (i18n::t("info_encoding", lang).to_string(), encoding_str),
         (i18n::t("info_directory", lang).to_string(), category_name),
     ];
+
+    let needs_bom = props.needs_bom;
 
     html! {
         <div class="fixed inset-0 z-[200] flex items-center justify-center">
@@ -130,6 +132,26 @@ pub fn sheet_info_dialog(props: &SheetInfoDialogProps) -> Html {
                             <span class="text-[13px] text-gray-300 font-mono break-all">{ value.clone() }</span>
                         </div>
                     }) }
+                    // エンコーディング（BOM ON/OFF トグル）
+                    <div class="flex items-center justify-between">
+                        <div class="flex flex-col gap-0.5">
+                            <span class="text-[10px] font-bold text-emerald-500/80 uppercase tracking-widest">{ i18n::t("info_encoding", lang) }</span>
+                            <span class="text-[13px] text-gray-300 font-mono break-all">{ encoding_str }</span>
+                        </div>
+                        <button
+                            onclick={{ let cb = props.on_toggle_bom.clone(); move |_| cb.emit(!needs_bom) }}
+                            title="BOM"
+                            class={classes!(
+                                "relative", "inline-flex", "h-6", "w-11", "shrink-0", "items-center", "rounded-full", "transition-colors",
+                                if needs_bom { "bg-emerald-600" } else { "bg-[#504945]" }
+                            )}
+                        >
+                            <span class={classes!(
+                                "inline-block", "h-4", "w-4", "transform", "rounded-full", "bg-white", "transition-transform",
+                                if needs_bom { "translate-x-6" } else { "translate-x-1" }
+                            )}></span>
+                        </button>
+                    </div>
                 </div>
 
                 // Footer

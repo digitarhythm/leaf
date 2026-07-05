@@ -80,7 +80,7 @@ export function init_google_auth(clientId, onSuccessCallback) {
     script.onload = () => {
         codeClient = google.accounts.oauth2.initCodeClient({
             client_id: clientId,
-            scope: 'openid email https://www.googleapis.com/auth/drive.file',
+            scope: 'openid email https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.appdata',
             ux_mode: 'popup',
             callback: async (response) => {
                 if (response.error !== undefined) {

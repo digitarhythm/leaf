@@ -324,7 +324,7 @@ async fn authenticate_google_force(_app: tauri::AppHandle, clientId: Option<Stri
     let redirect_uri = "http://localhost:3456/auth/";
 
     let auth_url = format!(
-        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20https://www.googleapis.com/auth/drive.file&access_type=offline&prompt=consent",
+        "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope=openid%20email%20https://www.googleapis.com/auth/drive.file%20https://www.googleapis.com/auth/drive.appdata&access_type=offline&prompt=consent",
         active_client_id, url::form_urlencoded::byte_serialize(redirect_uri.as_bytes()).collect::<String>()
     );
 
