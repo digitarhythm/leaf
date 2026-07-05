@@ -5,7 +5,7 @@ use serde_json::Value;
 use tauri_plugin_dialog::DialogExt;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 #[cfg(target_os = "macos")]
-use objc::{msg_send, sel, sel_impl, class};
+use objc::{msg_send, sel, sel_impl};
 
 // 複数PTY状態管理
 struct PtyInstance {
@@ -40,13 +40,14 @@ fn set_window_opacity(app: tauri::AppHandle, opacity: f64) -> Result<(), String>
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
-        use cocoa::appkit::{NSWindow, CGFloat};
         if let Some(window) = app.get_webview_window("main") {
             let ns_window = window.ns_window().map_err(|e| format!("{}", e))?;
             let alpha = opacity.clamp(0.5, 1.0);
             unsafe {
-                let ns_win: cocoa::base::id = ns_window as cocoa::base::id;
-                ns_win.setAlphaValue_(alpha as CGFloat);
+                // deprecated な cocoa クレートを使わず objc の msg_send で setAlphaValue: を呼ぶ。
+                // （objc 0.2 の msg_send! マクロ由来の unexpected_cfgs 擬似警告は Cargo.toml の [lints] で抑制）
+                let ns_win = ns_window as *mut objc::runtime::Object;
+                let _: () = msg_send![ns_win, setAlphaValue: alpha as std::os::raw::c_double];
             }
         }
     }
