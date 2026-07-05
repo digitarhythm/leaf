@@ -5127,6 +5127,11 @@ pub fn app() -> Html {
                         on_delete={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); let tsh_del = TerminalSplitHandles { ts_state: terminal_split_enabled.clone(), ts_ref: terminal_split_ref.clone(), tse_state: terminal_split_edit_mode.clone(), tse_ref: terminal_split_edit_ref.clone(), sps_state: split_pane_sheet_id.clone(), sps_ref: split_pane_sheet_id_ref.clone(), skip_fade: skip_split_fade.clone(), map: terminal_split_map.clone() }; Callback::from(move |_| {
                             if let Some(sheet_id) = (*ped).clone() {
                                 ped.set(None);
+                                // Driveにファイルが存在する場合はDriveからも削除する
+                                let drive_id = rs.borrow().iter().find(|s| s.id == sheet_id).and_then(|s| s.drive_id.clone());
+                                if let Some(did) = drive_id {
+                                    spawn_local(async move { let _ = delete_file(&did).await; });
+                                }
                                 close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_del.clone()));
                             }
                         })}
