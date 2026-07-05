@@ -2205,9 +2205,23 @@ pub fn app() -> Html {
                             Timeout::new(300, move || { il_inner.set(false); ifo_final.set(false); }).forget();
                         });
                     } else {
-                        let mut us = current_sheets; us[pos].category = new_cat_id; let s = &us[pos]; let js = s.to_js();
-                        spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } });
+                        // 未保存（drive_idなし）→ guidを付与してカテゴリー変更を確定し、
+                        // 内容があればDriveへ保存。ガター（行番号色）も保存済み状態へ更新する。
+                        let mut us = current_sheets;
+                        let original_ext = us[pos].title.rsplit_once('.').map(|(_, e)| e.to_string()).unwrap_or_else(|| "txt".to_string());
+                        let guid = us[pos].guid.clone().unwrap_or_else(generate_uuid);
+                        us[pos].guid = Some(guid.clone());
+                        us[pos].title = format!("{}.{}", guid, original_ext);
+                        us[pos].category = new_cat_id;
+                        let s = us[pos].clone();
                         *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
+                        let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" };
+                        set_gutter_status(mode);
+                        { let s2 = s.clone(); spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = s2.to_js().serialize(&ser) { let _ = save_sheet(v).await; } }); }
+                        if !s.content.trim().is_empty() {
+                            let os_e = os_inner.clone();
+                            Timeout::new(0, move || { os_e.emit((true, None)); }).forget();
+                        }
                     }
                 }
             }
@@ -2218,27 +2232,60 @@ pub fn app() -> Html {
         let s_state = sheets.clone(); let aid_state = active_sheet_id.clone();
         let il = is_loading.clone(); let ifo = is_fading_out.clone();
         let lmk = loading_message_key.clone(); let r_s = sheets_ref.clone();
+        let os = on_save_cb.clone();
         Callback::from(move |new_ext: String| {
             let aid = (*aid_state).clone();
             if let Some(id) = aid {
                 let current_sheets = (*s_state).clone();
                 if let Some(pos) = current_sheets.iter().position(|s| s.id == id) {
-                    let sheet = current_sheets[pos].clone(); if sheet.drive_id.is_none() { return; } 
-                    let old_name = sheet.title.clone(); let name_parts: Vec<&str> = old_name.split('.').collect();
-                    let base_name = if name_parts.len() > 1 { name_parts[..name_parts.len()-1].join(".") } else { old_name.clone() };
-                    let new_name = format!("{}.{}", base_name, new_ext);
-                    if old_name == new_name { return; }
-                    let s_state_inner = s_state.clone(); let il_inner = il.clone(); let ifo_inner = ifo.clone(); let lmk_inner = lmk.clone(); let r_s_inner = r_s.clone(); let drive_id = sheet.drive_id.clone().unwrap();
-                    lmk_inner.set("synchronizing"); il_inner.set(true); ifo_inner.set(false);
-                    spawn_local(async move {
-                        if let Ok(_) = crate::drive_interop::rename_folder(&drive_id, &new_name).await {
-                            let mut us = (*s_state_inner).clone();
-                            if let Some(s) = us.iter_mut().find(|x| x.id == id) { s.title = new_name.clone(); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } crate::js_interop::set_editor_mode(&new_name); }
-                            *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
+                    let sheet = current_sheets[pos].clone();
+                    let old_name = sheet.title.clone();
+                    let base_name = match old_name.rsplit_once('.') { Some((b, _)) => b.to_string(), None => old_name.clone() };
+
+                    if let Some(drive_id) = sheet.drive_id.clone() {
+                        // 保存済み → Drive上でファイル名（拡張子）をリネーム
+                        let new_name = format!("{}.{}", base_name, new_ext);
+                        if old_name == new_name { return; }
+                        let s_state_inner = s_state.clone(); let il_inner = il.clone(); let ifo_inner = ifo.clone(); let lmk_inner = lmk.clone(); let r_s_inner = r_s.clone();
+                        lmk_inner.set("synchronizing"); il_inner.set(true); ifo_inner.set(false);
+                        spawn_local(async move {
+                            if let Ok(_) = crate::drive_interop::rename_file(&drive_id, &new_name).await {
+                                let mut us = (*s_state_inner).clone();
+                                if let Some(s) = us.iter_mut().find(|x| x.id == id) { s.title = new_name.clone(); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } crate::js_interop::set_editor_mode(&new_name); }
+                                *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
+                            }
+                            ifo_inner.set(true); let ifo_final = ifo_inner.clone();
+                            Timeout::new(300, move || { il_inner.set(false); ifo_final.set(false); }).forget();
+                        });
+                    } else {
+                        // 未保存 → まず拡張子を反映し（guid付与でツールバー表示も更新）、
+                        // カテゴリーがあればそのまま保存してDriveへ新拡張子で作成する
+                        let has_category = !sheet.category.is_empty() && sheet.category != "__LOCAL__";
+                        let guid = sheet.guid.clone().unwrap_or_else(generate_uuid);
+                        // Drive保存対象（カテゴリー有り）は guid ベース名、それ以外は元のベース名を維持
+                        let new_name = if has_category { format!("{}.{}", guid, new_ext) } else { format!("{}.{}", base_name, new_ext) };
+                        if old_name == new_name && sheet.guid.is_some() { return; }
+                        let mut us = current_sheets;
+                        us[pos].guid = Some(guid);
+                        us[pos].title = new_name.clone();
+                        crate::js_interop::set_editor_mode(&new_name);
+                        let s = us[pos].clone();
+                        *r_s.borrow_mut() = us.clone(); s_state.set(us);
+                        // ガター（行番号色）を現在のシート状態で更新（guid付与済みなので保存済み色になる）
+                        let mode = if s.category == "__LOCAL__" { "local" } else if s.category.is_empty() { if s.title.starts_with("Untitled.txt") { "unsaved" } else { "local" } } else if s.drive_id.is_none() && s.guid.is_none() { "unsaved" } else { "none" };
+                        set_gutter_status(mode);
+                        // ローカルDBへ即時反映
+                        {
+                            let s2 = s.clone();
+                            spawn_local(async move { let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = s2.to_js().serialize(&ser) { let _ = save_sheet(v).await; } });
                         }
-                        ifo_inner.set(true); let ifo_final = ifo_inner.clone();
-                        Timeout::new(300, move || { il_inner.set(false); ifo_final.set(false); }).forget();
-                    });
+                        // カテゴリーがあり内容が空でない場合は保存をトリガーしてDriveへ作成
+                        // （空シートは自動保存に任せ、空ファイル作成や空保存ダイアログの副作用を避ける）
+                        if has_category && !sheet.content.trim().is_empty() {
+                            let os_inner = os.clone();
+                            Timeout::new(0, move || { os_inner.emit((true, None)); }).forget();
+                        }
+                    }
                 }
             }
         })
