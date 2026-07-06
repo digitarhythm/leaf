@@ -6,3 +6,5 @@ tailwind.css
 *.pem
 node_modules/
 .DS_Store
+apps.json
+server/apps.json

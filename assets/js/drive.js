@@ -292,6 +292,65 @@ async function create_migration_marker() {
     return await res.json();
 }
 
+// appDataFolder 内のアイテムをゴミ箱へ移動する（完全削除ではなく復元可能な trash）。
+async function trash_appdata_item(fileId) {
+    const res = await authenticatedFetch(`https://www.googleapis.com/drive/v3/files/${fileId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trashed: true })
+    });
+    if (!res.ok && res.status !== 404) throw new Error(`Trash failed: ${res.status}`);
+    return true;
+}
+
+// appDataFolder 内の同名カテゴリーフォルダを1つへ統合する（並行移行の競合で生じた二重化の自己修復）。
+// 残す側に既存の同名ファイルがある場合、移動元は同一内容の複製とみなしゴミ箱へ送る（復元可能）。
+// 個別のエラーは握りつぶして継続し、起動処理全体を止めない。
+async function dedupe_appdata_categories() {
+    let folders;
+    try {
+        folders = await list_child_folders(APPDATA_ROOT, true);
+    } catch (e) {
+        console.warn('[Drive] デデュープ: フォルダ一覧取得に失敗、スキップします:', e);
+        return;
+    }
+    const byName = new Map();
+    for (const f of folders) {
+        if (!byName.has(f.name)) byName.set(f.name, []);
+        byName.get(f.name).push(f);
+    }
+    for (const [name, group] of byName) {
+        if (group.length <= 1) continue;
+        const keep = group[0];
+        let keepNames;
+        try {
+            keepNames = new Set((await list_child_files(keep.id, true)).map(f => f.name));
+        } catch (e) {
+            console.warn(`[Drive] デデュープ: "${name}" 残す側のファイル一覧取得に失敗、スキップ:`, e);
+            continue;
+        }
+        for (const dup of group.slice(1)) {
+            try {
+                const files = await list_child_files(dup.id, true);
+                for (const file of files) {
+                    if (keepNames.has(file.name)) {
+                        // 同名＝同一内容の複製 → ゴミ箱へ（重複ファイルの発生を防止）
+                        await trash_appdata_item(file.id);
+                    } else {
+                        await move_file(file.id, dup.id, keep.id);
+                        keepNames.add(file.name);
+                    }
+                }
+                // 空になった重複フォルダをゴミ箱へ
+                await trash_appdata_item(dup.id);
+                console.log(`[Drive] カテゴリー統合: "${name}" の重複を集約しました`);
+            } catch (e) {
+                console.warn(`[Drive] デデュープ: "${name}" の重複統合中にエラー、継続します:`, e);
+            }
+        }
+    }
+}
+
 // 起動時ディレクトリ構造の確定（appDataFolder ベース）。
 // 旧マイドライブ領域からの一度きりの移行もここで行う。
 async function ensure_directory_structure_impl() {
@@ -300,6 +359,8 @@ async function ensure_directory_structure_impl() {
     const marker = await find_in_appdata(MIGRATION_MARKER, APPDATA_ROOT);
     if (marker) {
         // 移行済み → appDataFolder をそのまま利用
+        // 過去の並行移行で二重化したカテゴリーがあれば自己修復（統合）する
+        await dedupe_appdata_categories();
         const othersId = await find_or_create_folder('OTHERS', APPDATA_ROOT);
         return { appSupportId: null, leafDataId: APPDATA_ROOT, othersId };
     }
@@ -323,12 +384,14 @@ async function ensure_directory_structure_impl() {
 
     // 3. appDataFolder 側の初期化とマーカー作成
     APPDATA_MODE = true;
+    // 万一この移行が他の実行と競合して二重化していた場合に備え、統合してから確定する
+    await dedupe_appdata_categories();
     const othersId = await find_or_create_folder('OTHERS', APPDATA_ROOT);
     await create_migration_marker();
     return { appSupportId: null, leafDataId: APPDATA_ROOT, othersId };
 }
 
-export async function ensure_directory_structure() {
+async function ensure_directory_structure_with_reauth() {
     try {
         return await ensure_directory_structure_impl();
     } catch (e) {
@@ -340,6 +403,22 @@ export async function ensure_directory_structure() {
         }
         console.error("[Drive] Directory structure setup failed:", e);
         throw e;
+    }
+}
+
+// 並行呼び出しを1回の実行に集約するためのシングルトン。
+// 起動時にエフェクトが複数回発火しても移行処理が二重実行されない（＝初回移行でのカテゴリー二重生成を防止）。
+let _ensureDirPromise = null;
+
+export async function ensure_directory_structure() {
+    // 実行中なら同じプロミスを共有し、並行実行による競合を防ぐ。
+    if (_ensureDirPromise) return _ensureDirPromise;
+    _ensureDirPromise = ensure_directory_structure_with_reauth();
+    try {
+        return await _ensureDirPromise;
+    } finally {
+        // 完了後はクリア（次回は marker あり状態で高速評価。アカウント切替時の陳腐化も防ぐ）。
+        _ensureDirPromise = null;
     }
 }
 
