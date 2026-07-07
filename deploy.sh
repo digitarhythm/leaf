@@ -29,9 +29,12 @@ if command -v wasm-opt &> /dev/null; then
 fi
 
 # 2. Sync Frontend Assets (Excluding server configs and dependencies)
+# 注意: --delete を使うため、dist に無いサーバー側ファイル(.env / apps.json 等)は
+#       除外しないと削除される。マルチアプリ認証の apps.json を必ず保護すること。
 echo "🚚 Syncing frontend assets..."
 rsync -avz --checksum --delete \
     --exclude '.env' \
+    --exclude 'apps.json' \
     --exclude 'server/' \
     --exclude 'node_modules/' \
     -e "ssh -p $PORT" \
