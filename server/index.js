@@ -33,7 +33,7 @@ const CLIENT_SECRET = process.env.LEAF_CLIENT_SECRET;
 const REDIRECT_URI = 'postmessage';
 
 // ---- マルチアプリ共用: apps.json 対応表 ----
-// app_id -> { client_id, client_secret, shared_key } のマルチテナント対応表。
+// app_id -> { client_id, client_secret, app_secret } のマルチテナント対応表。
 // secret を含むため .gitignore 済み。.env と同様に複数候補パスを探索して読み込む。
 const appsJsonPaths = [
     path.join(__dirname, '../apps.json'),   // /leaf/apps.json
@@ -93,7 +93,7 @@ function resolveCredentials(req) {
         return { ok: false, status: 404, error: `Unknown app_id: ${appId}` };
     }
     const appKey = req.get('X-App-Key');
-    if (!appKey || !safeEqual(appKey, entry.shared_key || '')) {
+    if (!appKey || !safeEqual(appKey, entry.app_secret || '')) {
         return { ok: false, status: 401, error: 'Invalid or missing app key' };
     }
     if (!entry.client_id || !entry.client_secret) {

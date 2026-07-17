@@ -12,7 +12,7 @@
 - 提供する機能は2つだけです。
   1. 認可コード → トークン交換（`refresh_token` / `access_token` の取得）
   2. `refresh_token` によるアクセストークンのサイレント更新
-- **マルチテナント対応**：`app_id` と共有キー（`shared_key`）でアプリを識別し、アプリごとに別々の
+- **マルチテナント対応**：`app_id` とアプリシークレット（`app_secret`）でアプリを識別し、アプリごとに別々の
   Google OAuth クライアント（別プロジェクト）のクレデンシャルを使い分けます。
 
 ### エンドポイント
@@ -37,7 +37,7 @@
   "myapp": {                                         // ← あなたのアプリの app_id
     "client_id":     "xxxx.apps.googleusercontent.com",
     "client_secret": "GOCSPX-xxxx",
-    "shared_key":    "32byte以上のランダムな長い文字列"   // ← あなたのアプリの共有キー
+    "app_secret":    "32byte以上のランダムな長い文字列"   // ← あなたのアプリのアプリシークレット
   }
 }
 ```
@@ -49,9 +49,9 @@
 1. **専用の Google Cloud プロジェクト**（他アプリと共用しない）
 2. そのプロジェクトの **OAuth 2.0 クライアント ID / シークレット**
 3. **一意な `app_id`**（例: `myapp`）
-4. **共有キー `shared_key`**（推測不能なランダム値。例: `openssl rand -hex 32`）
+4. **アプリシークレット `app_secret`**（推測不能なランダム値。例: `openssl rand -hex 32`）
 
-`client_id` / `client_secret` / `shared_key` を運用者へ渡し、`apps.json` に登録してもらいます。
+`client_id` / `client_secret` / `app_secret` を運用者へ渡し、`apps.json` に登録してもらいます。
 **`client_secret` はクライアントアプリには絶対に埋め込まないでください**（サーバーだけが保持します）。
 
 ---
@@ -106,7 +106,7 @@ sequenceDiagram
 |---|---|---|
 | `Content-Type` | `application/json` | ○ |
 | `X-App-Id` | 登録した `app_id`（例: `myapp`） | ○（※） |
-| `X-App-Key` | 登録した `shared_key` | ○（※） |
+| `X-App-Key` | 登録した `app_secret` | ○（※） |
 
 > ※ `X-App-Id` を**付けない**リクエストは、サーバー既定アプリ用の「レガシー互換モード」で
 > 処理されます。**あなたのアプリは必ず `X-App-Id` と `X-App-Key` を付与**してください。
@@ -166,7 +166,7 @@ sequenceDiagram
 | ステータス | 意味 | 対処 |
 |---|---|---|
 | 400 | `code` / `refresh_token` が欠落 | リクエストボディを確認 |
-| 401 | `X-App-Key` が欠落／不一致 | 共有キーを確認 |
+| 401 | `X-App-Key` が欠落／不一致 | アプリシークレットを確認 |
 | 404 | `X-App-Id` が未登録 | 運用者に `apps.json` 登録を依頼 |
 | 500 | サーバー設定不備、または Google 側エラー | `details` を確認。`invalid_grant` の場合は refresh_token 失効 → 再ログインが必要 |
 
@@ -185,7 +185,7 @@ sequenceDiagram
 ```js
 const AUTH_BASE = 'https://auth.digitarhythm.net';
 const APP_ID  = 'myapp';
-const APP_KEY = '（登録した共有キー）';
+const APP_KEY = '（登録したアプリシークレット）';
 
 async function exchangeCodeForToken(code, redirectUri /* 省略可 */) {
   const res = await fetch(`${AUTH_BASE}/api/auth/token`, {
@@ -278,9 +278,9 @@ codeClient.requestCode();
 1. **`client_secret` はクライアントに埋め込まない**。サーバー（このプロキシ）だけが保持します。
 2. **各アプリは自分専用の Google プロジェクト/OAuth クライアントを使う**。
    refresh_token は「発行時の client_id/secret ペア」に紐付くため、他アプリのクレデンシャルでは更新できません。
-3. **`app_id` と `shared_key` は必ずペアで送る**。`X-App-Id` を省くとサーバー既定アプリ用のレガシー互換扱いになり失敗します。
-4. **`shared_key` はクライアントに置くと露出し得る**点に留意。web フロントエンドに直書きすると
-   ブラウザから見えます。より厳格にするなら、共有キー検証を自前の軽量バックエンド経由にする等を検討してください。
+3. **`app_id` と `app_secret` は必ずペアで送る**。`X-App-Id` を省くとサーバー既定アプリ用のレガシー互換扱いになり失敗します。
+4. **`app_secret` はクライアントに置くと露出し得る**点に留意。web フロントエンドに直書きすると
+   ブラウザから見えます。より厳格にするなら、アプリシークレット検証を自前の軽量バックエンド経由にする等を検討してください。
 5. **`invalid_grant` は再ログイン合図**。サイレント更新が 500/invalid_grant を返したら、
    保存済み refresh_token を破棄して再認可フローへ。
 6. **スコープは最小限**に。使う API に必要な範囲だけを要求してください。
@@ -296,6 +296,6 @@ curl -s -o /dev/null -w "%{http_code}\n" -X POST https://auth.digitarhythm.net/a
 
 # 登録済み app_id + 正しいキー + ダミー refresh_token は 500 invalid_grant（＝Googleへ到達）
 curl -s -w "\n%{http_code}\n" -X POST https://auth.digitarhythm.net/api/auth/refresh \
-  -H "Content-Type: application/json" -H "X-App-Id: myapp" -H "X-App-Key: <shared_key>" \
+  -H "Content-Type: application/json" -H "X-App-Id: myapp" -H "X-App-Key: <app_secret>" \
   -d '{"refresh_token":"1//dummy"}'   # → 500 invalid_grant
 ```

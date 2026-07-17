@@ -12,11 +12,13 @@
 
 /* --- Ace Editor Gutter (Line Numbers) --- */
 
-/* 行番号セルの基本レイアウト（右寄せと余白） */
+/* 行番号セルの基本レイアウト（右寄せと余白）
+   幅は editor_interop.js の gutterRenderer が最低4桁分を確保するため、
+   ここでは大きな padding を取らない（padding は Ace のガター幅計算に加算される）。 */
 .ace_gutter-cell {
   text-align: right !important;
   padding-right: 12px !important;
-  padding-left: 2.5em !important;
+  padding-left: 8px !important;
 }
 
 /* 未保存状態の行番号の色（新規シート） */

@@ -25,8 +25,8 @@
 ### マルチテナント（app_id 対応表方式）
 
 - アプリごとに一意の `app_id` を割り当てる。
-- サーバーは `app_id → { client_id, client_secret, shared_key }` の対応表を持つ。
-- リクエストで受け取った `app_id` と**共有キー**を検証し、一致した場合のみ、
+- サーバーは `app_id → { client_id, client_secret, app_secret }` の対応表を持つ。
+- リクエストで受け取った `app_id` と**アプリシークレット**を検証し、一致した場合のみ、
   そのアプリの client_id / client_secret で Google と通信する。
 - 未登録の `app_id`／キー不一致は **401/403 で拒否**。
 
@@ -41,12 +41,12 @@ secret を含むため、`.gitignore` 済みの外部ファイルで管理する
   "leaf": {
     "client_id":     "xxxx.apps.googleusercontent.com",
     "client_secret": "GOCSPX-xxxx",
-    "shared_key":    "ランダムな長い文字列"
+    "app_secret":    "ランダムな長い文字列"
   },
   "myapp2": {
     "client_id":     "yyyy.apps.googleusercontent.com",
     "client_secret": "GOCSPX-yyyy",
-    "shared_key":    "別のランダムな長い文字列"
+    "app_secret":    "別のランダムな長い文字列"
   }
 }
 ```
@@ -56,11 +56,11 @@ secret を含むため、`.gitignore` 済みの外部ファイルで管理する
 
 ### 4.2 後方互換（重要）
 
-既にリリース済みの Leaf クライアントは `app_id` も共有キーも送らない。これらを壊さないため：
+既にリリース済みの Leaf クライアントは `app_id` もアプリシークレットも送らない。これらを壊さないため：
 
 - リクエストに `app_id` が**無い**場合 → 従来どおり `.env` の `LEAF_CLIENTID / LEAF_CLIENT_SECRET`
-  を使い、**共有キー検証なし**で処理（レガシー Leaf 互換モード）。
-- リクエストに `app_id` が**有る**場合 → `apps.json` を参照し、**共有キー検証を必須**とする。
+  を使い、**アプリシークレット検証なし**で処理（レガシー Leaf 互換モード）。
+- リクエストに `app_id` が**有る**場合 → `apps.json` を参照し、**アプリシークレット検証を必須**とする。
 
 これにより、旧 Leaf は影響を受けず、新規アプリ（および将来の Leaf 更新）だけが app_id＋キーを使う。
 
@@ -71,7 +71,7 @@ secret を含むため、`.gitignore` 済みの外部ファイルで管理する
 | 項目 | 内容 |
 |---|---|
 | ヘッダ | `X-App-Id: <app_id>`（任意。無ければレガシー互換） |
-| ヘッダ | `X-App-Key: <shared_key>`（`X-App-Id` がある場合は必須） |
+| ヘッダ | `X-App-Key: <app_secret>`（`X-App-Id` がある場合は必須） |
 
 ※ ヘッダ方式を採用（body に混ぜず、ログに残りにくく取り回しやすい）。
 
@@ -100,10 +100,10 @@ secret を含むため、`.gitignore` 済みの外部ファイルで管理する
 
 ## 6. セキュリティ対応（共用に伴う最低限）
 
-- app_id ＋共有キーによるリクエスト認証（本仕様の中核）。
-- 共有キーは**タイミング安全比較**（`crypto.timingSafeEqual`）で検証。
+- app_id ＋アプリシークレットによるリクエスト認証（本仕様の中核）。
+- アプリシークレットは**タイミング安全比較**（`crypto.timingSafeEqual`）で検証。
 - CORS: 当面は据え置き可。将来的に許可オリジン限定へ移行できる余地を残す。
-- 共有キーは十分に長いランダム値（32byte 以上推奨）を各アプリ個別に発行。
+- アプリシークレットは十分に長いランダム値（32byte 以上推奨）を各アプリ個別に発行。
 
 ## 7. 処理フロー
 
@@ -132,7 +132,7 @@ flowchart TD
 
 | ファイル | 変更内容 |
 |---|---|
-| `server/index.js` | app_id/共有キー検証・対応表参照・クレデンシャル切替を追加 |
+| `server/index.js` | app_id/アプリシークレット検証・対応表参照・クレデンシャル切替を追加 |
 | `server/apps.json` | 新規（gitignore 対象、本番手動配置） |
 | `.gitignore` | `apps.json` を追加 |
 | （新規アプリ側） | 認証呼び出しにヘッダ2つを付与（Leaf の auth.js を流用可） |

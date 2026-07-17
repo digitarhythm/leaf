@@ -2,6 +2,6 @@
   "myapp2": {
     "client_id": "yyyy.apps.googleusercontent.com",
     "client_secret": "GOCSPX-yyyy",
-    "shared_key": "32byte以上のランダムな長い文字列をアプリごとに発行する"
+    "app_secret": "32byte以上のランダムな長い文字列をアプリごとに発行する"
   }
 }

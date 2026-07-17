@@ -14,9 +14,24 @@ const _undoStates = new Map(); // シートIDごとのUndo/Redo履歴（旧API�
 const _sheetSessions = new Map();
 let _activeSessionId = null;
 
+// 行番号ガターを最低4桁分の幅に固定するレンダラー。
+// Ace 標準は「最終行番号の桁数×文字幅」で幅を毎回再計算するため、
+// 9→10行などで桁が増えるたびに本文全体が右へズレる。常に4桁分を確保して抑止する。
+const MIN_GUTTER_DIGITS = 4;
+const _fixedGutterRenderer = {
+    getText: function(session, row) {
+        return row + (session.$firstLineNumber !== undefined ? session.$firstLineNumber : 1);
+    },
+    getWidth: function(session, lastLineNumber, config) {
+        const digits = Math.max(String(lastLineNumber).length, MIN_GUTTER_DIGITS);
+        return digits * config.characterWidth;
+    }
+};
+
 function _createSheetSession(content, filename) {
     if (typeof ace === 'undefined') return null;
     const session = ace.createEditSession(content || '', '');
+    session.gutterRenderer = _fixedGutterRenderer;
     if (filename) {
         const modelist = ace.require("ace/ext/modelist");
         const mode = modelist.getModeForPath(filename).mode;
@@ -279,6 +294,8 @@ export function init_editor(element_id, callback) {
     }
     commandCallback = callback;
     editor = ace.edit(element_id);
+    // 初期セッション（シート別セッション適用前）にもガター幅固定を適用
+    editor.session.gutterRenderer = _fixedGutterRenderer;
     const savedTheme = localStorage.getItem("leaf_editor_theme") || "gruvbox";
     editor.setTheme("ace/theme/" + savedTheme);
     editor.session.setMode("ace/mode/javascript");
@@ -848,6 +865,8 @@ export function init_split_editor(element_id, content, filename, sheetId) {
     if (typeof ace === 'undefined') return;
     if (_splitEditor) { _splitEditor.destroy(); _splitEditor = null; }
     _splitEditor = ace.edit(element_id);
+    // ガター幅固定（メインエディタと同一の4桁確保）
+    _splitEditor.session.gutterRenderer = _fixedGutterRenderer;
     // メインエディタと同じテーマを適用
     const theme = editor ? editor.getTheme() : ('ace/theme/' + (localStorage.getItem('leaf_editor_theme') || 'gruvbox'));
     _splitEditor.setTheme(theme);
