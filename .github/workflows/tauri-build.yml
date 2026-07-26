@@ -46,7 +46,9 @@ jobs:
         run: rustup target add wasm32-unknown-unknown
 
       - name: Install trunk
-        run: cargo install trunk
+        # --locked と版数固定が必須: 無指定だと trunk の依存(lightningcss)が
+        # 新しい cssparser でビルドできず失敗する（semver互換だが破壊的な上流更新）
+        run: cargo install trunk --version 0.21.14 --locked
 
       - name: Install Node.js
         uses: actions/setup-node@v5
