@@ -10,6 +10,7 @@ use crate::components::char_code_dialog::CharCodeDialog;
 use crate::components::sheet_info_dialog::SheetInfoDialog;
 use crate::components::empty_sheet_dialog::EmptySheetDialog;
 use crate::components::tab_select_dialog::{TabSelectDialog, TabSelectItem};
+use crate::components::preview_search::PreviewSearchBar;
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
 use crate::db_interop::{save_sheet, save_categories, JSCategory, JSSheet};
@@ -139,6 +140,7 @@ const WINDOW_BLUR_KEY: &str = "leaf_window_blur";
 const TERMINAL_FONT_SIZE_KEY: &str = "leaf_terminal_font_size";
 const GUEST_MODE_KEY: &str = "leaf_guest_mode";
 const LOCAL_AUTO_SAVE_KEY: &str = "leaf_local_auto_save";
+const PREVIEW_SEARCH_CASE_KEY: &str = "leaf_preview_search_match_case";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -279,7 +281,8 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
     } else {
         "absolute inset-0 overflow-y-auto bg-[#fdf6e3]"
     };
-    let container_id = if props.is_split { "split-preview-scroll" } else { "" };
+    // プレビュー内検索（assets/js/preview_search.js）が本文を特定するために id を付与する
+    let container_id = if props.is_split { "split-preview-scroll" } else { "preview-scroll" };
     html! {
         <div ref={scroll_ref} id={container_id} class={container_class}>
             // ローディング表示
@@ -298,6 +301,22 @@ fn inline_preview(props: &InlinePreviewProps) -> Html {
                 { Html::from_html_unchecked(AttrValue::from(rendered_html)) }
             </div>
         </div>
+    }
+}
+
+/// プレビュー表示状態を切り替える（フェードイン制御込み）。
+/// シート／ローカルファイルを開いた直後に、そのシートの is_preview と画面状態を揃えるために使う。
+fn apply_preview_visibility(
+    is_preview_visible: &UseStateHandle<bool>,
+    preview_overlay_opacity: &UseStateHandle<bool>,
+    visible: bool,
+) {
+    is_preview_visible.set(visible);
+    preview_overlay_opacity.set(false);
+    if visible {
+        // opacity-0 で表示してから opacity-100 へ（フェードイン）
+        let op = preview_overlay_opacity.clone();
+        Timeout::new(10, move || { op.set(true); }).forget();
     }
 }
 
@@ -687,6 +706,12 @@ pub fn app() -> Html {
     let is_preview_visible = use_state(|| false);
     let is_preview_fading_out = use_state(|| false);
     let preview_overlay_opacity = use_state(|| false); // プレビューオーバーレイのopacity制御
+    // プレビュー内検索バー（Ace の検索はレンダリング済みHTMLに使えないため独自実装）
+    let is_preview_search_visible = use_state(|| false);
+    let preview_search_ref = use_mut_ref(|| false); // keydownリスナーから常に最新値を読むためのref
+    let preview_search_match_case = use_state(|| {
+        get_account_storage(PREVIEW_SEARCH_CASE_KEY).map(|v| v == "1").unwrap_or(false)
+    });
     let split_pane_sheet_id: UseStateHandle<Option<String>> = use_state(|| None); // 分割ペインに表示するシートID (None=アクティブシート)
     let split_pane_sheet_id_ref: Rc<RefCell<Option<String>>> = use_mut_ref(|| None); // 上記のコールバックから常に最新値を読むためのref
     let is_tab_select_dialog_visible = use_state(|| false); // タブ選択ダイアログ（デスクトップ版）
@@ -1902,6 +1927,8 @@ pub fn app() -> Html {
         let tse_ref_fo = terminal_split_edit_ref.clone();
         let spid_fo = split_pane_sheet_id.clone();
         let spid_ref_fo = split_pane_sheet_id_ref.clone();
+        let ip_sel = is_preview_visible.clone();
+        let pop_sel = preview_overlay_opacity.clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
             // アクティブシートに未保存変更があれば、aid 切替前に Drive 保存を発火
             // （on_save_cb は override_id 付きで切替元シートを sheets_ref から読んで保存）
@@ -1923,7 +1950,13 @@ pub fn app() -> Html {
                     let existing_id = existing.id.clone();
                     iv.set(false); // ファイル選択ダイアログを閉じる
                     crate::js_interop::activate_sheet_session(&existing_id, &existing.content, &existing.title);
+                    // 別シートへ切り替えた場合のみ、そのシートの表示モード（編集／プレビュー）に画面を合わせる。
+                    // アクティブシート自身の再選択では現在の表示をそのまま維持する。
+                    let is_same_as_active = (*aid).as_deref() == Some(existing_id.as_str());
                     aid.set(Some(existing_id.clone()));
+                    if !is_same_as_active {
+                        apply_preview_visibility(&ip_sel, &pop_sel, existing.is_preview);
+                    }
                     focus_editor();
                     return;
                 }
@@ -1950,6 +1983,8 @@ pub fn app() -> Html {
             let ts_sel_inner = ts_sel.clone();
             let ts_ref_sel_inner = ts_ref_sel.clone();
             let ssf_sel_inner = ssf_sel.clone();
+            let ip_sel_inner = ip_sel.clone();
+            let pop_sel_inner = pop_sel.clone();
             spawn_local(async move {
                 if let Ok(cv) = download_file(&did, None, None).await {
                     let bytes = js_sys::Uint8Array::new(&cv).to_vec();
@@ -1987,6 +2022,8 @@ pub fn app() -> Html {
                     crate::js_interop::activate_sheet_session(&nid, &c, &title);
                     set_gutter_status("none");
                     aid_inner.set(Some(nid.clone()));
+                    // 開いたシートの表示モード（.md はプレビュー、それ以外は編集）に画面を合わせる
+                    apply_preview_visibility(&ip_sel_inner, &pop_sel_inner, is_md_default_preview);
                     // スプリット状態をリセット（フェードなし）
                     *ssf_sel_inner.borrow_mut() = true;
                     ts_sel_inner.set(false);
@@ -2062,6 +2099,8 @@ pub fn app() -> Html {
         let tse_ref_imp = terminal_split_edit_ref.clone();
         let spid_imp = split_pane_sheet_id.clone();
         let spid_ref_imp = split_pane_sheet_id_ref.clone();
+        let ip_imp = is_preview_visible.clone();
+        let pop_imp = preview_overlay_opacity.clone();
         Callback::from(move |_| {
             // ターミナルがアクティブな場合、スプリット状態をts_mapに保存してターミナルコンテキストを抜ける
             let prev_tid = atref_imp.borrow().clone();
@@ -2095,6 +2134,8 @@ pub fn app() -> Html {
             let ts_imp_c = ts_imp.clone();
             let ts_ref_imp_c = ts_ref_imp.clone();
             let ssf_imp_c = ssf_imp.clone();
+            let ip_imp_c = ip_imp.clone();
+            let pop_imp_c = pop_imp.clone();
             spawn_local(async move {
                 let res = open_local_file().await; if res.is_null() || res.is_undefined() { return; }
 
@@ -2146,6 +2187,8 @@ pub fn app() -> Html {
                     crate::js_interop::activate_sheet_session(&nid, &content, &name);
                     set_gutter_status("local");
                     aid_state_c.set(Some(nid.clone()));
+                    // 開いたファイルの表示モード（.md はプレビュー、それ以外は編集）に画面を合わせる
+                    apply_preview_visibility(&ip_imp_c, &pop_imp_c, is_md_default_preview);
                     let js = ns.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     Timeout::new(100, move || {
                         lock_fade_cb.set(true); let l = lock_cb.clone(); let lf = lock_fade_cb.clone(); let il = il_cb.clone(); let sp = sp_state_c.clone();
@@ -3026,6 +3069,21 @@ pub fn app() -> Html {
         use_effect_with(*is_preview, move |visible| { set_preview_active(*visible); || () });
     }
 
+    // プレビュー内検索バーの状態を ref に同期（keydownリスナーから最新値を読むため）
+    {
+        let psr = preview_search_ref.clone();
+        use_effect_with(*is_preview_search_visible, move |v| { *psr.borrow_mut() = *v; || () });
+    }
+
+    // プレビューを抜けた時／シートを切り替えた時は検索バーを閉じる
+    {
+        let ips = is_preview_search_visible.clone();
+        use_effect_with((*is_preview_visible, (*active_sheet_id).clone()), move |_| {
+            if *ips { ips.set(false); }
+            || ()
+        });
+    }
+
     // 保存完了待ちタブ閉じ
     {
         let psc = pending_save_close_tab.clone();
@@ -3144,6 +3202,8 @@ pub fn app() -> Html {
                 let char_code_char_ev = char_code_char.clone();
                 let is_sheet_info_ev = is_sheet_info_visible.clone();
                 let local_auto_save_ref_ev = local_auto_save_ref.clone();
+                let is_preview_search_ev = is_preview_search_visible.clone();
+                let preview_search_ref_ev = preview_search_ref.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -3195,6 +3255,8 @@ pub fn app() -> Html {
                     let is_char_code_c = is_char_code_ev.clone();
                     let char_code_char_c = char_code_char_ev.clone();
                     let is_sheet_info_c = is_sheet_info_ev.clone();
+                    let is_preview_search_c = is_preview_search_ev.clone();
+                    let preview_search_ref_c = preview_search_ref_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -3210,6 +3272,8 @@ pub fn app() -> Html {
                         let is_e_key = code == "KeyE" || key_lower == "e" || key_lower == "´";
                         let is_c_key = code == "KeyC" || key_lower == "c" || key == "©";
                         let is_i_key = code == "KeyI" || key_lower == "i" || key_lower == "ˆ";
+                        let is_o_key = code == "KeyO" || key_lower == "o" || key_lower == "ø";
+                        let is_f_key = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
                         let is_plus_key = code == "Equal" || key == "=" || key == "+" || key == "≠";
                         let is_minus_key = code == "Minus" || key == "-" || key == "–";
                         let is_toggle_shortcut = modifier_active && (is_l_key || is_h_key || is_m_key);
@@ -3469,6 +3533,13 @@ pub fn app() -> Html {
 
                         // Markdownモード中のキー操作（全画面プレビューのみ・分割モード・ターミナルアクティブ時は除く）
                         if _preview && !is_overlay_active && atref_c.borrow().is_none() {
+                            let search_open = *preview_search_ref_c.borrow();
+                            // 検索バー表示中の ESC は検索バーのみを閉じる（プレビューは維持）
+                            if search_open && key == "Escape" {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                is_preview_search_c.set(false);
+                                return;
+                            }
                             // ESCで編集モードに戻る
                             if key == "Escape" {
                                 e.prevent_default(); e.stop_immediate_propagation();
@@ -3511,13 +3582,26 @@ pub fn app() -> Html {
                                 set_account_storage(PREVIEW_FONT_SIZE_KEY, &new_size.to_string());
                                 return;
                             }
-                            // Alt+許可ショートカットのみ通す（L,H,M,[,],W,,,フォントサイズ）
+                            // Alt+F: プレビュー内検索バーのトグル（Aceの検索はプレビューでは使えない）
+                            // 検索バーは全画面プレビューにのみ描画されるため、分割中は対象外
+                            if modifier_active && is_f_key && !*terminal_split_ref_c.borrow() {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                is_preview_search_c.set(!search_open);
+                                return;
+                            }
+                            // 検索バー表示中の通常キーは入力欄へ委譲（Alt系ショートカットは従来処理）
+                            if search_open && !modifier_active {
+                                return;
+                            }
+                            // Alt+許可ショートカットのみ通す（L,H,M,O,[,],W,,,フォントサイズ）
                             if modifier_active {
-                                let is_allowed = is_l_key || is_h_key || is_m_key
+                                let is_allowed = is_l_key || is_h_key || is_m_key || is_o_key
                                     || code == "BracketLeft" || code == "BracketRight"
                                     || code == "KeyW" || code == "Comma"
                                     || code == "KeyN" || code == "KeyT";
                                 if is_allowed {
+                                    // 検索バーを開いたまま他の操作へ移る場合は閉じる
+                                    if search_open { is_preview_search_c.set(false); }
                                     /* fall through to normal shortcut handling */
                                 } else {
                                     e.prevent_default(); e.stop_immediate_propagation();
@@ -3668,8 +3752,8 @@ pub fn app() -> Html {
 
                         if modifier_active && !is_overlay_active {
                             if is_font_size_shortcut { e.prevent_default(); e.stop_immediate_propagation(); if is_plus_key { crate::js_interop::change_font_size(1); } else { crate::js_interop::change_font_size(-1); } return; }
-                            let is_o = code == "KeyO" || key_lower == "o" || key_lower == "ø";
-                            let is_f = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
+                            let is_o = is_o_key;
+                            let is_f = is_f_key;
                             let is_s = code == "KeyS" || key_lower == "s" || key_lower == "ß";
                             let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
                             let is_shift_n = (code == "KeyN" || key_lower == "n" || key_lower == "˜") && ke.shift_key();
@@ -4911,6 +4995,17 @@ pub fn app() -> Html {
                                     <div class={classes!("absolute", "inset-0", "z-20", "transition-opacity", "duration-300",
                                                          if *preview_overlay_opacity { "opacity-100" } else { "opacity-0" })}>
                                         <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=false />
+                                        // プレビュー内検索バー（Alt+F）
+                                        if *is_preview_search_visible {
+                                            <PreviewSearchBar
+                                                on_close={let ips = is_preview_search_visible.clone(); Callback::from(move |_| { ips.set(false); })}
+                                                match_case={*preview_search_match_case}
+                                                on_toggle_match_case={let mc = preview_search_match_case.clone(); Callback::from(move |v: bool| {
+                                                    mc.set(v);
+                                                    set_account_storage(PREVIEW_SEARCH_CASE_KEY, if v { "1" } else { "0" });
+                                                })}
+                                            />
+                                        }
                                     </div>
                                 }
 

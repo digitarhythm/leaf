@@ -70,3 +70,14 @@ extern "C" {
     pub fn scroll_into_view_graceful(container: &web_sys::Element, index: u32, duration_ms: f64);
     pub fn scroll_nth_into_view(selector: &str, index: u32);
 }
+
+// プレビュー（レンダリング済みHTML）内の検索。Ace の検索とは独立した実装。
+#[wasm_bindgen(module = "/assets/js/preview_search.js")]
+extern "C" {
+    /// 検索を実行してヒット件数を返す（実行後は先頭ヒットが選択状態）
+    pub fn preview_search(query: &str, match_case: bool) -> i32;
+    /// 指定インデックスのヒットへ移動（範囲外は循環）。戻り値は選択されたインデックス
+    pub fn preview_search_goto(index: i32) -> i32;
+    /// ハイライトを解除
+    pub fn preview_search_clear();
+}

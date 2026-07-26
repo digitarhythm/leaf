@@ -159,3 +159,19 @@
   fill: #334155;
   stroke: none;
 }
+
+/* ── プレビュー内検索のハイライト ─────────────────────────────
+   assets/js/preview_search.js がヒット箇所を <mark> でラップする。
+   プレビュー本文(#fdf6e3)とコードブロック(暗色テーマ)の双方で読めるよう、
+   背景色と文字色を明示指定する。 */
+.markdown-body mark.leaf-preview-hit {
+  background-color: #ffe066;
+  color: #1b1b1b;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.markdown-body mark.leaf-preview-hit-current {
+  background-color: #fd8c3c;
+  color: #1b1b1b;
+  box-shadow: 0 0 0 2px rgba(253, 140, 60, 0.45);
+}
