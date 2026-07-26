@@ -335,12 +335,10 @@ export function init_editor(element_id, callback) {
         }
     });
 
-    // カスタムコマンド (検索)
-    editor.commands.addCommand({
-        name: "findInLeaf",
-        bindKey: { win: "Alt-F", mac: "Option-F" },
-        exec: (editor) => { editor.execCommand("find"); }
-    });
+    // Ace 標準の検索／置換ダイアログは使わない（Leaf 独自の検索バーを Alt+F で使う）。
+    // コマンドごと削除することで Cmd+F / Ctrl+F / Cmd+Option+F / Cmd+G を Ace が握らなくなり、
+    // Vim の Ctrl+F（1画面下スクロール）が優先される。
+    _removeAceSearchCommands(editor);
 
     // カスタムコマンド (保存)
     editor.commands.addCommand({
@@ -885,6 +883,8 @@ export function init_split_editor(element_id, content, filename, sheetId) {
         showPrintMargin: false, useSoftTabs: true, tabSize: 4, wrap: true, indentedSoftWrap: true,
         enableBasicAutocompletion: false, enableLiveAutocompletion: false
     });
+    // スプリット側でも Ace 標準の検索／置換ダイアログは使わない
+    _removeAceSearchCommands(_splitEditor);
     _splitEditor.setValue(content || '', -1);
     _splitEditor.clearSelection();
     _splitEditorDirty = false;
@@ -1375,3 +1375,155 @@ export function scroll_into_view_graceful(container, index, duration_ms) {
         }
     }, { passive: true });
 })();
+
+/** Ace 標準の検索／置換コマンドを削除する（Leaf は Alt+F の独自検索バーのみ使う） */
+function _removeAceSearchCommands(target) {
+    if (!target || !target.commands) return;
+    ["find", "replace", "findnext", "findprevious", "findInLeaf"].forEach((name) => {
+        try { target.commands.removeCommand(name); } catch (e) { /* 未定義コマンドは無視 */ }
+    });
+}
+
+// ── Leaf 独自のエディタ内検索 ───────────────────────────────
+// Ace 標準の検索ボックス(ext-searchbox)は使わず、プレビュー内検索と同じ UI から
+// この API を呼ぶ。置換は Vim の :s を使う想定のため実装しない。
+// 対象はフォーカス中のエディタ（メイン／スプリット）で、検索バーを開いた時点で確定する。
+let _edSearchTarget = null;   // 検索対象の Ace インスタンス
+let _edSearchSession = null;  // 開始時のセッション（シート切替後も確実に解除するため保持）
+let _edSearchAnchor = null;   // 検索開始時のカーソル位置（インクリメンタル検索の起点）
+let _edSearchRanges = [];
+let _edSearchIndex = -1;
+let _edSearchMarker = null;       // 現在ヒットのマーカーID
+let _edSearchHitMarkers = [];     // 全ヒットのマーカーID
+let _edSearchPrevHighlightWord = null; // 元の highlightSelectedWord 設定
+// 全ヒットのハイライト上限（巨大ファイルでのマーカー数暴走を防ぐ。件数表示・移動は全件対象）
+const ED_SEARCH_MAX_MARKERS = 500;
+
+function _escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function _comparePos(a, b) {
+    if (a.row !== b.row) return a.row - b.row;
+    return a.column - b.column;
+}
+
+function _clearCurrentMarker() {
+    if (_edSearchSession && _edSearchMarker != null) {
+        _edSearchSession.removeMarker(_edSearchMarker);
+    }
+    _edSearchMarker = null;
+}
+
+function _clearHitMarkers() {
+    if (_edSearchSession) {
+        for (const id of _edSearchHitMarkers) _edSearchSession.removeMarker(id);
+    }
+    _edSearchHitMarkers = [];
+}
+
+function _gotoIndex(i) {
+    const ed = _edSearchTarget;
+    const session = _edSearchSession;
+    if (!ed || !session || _edSearchRanges.length === 0) return -1;
+    const n = _edSearchRanges.length;
+    const idx = ((i % n) + n) % n;
+    _clearCurrentMarker();
+    _edSearchIndex = idx;
+    const range = _edSearchRanges[idx];
+    _edSearchMarker = session.addMarker(range, 'leaf-search-current', 'text');
+    // 選択範囲も合わせておくことで、検索バーを閉じた時にカーソルがヒット位置に残る
+    ed.selection.setSelectionRange(range);
+    ed.scrollToLine(range.start.row, true, false);
+    // マーカーの増減は updateBackMarkers だけでは古い描画が残ることがあるため全体を再描画する
+    ed.renderer.updateFull(true);
+    return idx;
+}
+
+/** 検索を開始する。対象エディタを確定して "main" / "split" を返す（対象なしは ""） */
+export function editor_search_begin() {
+    const target = (_splitEditor && _splitEditor.isFocused()) ? _splitEditor : editor;
+    if (!target) return "";
+    _edSearchTarget = target;
+    _edSearchSession = target.getSession();
+    _edSearchAnchor = target.getCursorPosition();
+    _edSearchRanges = [];
+    _edSearchIndex = -1;
+    _edSearchHitMarkers = [];
+    // Ace の「選択語ハイライト」は選択変更のたびに session.highlight() を書き換えるため、
+    // 検索中は無効化して独自マーカーと競合しないようにする
+    _edSearchPrevHighlightWord = target.getOption('highlightSelectedWord');
+    target.setOption('highlightSelectedWord', false);
+    target.container.classList.add('leaf-searching');
+    return target === _splitEditor ? "split" : "main";
+}
+
+/** 検索を実行してヒット件数を返す（実行後は起点以降の最初のヒットが選択状態） */
+export function editor_search(query, matchCase) {
+    const ed = _edSearchTarget;
+    if (!ed) return 0;
+    const session = _edSearchSession || ed.getSession();
+    _clearCurrentMarker();
+    _clearHitMarkers();
+    if (!query) {
+        ed.renderer.updateFull(true);
+        _edSearchRanges = [];
+        _edSearchIndex = -1;
+        return 0;
+    }
+    const Search = ace.require('ace/search').Search;
+    const search = new Search().set({
+        needle: query,
+        caseSensitive: !!matchCase,
+        wrap: true,
+        regExp: false,
+        wholeWord: false,
+        backwards: false,
+        range: null
+    });
+    _edSearchRanges = search.findAll(session) || [];
+    // 全ヒットのハイライト（独自マーカー。Ace の SearchHighlight は選択変更で消えるため使わない）
+    const limit = Math.min(_edSearchRanges.length, ED_SEARCH_MAX_MARKERS);
+    for (let i = 0; i < limit; i++) {
+        _edSearchHitMarkers.push(session.addMarker(_edSearchRanges[i], 'leaf-search-hit', 'text'));
+    }
+    ed.renderer.updateFull(true);
+    if (_edSearchRanges.length === 0) {
+        _edSearchIndex = -1;
+        return 0;
+    }
+    // 起点カーソル以降で最初のヒットへ（無ければ先頭へ回り込む）
+    let idx = _edSearchRanges.findIndex((r) => _comparePos(r.start, _edSearchAnchor) >= 0);
+    if (idx < 0) idx = 0;
+    _gotoIndex(idx);
+    return _edSearchRanges.length;
+}
+
+/** 指定インデックスのヒットへ移動（範囲外は循環）。戻り値は選択されたインデックス */
+export function editor_search_goto(index) {
+    return _gotoIndex(index);
+}
+
+/** ハイライトを解除する。focusEditor が true なら対象エディタへフォーカスを戻す */
+export function editor_search_clear(focusEditor) {
+    const ed = _edSearchTarget;
+    const session = _edSearchSession;
+    if (session) {
+        _clearCurrentMarker();
+        _clearHitMarkers();
+    }
+    if (ed) {
+        if (_edSearchPrevHighlightWord !== null) {
+            ed.setOption('highlightSelectedWord', _edSearchPrevHighlightWord);
+        }
+        ed.container.classList.remove('leaf-searching');
+        ed.renderer.updateFull(true);
+        if (focusEditor) ed.focus();
+    }
+    _edSearchPrevHighlightWord = null;
+    _edSearchTarget = null;
+    _edSearchSession = null;
+    _edSearchAnchor = null;
+    _edSearchRanges = [];
+    _edSearchIndex = -1;
+}

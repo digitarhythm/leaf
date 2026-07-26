@@ -10,7 +10,7 @@ use crate::components::char_code_dialog::CharCodeDialog;
 use crate::components::sheet_info_dialog::SheetInfoDialog;
 use crate::components::empty_sheet_dialog::EmptySheetDialog;
 use crate::components::tab_select_dialog::{TabSelectDialog, TabSelectItem};
-use crate::components::preview_search::PreviewSearchBar;
+use crate::components::search_bar::{SearchBar, SearchTarget};
 use crate::js_interop::{init_editor, set_vim_mode, get_editor_content, load_editor_content, focus_editor, set_gutter_status, set_preview_active, generate_uuid, open_local_file, save_local_file, clear_local_handle};
 use crate::auth_interop::request_access_token;
 use crate::db_interop::{save_sheet, save_categories, JSCategory, JSSheet};
@@ -140,7 +140,7 @@ const WINDOW_BLUR_KEY: &str = "leaf_window_blur";
 const TERMINAL_FONT_SIZE_KEY: &str = "leaf_terminal_font_size";
 const GUEST_MODE_KEY: &str = "leaf_guest_mode";
 const LOCAL_AUTO_SAVE_KEY: &str = "leaf_local_auto_save";
-const PREVIEW_SEARCH_CASE_KEY: &str = "leaf_preview_search_match_case";
+const SEARCH_CASE_KEY: &str = "leaf_search_match_case";
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -709,8 +709,12 @@ pub fn app() -> Html {
     // プレビュー内検索バー（Ace の検索はレンダリング済みHTMLに使えないため独自実装）
     let is_preview_search_visible = use_state(|| false);
     let preview_search_ref = use_mut_ref(|| false); // keydownリスナーから常に最新値を読むためのref
-    let preview_search_match_case = use_state(|| {
-        get_account_storage(PREVIEW_SEARCH_CASE_KEY).map(|v| v == "1").unwrap_or(false)
+    // エディタ内検索バー（Ace 標準の検索ボックスは使わない）
+    let is_editor_search_visible = use_state(|| false);
+    let editor_search_ref = use_mut_ref(|| false);
+    let editor_search_pane = use_state(|| "main".to_string()); // "main" | "split"
+    let search_match_case = use_state(|| {
+        get_account_storage(SEARCH_CASE_KEY).map(|v| v == "1").unwrap_or(false)
     });
     let split_pane_sheet_id: UseStateHandle<Option<String>> = use_state(|| None); // 分割ペインに表示するシートID (None=アクティブシート)
     let split_pane_sheet_id_ref: Rc<RefCell<Option<String>>> = use_mut_ref(|| None); // 上記のコールバックから常に最新値を読むためのref
@@ -3069,17 +3073,23 @@ pub fn app() -> Html {
         use_effect_with(*is_preview, move |visible| { set_preview_active(*visible); || () });
     }
 
-    // プレビュー内検索バーの状態を ref に同期（keydownリスナーから最新値を読むため）
+    // 検索バーの状態を ref に同期（keydownリスナーから最新値を読むため）
     {
         let psr = preview_search_ref.clone();
         use_effect_with(*is_preview_search_visible, move |v| { *psr.borrow_mut() = *v; || () });
     }
+    {
+        let esr = editor_search_ref.clone();
+        use_effect_with(*is_editor_search_visible, move |v| { *esr.borrow_mut() = *v; || () });
+    }
 
-    // プレビューを抜けた時／シートを切り替えた時は検索バーを閉じる
+    // プレビューの切替時／シート切替時／ターミナル切替時は検索バーを閉じる
     {
         let ips = is_preview_search_visible.clone();
-        use_effect_with((*is_preview_visible, (*active_sheet_id).clone()), move |_| {
+        let ies = is_editor_search_visible.clone();
+        use_effect_with((*is_preview_visible, (*active_sheet_id).clone(), (*active_terminal_id).clone()), move |_| {
             if *ips { ips.set(false); }
+            if *ies { ies.set(false); }
             || ()
         });
     }
@@ -3204,6 +3214,9 @@ pub fn app() -> Html {
                 let local_auto_save_ref_ev = local_auto_save_ref.clone();
                 let is_preview_search_ev = is_preview_search_visible.clone();
                 let preview_search_ref_ev = preview_search_ref.clone();
+                let is_editor_search_ev = is_editor_search_visible.clone();
+                let editor_search_ref_ev = editor_search_ref.clone();
+                let editor_search_pane_ev = editor_search_pane.clone();
                 use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
                     let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
@@ -3257,6 +3270,9 @@ pub fn app() -> Html {
                     let is_sheet_info_c = is_sheet_info_ev.clone();
                     let is_preview_search_c = is_preview_search_ev.clone();
                     let preview_search_ref_c = preview_search_ref_ev.clone();
+                    let is_editor_search_c = is_editor_search_ev.clone();
+                    let editor_search_ref_c = editor_search_ref_ev.clone();
+                    let editor_search_pane_c = editor_search_pane_ev.clone();
                     let mut opts = EventListenerOptions::run_in_capture_phase(); opts.passive = false;
                     let listener = EventListener::new_with_options(&window, "keydown", opts, move |e| {
                         let ke = e.unchecked_ref::<web_sys::KeyboardEvent>();
@@ -3758,7 +3774,21 @@ pub fn app() -> Html {
                             let is_n = code == "KeyN" || key_lower == "n" || key_lower == "˜";
                             let is_shift_n = (code == "KeyN" || key_lower == "n" || key_lower == "˜") && ke.shift_key();
                             if is_o { e.prevent_default(); e.stop_immediate_propagation(); oi_c.emit(()); return; }
-                            if is_f { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::focus_editor(); crate::js_interop::exec_editor_command("find"); return; }
+                            if is_f {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                // ターミナルがアクティブな場合は対象が無いので何もしない
+                                if atref_c.borrow().is_some() && !*terminal_split_ref_c.borrow() { return; }
+                                if *editor_search_ref_c.borrow() {
+                                    is_editor_search_c.set(false);
+                                } else {
+                                    // 対象エディタと検索起点カーソルを確定してから表示する
+                                    let pane = crate::js_interop::editor_search_begin();
+                                    if pane.is_empty() { return; }
+                                    editor_search_pane_c.set(pane);
+                                    is_editor_search_c.set(true);
+                                }
+                                return;
+                            }
                             if is_s { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("saveSheet"); return; }
                             if is_shift_n { e.prevent_default(); e.stop_immediate_propagation(); crate::js_interop::exec_editor_command("newLocalSheet"); return; }
                             if is_n && !ke.shift_key() {
@@ -4997,12 +5027,13 @@ pub fn app() -> Html {
                                         <InlinePreview content={inline_preview_content.clone()} file_ext={current_file_ext.clone()} font_size={*preview_font_size} initial_scroll_top={preview_scroll} is_split=false />
                                         // プレビュー内検索バー（Alt+F）
                                         if *is_preview_search_visible {
-                                            <PreviewSearchBar
+                                            <SearchBar
+                                                target={SearchTarget::Preview}
                                                 on_close={let ips = is_preview_search_visible.clone(); Callback::from(move |_| { ips.set(false); })}
-                                                match_case={*preview_search_match_case}
-                                                on_toggle_match_case={let mc = preview_search_match_case.clone(); Callback::from(move |v: bool| {
+                                                match_case={*search_match_case}
+                                                on_toggle_match_case={let mc = search_match_case.clone(); Callback::from(move |v: bool| {
                                                     mc.set(v);
-                                                    set_account_storage(PREVIEW_SEARCH_CASE_KEY, if v { "1" } else { "0" });
+                                                    set_account_storage(SEARCH_CASE_KEY, if v { "1" } else { "0" });
                                                 })}
                                             />
                                         }
@@ -5012,6 +5043,19 @@ pub fn app() -> Html {
                                 // ターミナル（Tauri版のみ）
                                 if crate::js_interop::is_tauri() {
                                     <div id="terminal-area" key="terminal-area-fixed" class={classes!("absolute", "inset-0", "z-30", "bg-[#1d2021]", "transition-opacity", "duration-300", if (*active_terminal_id).is_none() { "hidden" } else { "" }, if is_terminal_closing { "opacity-0" } else { "opacity-100" })}></div>
+                                }
+
+                                // エディタ内検索バー（Alt+F・メインエディタ）
+                                if *is_editor_search_visible && *editor_search_pane == "main" {
+                                    <SearchBar
+                                        target={SearchTarget::Editor}
+                                        on_close={let ies = is_editor_search_visible.clone(); Callback::from(move |_| { ies.set(false); })}
+                                        match_case={*search_match_case}
+                                        on_toggle_match_case={let mc = search_match_case.clone(); Callback::from(move |v: bool| {
+                                            mc.set(v);
+                                            set_account_storage(SEARCH_CASE_KEY, if v { "1" } else { "0" });
+                                        })}
+                                    />
                                 }
 
                                 // フォールバック表示
@@ -5030,7 +5074,7 @@ pub fn app() -> Html {
                                 <div class="w-1 flex-shrink-0 cursor-col-resize bg-[#504945] hover:bg-[#689d6a] transition-colors z-40 select-none"
                                      onmousedown={on_splitter_mousedown.clone()} />
                                 // 右ペイン: opacity トランジションでフェードイン/アウト
-                                <div class={classes!("flex-1", "overflow-hidden", "transition-opacity", "duration-300",
+                                <div class={classes!("flex-1", "overflow-hidden", "relative", "transition-opacity", "duration-300",
                                                      if *split_pane_opacity { "opacity-100" } else { "opacity-0" })}>
                                     <div class={classes!("w-full", "h-full", "transition-opacity", "duration-300",
                                                          if *split_content_opacity { "opacity-100" } else { "opacity-0" })}>
@@ -5040,6 +5084,18 @@ pub fn app() -> Html {
                                             <InlinePreview content={split_right_content.clone()} file_ext={split_pane_ext.clone()} font_size={*font_size} initial_scroll_top={preview_scroll} is_split=true />
                                         }
                                     </div>
+                                    // エディタ内検索バー（Alt+F・スプリットエディタ）
+                                    if *is_editor_search_visible && *editor_search_pane == "split" {
+                                        <SearchBar
+                                            target={SearchTarget::Editor}
+                                            on_close={let ies = is_editor_search_visible.clone(); Callback::from(move |_| { ies.set(false); })}
+                                            match_case={*search_match_case}
+                                            on_toggle_match_case={let mc = search_match_case.clone(); Callback::from(move |v: bool| {
+                                                mc.set(v);
+                                                set_account_storage(SEARCH_CASE_KEY, if v { "1" } else { "0" });
+                                            })}
+                                        />
+                                    }
                                 </div>
                             }
                         </div>

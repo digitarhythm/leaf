@@ -517,7 +517,7 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Sluiten",
             _ => "Close",
         }.to_string(),
-        "preview_search_placeholder" => match lang {
+        "search_placeholder_preview" => match lang {
             Language::Ja => "プレビュー内を検索",
             Language::Zh => "在预览中搜索",
             Language::Ko => "미리보기 내 검색",
@@ -528,7 +528,18 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Zoeken in voorbeeld",
             _ => "Search in preview",
         }.to_string(),
-        "preview_search_no_match" => match lang {
+        "search_placeholder_editor" => match lang {
+            Language::Ja => "本文を検索",
+            Language::Zh => "搜索正文",
+            Language::Ko => "본문 검색",
+            Language::Es => "Buscar en el texto",
+            Language::De => "Im Text suchen",
+            Language::Fr => "Rechercher dans le texte",
+            Language::It => "Cerca nel testo",
+            Language::Nl => "Zoeken in tekst",
+            _ => "Search in text",
+        }.to_string(),
+        "search_no_match" => match lang {
             Language::Ja => "見つかりません",
             Language::Zh => "未找到",
             Language::Ko => "찾을 수 없음",
@@ -539,7 +550,7 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Geen resultaten",
             _ => "No matches",
         }.to_string(),
-        "preview_search_next" => match lang {
+        "search_next" => match lang {
             Language::Ja => "次へ",
             Language::Zh => "下一个",
             Language::Ko => "다음",
@@ -550,7 +561,7 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Volgende",
             _ => "Next",
         }.to_string(),
-        "preview_search_prev" => match lang {
+        "search_prev" => match lang {
             Language::Ja => "前へ",
             Language::Zh => "上一个",
             Language::Ko => "이전",
@@ -561,7 +572,7 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Vorige",
             _ => "Previous",
         }.to_string(),
-        "preview_search_match_case" => match lang {
+        "search_match_case" => match lang {
             Language::Ja => "大文字小文字を区別",
             Language::Zh => "区分大小写",
             Language::Ko => "대소문자 구분",

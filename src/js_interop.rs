@@ -69,6 +69,16 @@ extern "C" {
     pub fn clear_local_handle();
     pub fn scroll_into_view_graceful(container: &web_sys::Element, index: u32, duration_ms: f64);
     pub fn scroll_nth_into_view(selector: &str, index: u32);
+
+    // エディタ内検索（Ace 標準の検索ボックスは使わず、Leaf 独自の検索バーから呼ぶ）
+    /// 検索を開始し対象エディタを確定する。"main" / "split" を返す（対象なしは ""）
+    pub fn editor_search_begin() -> String;
+    /// 検索を実行してヒット件数を返す
+    pub fn editor_search(query: &str, match_case: bool) -> i32;
+    /// 指定インデックスのヒットへ移動（範囲外は循環）。戻り値は選択されたインデックス
+    pub fn editor_search_goto(index: i32) -> i32;
+    /// ハイライトを解除する（focus_editor=true でエディタへフォーカスを戻す）
+    pub fn editor_search_clear(focus_editor: bool);
 }
 
 // プレビュー（レンダリング済みHTML）内の検索。Ace の検索とは独立した実装。

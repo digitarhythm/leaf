@@ -4,7 +4,7 @@ pub mod dialog;
 pub mod empty_sheet_dialog;
 pub mod file_open_dialog;
 pub mod preview;
-pub mod preview_search;
+pub mod search_bar;
 pub mod settings_dialog;
 pub mod sheet_info_dialog;
 pub mod shortcut_help;
