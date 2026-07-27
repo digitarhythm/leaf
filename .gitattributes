@@ -1,0 +1,27 @@
+# テキストファイルの改行は LF に統一する。
+# Git が改行を自動判定し、リポジトリ内・チェックアウト後とも LF で扱う。
+* text=auto eol=lf
+
+# 依存ライブラリは npm が生成するため正規化しない（そのままの改行を保持）
+node_modules/** -text
+server/node_modules/** -text
+
+# バイナリ（改行変換を絶対に行わない）
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.wasm binary
+*.dmg binary
+*.zip binary
+*.pdf binary
+.DS_Store binary
+
+# シェルスクリプトは必ず LF（CRLF だと実行できない）
+*.sh text eol=lf

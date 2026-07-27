@@ -42,4 +42,7 @@ extern "C" {
     pub async fn get_file_metadata(file_id: &str) -> Result<JsValue, JsValue>;
 
     pub fn parse_date(date_str: &str) -> f64;
+
+    /// カテゴリー統合（dedupe）で移動したファイルの [{id, modifiedTime}] を取り出す（取得後クリア）
+    pub fn take_moved_file_stamps() -> JsValue;
 }

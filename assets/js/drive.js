@@ -303,6 +303,17 @@ async function trash_appdata_item(fileId) {
     return true;
 }
 
+// dedupe で移動したファイルの {id, modifiedTime}。
+// move によって Drive の modifiedTime が進むため、Rust 側で last_sync_timestamp に反映する。
+let _movedFileStamps = [];
+
+/** dedupe で移動したファイルのタイムスタンプ一覧を取り出す（取得後はクリア） */
+export function take_moved_file_stamps() {
+    const stamps = _movedFileStamps;
+    _movedFileStamps = [];
+    return stamps;
+}
+
 // appDataFolder 内の同名カテゴリーフォルダを1つへ統合する（並行移行の競合で生じた二重化の自己修復）。
 // 残す側に既存の同名ファイルがある場合、移動元は同一内容の複製とみなしゴミ箱へ送る（復元可能）。
 // 個別のエラーは握りつぶして継続し、起動処理全体を止めない。
@@ -337,7 +348,10 @@ async function dedupe_appdata_categories() {
                         // 同名＝同一内容の複製 → ゴミ箱へ（重複ファイルの発生を防止）
                         await trash_appdata_item(file.id);
                     } else {
-                        await move_file(file.id, dup.id, keep.id);
+                        const moved = await move_file(file.id, dup.id, keep.id);
+                        if (moved && moved.modifiedTime) {
+                            _movedFileStamps.push({ id: file.id, modifiedTime: moved.modifiedTime });
+                        }
                         keepNames.add(file.name);
                     }
                 }
@@ -436,8 +450,10 @@ function buildMultipartBody(filename, content, folderId, boundary) {
                     { type: `multipart/related; boundary=${boundary}` });
 }
 
+// 移動・改名は files.update(PATCH) のため Drive 側の modifiedTime が更新される。
+// 呼び出し側で last_sync_timestamp を更新できるよう modifiedTime を必ず返す。
 export async function move_file(fileId, oldParentId, newParentId) {
-    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${newParentId}&removeParents=${oldParentId}&fields=id,parents`;
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?addParents=${newParentId}&removeParents=${oldParentId}&fields=id,parents,modifiedTime`;
     const response = await authenticatedFetch(url, { method: 'PATCH' });
     if (!response.ok) throw new Error(`Move failed: ${response.status}`);
     return await response.json();
@@ -455,7 +471,7 @@ export async function rename_folder(folderId, newName) {
 }
 
 export async function rename_file(fileId, newName) {
-    const url = `https://www.googleapis.com/drive/v3/files/${fileId}`;
+    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?fields=id,name,modifiedTime`;
     const response = await authenticatedFetch(url, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },

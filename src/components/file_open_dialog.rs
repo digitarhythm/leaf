@@ -106,7 +106,11 @@ pub struct FileOpenDialogProps {
     pub on_delete_category: Callback<String>,
     pub on_rename_category: Callback<(String, String)>,
     pub on_delete_file: Callback<(String, String)>,
-    pub on_move_file: Callback<(String, String)>, // (drive_id, new_category_id)
+    /// (drive_id, new_category_id, modified_time) — 移動は Drive の modifiedTime を更新するため親へ伝える
+    pub on_move_file: Callback<(String, String, Option<String>)>,
+    /// (drive_id, new_name, modified_time) — Drive 上でのリネームを親へ伝える
+    #[prop_or_default]
+    pub on_rename_file: Callback<(String, String, Option<String>)>,
     pub on_start_processing: Callback<()>,
     pub on_preview_toggle: Callback<bool>,
     pub is_sub_dialog_open: bool,
@@ -1045,13 +1049,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
 
             proc_m.set(Some(f_id.clone()));
             spawn_local(async move {
-                if let Ok(_) = move_file(&f_id, &old_cid, &n_cat_id).await {
+                if let Ok(rv) = move_file(&f_id, &old_cid, &n_cat_id).await {
                     // 移動元・移動先のキャッシュを無効化
                     cache.borrow_mut().remove(&old_cid);
                     cache.borrow_mut().remove(&n_cat_id);
                     proc_m.set(None);
                     p_move.set(Some(f_id.clone()));
-                    on_p_move.emit((f_id.clone(), n_cat_id));
+                    let mtime = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")).ok().and_then(|v| v.as_string());
+                    on_p_move.emit((f_id.clone(), n_cat_id, mtime));
                     Timeout::new(200, move || { reducer.dispatch(FileAction::Remove(f_id.clone())); }).forget();
                 } else {
                     proc_m.set(None);
@@ -1063,6 +1068,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     // 拡張子(ファイルタイプ)変更: Drive上でリネームし、ローカル一覧も更新
     let on_change_filetype = {
         let files_reducer = files.clone();
+        let on_rename_cb = props.on_rename_file.clone();
         let ft_state = active_filetype_file_id.clone();
         let proc_move = processing_move_id.clone();
         let cur_cid_c = current_category_id.clone();
@@ -1081,10 +1087,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let f_id = file_id.clone();
             let cache = cache_ref.clone();
             let cid = (*cur_cid_c).clone();
+            let on_rename_parent = on_rename_cb.clone();
             proc_m.set(Some(f_id.clone()));
             spawn_local(async move {
-                if crate::drive_interop::rename_file(&f_id, &new_name).await.is_ok() {
+                if let Ok(rv) = crate::drive_interop::rename_file(&f_id, &new_name).await {
                     cache.borrow_mut().remove(&cid);
+                    let mtime = js_sys::Reflect::get(&rv, &JsValue::from_str("modifiedTime")).ok().and_then(|v| v.as_string());
+                    // 開いているシートのタイトルと同期時刻を親側で更新する
+                    on_rename_parent.emit((f_id.clone(), new_name.clone(), mtime));
                     reducer.dispatch(FileAction::Rename(f_id.clone(), new_name, new_ext));
                 }
                 proc_m.set(None);

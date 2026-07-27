@@ -528,6 +528,71 @@ fn is_sheet_locked_by_terminal(
     })
 }
 
+/// Drive API のレスポンスから modifiedTime を取り出してミリ秒に変換する
+fn extract_modified_time(value: &JsValue) -> Option<u64> {
+    js_sys::Reflect::get(value, &JsValue::from_str("modifiedTime")).ok()
+        .and_then(|v| v.as_string())
+        .map(|ts| crate::drive_interop::parse_date(&ts) as u64)
+}
+
+/// Drive のメタデータからファイルサイズ（バイト数）を取り出す。Drive は文字列で返す
+fn extract_drive_size(value: &JsValue) -> Option<u64> {
+    js_sys::Reflect::get(value, &JsValue::from_str("size")).ok().and_then(|v| {
+        v.as_string().and_then(|s| s.parse::<u64>().ok()).or_else(|| v.as_f64().map(|f| f as u64))
+    })
+}
+
+/// シートの last_sync_timestamp を更新して IndexedDB にも保存する
+async fn update_sync_timestamp(
+    rs: &Rc<RefCell<Vec<Sheet>>>,
+    s_state: &UseStateHandle<Vec<Sheet>>,
+    sheet_id: &str,
+    new_ts: u64,
+) {
+    let mut us = (*rs.borrow()).clone();
+    let mut updated: Option<Sheet> = None;
+    if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) {
+        s.last_sync_timestamp = Some(new_ts);
+        updated = Some(s.clone());
+    }
+    if let Some(s) = updated {
+        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+        if let Ok(v) = s.to_js().serialize(&ser) { let _ = save_sheet(v).await; }
+        *rs.borrow_mut() = us.clone();
+        s_state.set(us);
+    }
+}
+
+/// カテゴリー統合（dedupe）で移動したファイルの modifiedTime をシートへ反映する。
+/// 反映しないと「移動によるメタデータ更新」を他デバイスの更新と誤検知して競合ダイアログが出る。
+async fn apply_moved_file_stamps(rs: &Rc<RefCell<Vec<Sheet>>>, s_state: &UseStateHandle<Vec<Sheet>>) {
+    let stamps = crate::drive_interop::take_moved_file_stamps();
+    if stamps.is_undefined() || stamps.is_null() { return; }
+    let arr = js_sys::Array::from(&stamps);
+    if arr.length() == 0 { return; }
+    let mut us = (*rs.borrow()).clone();
+    let mut updated: Vec<Sheet> = Vec::new();
+    for i in 0..arr.length() {
+        let item = arr.get(i);
+        let fid = js_sys::Reflect::get(&item, &JsValue::from_str("id")).ok().and_then(|v| v.as_string());
+        let ts = extract_modified_time(&item);
+        if let (Some(fid), Some(ts)) = (fid, ts) {
+            if let Some(s) = us.iter_mut().find(|x| x.drive_id.as_deref() == Some(fid.as_str())) {
+                s.last_sync_timestamp = Some(ts);
+                updated.push(s.clone());
+            }
+        }
+    }
+    if updated.is_empty() { return; }
+    gloo::console::log!(format!("[Leaf-SYSTEM] dedupe move: {} 件のシートの同期時刻を更新しました", updated.len()));
+    for s in updated {
+        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+        if let Ok(v) = s.to_js().serialize(&ser) { let _ = save_sheet(v).await; }
+    }
+    *rs.borrow_mut() = us.clone();
+    s_state.set(us);
+}
+
 fn trigger_conflict_check(
     aid_ref: Rc<RefCell<Option<String>>>,
     s_ref: Rc<RefCell<Vec<Sheet>>>,
@@ -536,7 +601,8 @@ fn trigger_conflict_check(
     ifo: UseStateHandle<bool>,
     lmk: UseStateHandle<&'static str>,
     is_init: Option<UseStateHandle<bool>>,
-    on_save: Callback<(bool, Option<String>)>
+    on_save: Callback<(bool, Option<String>)>,
+    conflict_queue: UseStateHandle<Vec<ConflictData>>
 ) {
     let aid = (*aid_ref.borrow()).clone();
     let sheets = (*s_ref.borrow()).clone();
@@ -550,6 +616,11 @@ fn trigger_conflict_check(
                 // ローカルの最終更新時刻（tempがあればそれを、なければ同期時刻を使用）
                 let local_time = sheet.temp_timestamp.unwrap_or_else(|| sheet.last_sync_timestamp.unwrap_or(0));
                 let last_sync = sheet.last_sync_timestamp.unwrap_or(0);
+                // 未保存編集の有無・最後に同期した内容のサイズ（メタデータ変更のみの判定に使う）
+                let has_local_edit = sheet.is_modified || sheet.temp_timestamp.is_some();
+                let synced_size = sheet.total_size;
+                let sheet_title = sheet.title.clone();
+                let cq_inner = conflict_queue.clone();
                 let ild_inner = ild.clone();
                 let ifo_inner = ifo.clone();
                 let lmk_inner = lmk.clone();
@@ -567,6 +638,37 @@ fn trigger_conflict_check(
                                 gloo::console::log!(format!("[Leaf-SYSTEM] Sync Check: drive={}, last_sync={}, local_temp={}, is_modified={}", drive_time, last_sync, local_time, is_modified));
 
                                 if drive_time > last_sync + 1000 {
+                                    // Drive 側のサイズが最後に同期した内容と同じなら、rename / move 等の
+                                    // メタデータ変更のみとみなし、同期時刻だけ追従して上書きしない
+                                    if extract_drive_size(&metadata) == Some(synced_size) {
+                                        gloo::console::log!(format!("[Leaf-SYSTEM] Drive is newer but same size ({} bytes). Treating as metadata-only change.", synced_size));
+                                        update_sync_timestamp(&s_ref_inner, &s_state_inner, &sheet_id, drive_time).await;
+                                        let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = is_init_inner.clone();
+                                        if *ild || isi.as_ref().map(|v| **v).unwrap_or(false) {
+                                            ifo.set(true);
+                                            Timeout::new(300, move || { ild.set(false); ifo.set(false); if let Some(h) = isi { h.set(false); } }).forget();
+                                        }
+                                        return;
+                                    }
+                                    // ローカルに未保存の編集がある場合は自動上書きせず、作業者に選択させる
+                                    if has_local_edit {
+                                        gloo::console::warn!(format!("[Leaf-SYSTEM] Drive is newer and local has unsaved edits. Showing conflict dialog."));
+                                        let mut q = (*cq_inner).clone();
+                                        if !q.iter().any(|c| c.sheet_id == sheet_id) {
+                                            let local_content = (*s_ref_inner.borrow()).iter().find(|x| x.id == sheet_id).map(|x| x.content.clone()).unwrap_or_default();
+                                            q.push(ConflictData {
+                                                sheet_id: sheet_id.clone(), title: sheet_title.clone(), drive_id: drive_id.clone(),
+                                                local_content, drive_time, time_str: time_str.clone(), is_missing_on_drive: false,
+                                            });
+                                            cq_inner.set(q);
+                                        }
+                                        let ild = ild_inner.clone(); let ifo = ifo_inner.clone(); let isi = is_init_inner.clone();
+                                        if *ild || isi.as_ref().map(|v| **v).unwrap_or(false) {
+                                            ifo.set(true);
+                                            Timeout::new(300, move || { ild.set(false); ifo.set(false); if let Some(h) = isi { h.set(false); } }).forget();
+                                        }
+                                        return;
+                                    }
                                     // Googleドライブの方が新しい → ダイアログを出さずにDriveの内容で自動更新
                                     lmk_inner.set("synchronizing");
                                     ild_inner.set(true);
@@ -1405,7 +1507,12 @@ pub fn app() -> Html {
                          let target_folder_id = target_folder_id_val;
                          let sheet = s_clone;
                          gloo::console::log!(format!("[Leaf-DBG] spawn_local START sheet.id={} drive_id={:?} category={} title={} content.len={}", sheet.id, sheet.drive_id, sheet.category, sheet.title, sheet.content.len()));
-                         let _structure = match ensure_directory_structure().await { Ok(res) => res, Err(_) => {
+                         let _structure = match ensure_directory_structure().await { Ok(res) => {
+                             // dedupe でファイルが移動していれば、移動で進んだ modifiedTime を
+                             // 各シートの同期時刻へ反映する（誤検知による競合ダイアログの防止）
+                             apply_moved_file_stamps(&rs_async, &s_inner).await;
+                             res
+                         }, Err(_) => {
                              gloo::console::warn!(format!("[Leaf-DBG] ensure_directory_structure FAILED sheet.id={}", sheet.id));
                              ris_inner.borrow_mut().remove(&sheet.id); is_saving_inner.set(None);
                              if *lock_inner {
@@ -1462,13 +1569,21 @@ pub fn app() -> Html {
                              // これを怠ると「自分の直前の保存」を「他人の更新」と誤検知する。
                              let latest_sync_ts = rs_async.borrow().iter().find(|s| s.id == sheet.id)
                                  .and_then(|s| s.last_sync_timestamp);
+                             // 最後に同期した内容のサイズ（Drive 側と一致すればメタデータ変更のみと判断できる）
+                             let latest_synced_size = rs_async.borrow().iter().find(|s| s.id == sheet.id)
+                                 .map(|s| s.total_size).unwrap_or(0);
                              if let Some(sync_ts) = latest_sync_ts {
                                  if let Ok(metadata) = get_file_metadata(did).await {
                                      if let Ok(tv) = js_sys::Reflect::get(&metadata, &JsValue::from_str("modifiedTime")) {
                                          if let Some(ts) = tv.as_string() {
                                              let drive_time = crate::drive_interop::parse_date(&ts) as u64;
                                              gloo::console::log!(format!("[Leaf-DBG] Pre-save check: drive_time={} sync_ts={} diff={} ts_str={}", drive_time, sync_ts, drive_time as i64 - sync_ts as i64, ts));
-                                             if drive_time > sync_ts + 1000 {
+                                             if drive_time > sync_ts + 1000 && extract_drive_size(&metadata) == Some(latest_synced_size) {
+                                                 // Drive の内容サイズが最後の同期時と同じ ＝ rename / move 等の
+                                                 // メタデータ変更のみ。競合とはみなさず同期時刻だけ追従して保存を続行する
+                                                 gloo::console::log!(format!("[Leaf-SYSTEM] Pre-save: drive is newer but same size ({} bytes). Treating as metadata-only change.", latest_synced_size));
+                                                 update_sync_timestamp(&rs_async, &s_inner, &sheet.id, drive_time).await;
+                                             } else if drive_time > sync_ts + 1000 {
                                                  // Driveの方が新しい → コンフリクトダイアログを表示して保存中断
                                                  gloo::console::warn!(format!("[Leaf-SYSTEM] Pre-save conflict! drive_time({}) > sync_ts({}). Aborting save.", drive_time, sync_ts));
                                                  let mut current_q = (*cq_async).clone();
@@ -1771,7 +1886,17 @@ pub fn app() -> Html {
                             let fa = js_sys::Array::from(&fv);
                             for i in 0..fa.length() {
                                 let fm = fa.get(i); let fid = js_sys::Reflect::get(&fm, &JsValue::from_str("id")).unwrap().as_string().unwrap();
-                                let _ = move_file(&fid, &target_cid, &ncid).await;
+                                if let Ok(rv) = move_file(&fid, &target_cid, &ncid).await {
+                                    // 開いているシートなら、移動で進んだ modifiedTime を同期時刻へ反映する
+                                    if let Some(ts) = extract_modified_time(&rv) {
+                                        let target_sheet_id = rs_inner.borrow().iter()
+                                            .find(|x| x.drive_id.as_deref() == Some(fid.as_str()))
+                                            .map(|x| x.id.clone());
+                                        if let Some(sid) = target_sheet_id {
+                                            update_sync_timestamp(&rs_inner, &ss, &sid, ts).await;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -2070,15 +2195,44 @@ pub fn app() -> Html {
 
     let on_move_file_cb = {
         let s_state = sheets.clone(); let rs = sheets_ref.clone();
-        Callback::from(move |(drive_id, new_category_id): (String, String)| {
+        Callback::from(move |(drive_id, new_category_id, modified_time): (String, String, Option<String>)| {
             let mut us = (*rs.borrow()).clone();
             if let Some(sheet) = us.iter_mut().find(|s| s.drive_id.as_ref() == Some(&drive_id)) {
                 sheet.category = new_category_id;
+                // 移動で Drive の modifiedTime が進むため同期時刻も追従させる
+                if let Some(ref ts) = modified_time {
+                    sheet.last_sync_timestamp = Some(crate::drive_interop::parse_date(ts) as u64);
+                }
                 let js = sheet.to_js();
                 let ser = serde_wasm_bindgen::Serializer::json_compatible(); 
                 if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
             }
             *rs.borrow_mut() = us.clone(); s_state.set(us);
+        })
+    };
+
+    // ファイル一覧ダイアログからのリネーム（拡張子変更）を開いているシートへ反映する
+    let on_rename_file_cb = {
+        let s_state = sheets.clone(); let rs = sheets_ref.clone(); let aid_ref = active_id_ref.clone();
+        Callback::from(move |(drive_id, new_name, modified_time): (String, String, Option<String>)| {
+            let mut us = (*rs.borrow()).clone();
+            let mut renamed_id: Option<String> = None;
+            if let Some(sheet) = us.iter_mut().find(|s| s.drive_id.as_ref() == Some(&drive_id)) {
+                sheet.title = new_name.clone();
+                // リネームで Drive の modifiedTime が進むため同期時刻も追従させる
+                if let Some(ref ts) = modified_time {
+                    sheet.last_sync_timestamp = Some(crate::drive_interop::parse_date(ts) as u64);
+                }
+                renamed_id = Some(sheet.id.clone());
+                let js = sheet.to_js();
+                let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                if let Ok(v) = js.serialize(&ser) { spawn_local(async move { let _ = save_sheet(v).await; }); }
+            }
+            *rs.borrow_mut() = us.clone(); s_state.set(us);
+            // アクティブシートなら editor のシンタックスモードも更新
+            if renamed_id.is_some() && *aid_ref.borrow() == renamed_id {
+                crate::js_interop::set_editor_mode(&new_name);
+            }
         })
     };
 
@@ -2243,9 +2397,11 @@ pub fn app() -> Html {
                     if let Some(fid) = file_id_opt {
                         lmk_inner.set("synchronizing"); il_inner.set(true); ifo_inner.set(false);
                         spawn_local(async move {
-                            if let Ok(_) = move_file(&fid, &old_cat_id, &new_cat_id).await {
+                            if let Ok(rv) = move_file(&fid, &old_cat_id, &new_cat_id).await {
+                                // 移動も Drive の modifiedTime を更新するため、同期時刻を追従させる
+                                let new_ts = extract_modified_time(&rv);
                                 let mut us = (*s_state_inner).clone();
-                                if let Some(s) = us.iter_mut().find(|x| x.id == id) { s.category = new_cat_id.clone(); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } }
+                                if let Some(s) = us.iter_mut().find(|x| x.id == id) { s.category = new_cat_id.clone(); if let Some(ts) = new_ts { s.last_sync_timestamp = Some(ts); } let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } }
                                 *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                             }
                             ifo_inner.set(true); let ifo_final = ifo_inner.clone();
@@ -2296,9 +2452,12 @@ pub fn app() -> Html {
                         let s_state_inner = s_state.clone(); let il_inner = il.clone(); let ifo_inner = ifo.clone(); let lmk_inner = lmk.clone(); let r_s_inner = r_s.clone();
                         lmk_inner.set("synchronizing"); il_inner.set(true); ifo_inner.set(false);
                         spawn_local(async move {
-                            if let Ok(_) = crate::drive_interop::rename_file(&drive_id, &new_name).await {
+                            if let Ok(rv) = crate::drive_interop::rename_file(&drive_id, &new_name).await {
+                                // リネームは Drive の modifiedTime を更新するため、同期時刻も必ず追従させる。
+                                // 追従しないと次回保存時に「他デバイスの更新」と誤検知して競合ダイアログが出る。
+                                let new_ts = extract_modified_time(&rv);
                                 let mut us = (*s_state_inner).clone();
-                                if let Some(s) = us.iter_mut().find(|x| x.id == id) { s.title = new_name.clone(); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } crate::js_interop::set_editor_mode(&new_name); }
+                                if let Some(s) = us.iter_mut().find(|x| x.id == id) { s.title = new_name.clone(); if let Some(ts) = new_ts { s.last_sync_timestamp = Some(ts); } let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } crate::js_interop::set_editor_mode(&new_name); }
                                 *r_s_inner.borrow_mut() = us.clone(); s_state_inner.set(us);
                             }
                             ifo_inner.set(true); let ifo_final = ifo_inner.clone();
@@ -2423,6 +2582,7 @@ pub fn app() -> Html {
         let s_handle_effect = sheets.clone();
         let lmk_effect = loading_message_key.clone();
         let on_save_for_net = on_save_cb.clone();
+        let cq_effect = conflict_queue.clone();
         let aev_listener = auth_error_visible.clone();
         let isi_listener = is_initial_load.clone();
         let ild_listener = is_loading.clone();
@@ -2476,14 +2636,16 @@ pub fn app() -> Html {
                 let ifo = is_fo.clone();
                 let lmk = lmk_effect.clone();
                 let os_cb = on_save_for_net.clone();
+                let cq_online = cq_effect.clone();
                 EventListener::new(&window, "online", move |_| {
                     gloo::console::log!("[Leaf-SYSTEM] Network online. Waiting 500ms for stable connection...");
                     nc.set(true);
                     let ar = aid_ref.clone(); let sr = s_ref.clone(); let ss = s_st.clone();
                     let il = ild.clone(); let i = ifo.clone(); let l = lmk.clone(); let o = os_cb.clone();
+                    let cq = cq_online.clone();
                     Timeout::new(500, move || {
                         gloo::console::log!("[Leaf-SYSTEM] connection stable. Checking for conflicts...");
-                        trigger_conflict_check(ar, sr, ss, il, i, l, None, o);
+                        trigger_conflict_check(ar, sr, ss, il, i, l, None, o, cq);
                     }).forget();
                 })
             };
@@ -2503,11 +2665,12 @@ pub fn app() -> Html {
                 let lmk = lmk_effect.clone();
                 let doc = web_sys::window().unwrap().document().unwrap();
                 let os_cb = on_save_for_net.clone();
+                let cq_vis = cq_effect.clone();
                 EventListener::new(&doc, "visibilitychange", move |_| {
                     let doc = web_sys::window().unwrap().document().unwrap();
                     if !doc.hidden() {
                         gloo::console::log!("[Leaf-SYSTEM] App visible. Checking for conflicts...");
-                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), s_st.clone(), ild.clone(), ifo.clone(), lmk.clone(), None, os_cb.clone());
+                        trigger_conflict_check(aid_ref.clone(), s_ref.clone(), s_st.clone(), ild.clone(), ifo.clone(), lmk.clone(), None, os_cb.clone(), cq_vis.clone());
                     }
                 })
             };
@@ -2711,6 +2874,7 @@ pub fn app() -> Html {
         let vim_mode_auth = vim_mode.clone();
         let pfs_auth = preview_font_size.clone();
         let et_auth = editor_theme.clone();
+        let cq_for_auth = conflict_queue.clone();
 
         use_effect_with((is_online, ), move |_| {
             let cleanup = || ();
@@ -2724,6 +2888,7 @@ pub fn app() -> Html {
             let aid_ref_cb = aid_ref_h.clone();
             let aid_state_cb = aid_state_h.clone();
             let os_cb_inner = on_save_for_auth.clone();
+            let cq_auth = cq_for_auth.clone();
             let is_ad_free_cb = is_ad_free_c.clone();
 
             // タイムアウトによる救済ロジック
@@ -2750,6 +2915,7 @@ pub fn app() -> Html {
             let callback = Closure::wrap(Box::new(move |_token: String| {
                 let is_auth_inner = is_auth_cb_final.clone();
                 let os_cb_final = os_cb_inner.clone();
+                let cq_init = cq_auth.clone();
                 *auth_flag_cb.borrow_mut() = true; // RefCell: タイムアウトからも即座に参照可能
                 if !*is_auth_inner {
                     is_auth_inner.set(true);
@@ -2896,7 +3062,8 @@ pub fn app() -> Html {
                                             ifo_inner.clone(),
                                             lmk_inner,
                                             Some(is_init_inner.clone()),
-                                            os_cb_final
+                                            os_cb_final,
+                                            cq_init.clone()
                                         );
                                     }
                                 }
@@ -5209,7 +5376,7 @@ pub fn app() -> Html {
                         <div class="pointer-events-auto">
                             <FileOpenDialog 
                                 on_close={let iv = is_file_open_dialog_visible.clone(); let sp = is_suppressing_changes.clone(); let aid = active_id_ref.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let atref_fo = active_terminal_ref.clone(); move |_| { iv.set(false); sp.set(false); if let Some(ref tid) = *atref_fo.borrow() { crate::js_interop::terminal_focus(tid); } else { focus_editor(); } let aid_val = (*aid.borrow()).clone(); let rs_c = rs.clone(); let s_state_c = s_state.clone(); if let Some(id) = aid_val { let sheets_list = (*rs_c.borrow()).clone(); if let Some(sheet) = sheets_list.iter().find(|s| s.id == id) { if !sheet.category.is_empty() && sheet.category != "__LOCAL__" { if let Some(did) = sheet.drive_id.clone() { let sheet_id = id.clone(); spawn_local(async move { if let Err(_) = crate::drive_interop::get_file_metadata(&did).await { let mut us = (*rs_c.borrow()).clone(); if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) { s.drive_id = None; s.category = "OTHERS".to_string(); s.is_modified = true; set_gutter_status("unsaved"); let js = s.to_js(); let ser = serde_wasm_bindgen::Serializer::json_compatible(); if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; } } *rs_c.borrow_mut() = us.clone(); s_state_c.set(us); } }); } } } } } } 
-                                on_select={on_file_sel_cb} leaf_data_id={ldid} categories={(*categories).clone()} on_refresh={on_refresh_cats_cb} on_delete_category={on_delete_category_cb} on_rename_category={on_rename_category_cb} on_delete_file={on_delete_file_cb} on_move_file={on_move_file_cb} on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} on_preview_toggle={let ifds = is_file_dialog_sub_active.clone(); Callback::from(move |v| ifds.set(v))} 
+                                on_select={on_file_sel_cb} leaf_data_id={ldid} categories={(*categories).clone()} on_refresh={on_refresh_cats_cb} on_delete_category={on_delete_category_cb} on_rename_category={on_rename_category_cb} on_delete_file={on_delete_file_cb} on_move_file={on_move_file_cb} on_rename_file={on_rename_file_cb} on_start_processing={let lmk = loading_message_key.clone(); move |_| { lmk.set("synchronizing"); }} on_preview_toggle={let ifds = is_file_dialog_sub_active.clone(); Callback::from(move |v| ifds.set(v))} 
                                 on_sub_active_change={let ifds = is_file_dialog_sub_active.clone(); Callback::from(move |v| ifds.set(v))}
                                 is_sub_dialog_open={is_sub_overlay_active} is_creating_category={*is_creating_category} on_create_category_toggle={let ic = is_creating_category.clone(); Callback::from(move |v| ic.set(v))} 
                                 refresh_files_trigger={*file_refresh_trigger} is_loading={*is_file_list_loading} on_loading_change={let l = is_file_list_loading.clone(); Callback::from(move |v| l.set(v))} 
