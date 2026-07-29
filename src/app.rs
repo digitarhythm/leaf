@@ -332,6 +332,76 @@ struct TerminalSplitHandles {
     map: Rc<RefCell<std::collections::HashMap<String, (bool, bool, Option<String>)>>>,
 }
 
+/// 対象シートに保存された表示モード（プレビュー／スプリット）を画面へ復元する。
+/// `terminal_split_enabled` はターミナルスプリットとシートスプリットで共有されているため、
+/// シートを表示する時は必ずそのシートの `is_split` に揃える必要がある。
+/// 対象シートが見つからない場合は編集モード・非スプリットへフォールバックする。
+fn restore_sheet_view_mode(
+    tsh: &TerminalSplitHandles,
+    sheets_ref: &Rc<RefCell<Vec<Sheet>>>,
+    target_sheet_id: Option<&str>,
+    is_preview_visible: &UseStateHandle<bool>,
+    preview_overlay_opacity: &UseStateHandle<bool>,
+) {
+    let (want_preview, want_split) = target_sheet_id
+        .and_then(|id| {
+            sheets_ref
+                .borrow()
+                .iter()
+                .find(|s| s.id == id)
+                .map(|s| (s.is_preview, s.is_split))
+        })
+        .unwrap_or((false, false));
+    // フェードなしで切り替える（タブ切り替えと同じ挙動）
+    *tsh.skip_fade.borrow_mut() = true;
+    tsh.ts_state.set(want_split);
+    *tsh.ts_ref.borrow_mut() = want_split;
+    // 既に同じ表示状態ならフェードをやり直さない（ちらつき防止）
+    if **is_preview_visible != want_preview {
+        apply_preview_visibility(is_preview_visible, preview_overlay_opacity, want_preview);
+    }
+}
+
+/// ターミナルコンテキストを抜け、対象シート本来の表示モードを復元する。
+/// ターミナルがアクティブでない場合は何もせず `false` を返す（通常のシート表示時の副作用を避ける）。
+fn leave_terminal_for_sheet(
+    tsh: &TerminalSplitHandles,
+    atid: &UseStateHandle<Option<String>>,
+    atref: &Rc<RefCell<Option<String>>>,
+    sheets_ref: &Rc<RefCell<Vec<Sheet>>>,
+    target_sheet_id: Option<&str>,
+    is_preview_visible: &UseStateHandle<bool>,
+    preview_overlay_opacity: &UseStateHandle<bool>,
+) -> bool {
+    let prev_tid = match (*atref.borrow()).clone() {
+        Some(tid) => tid,
+        None => return false,
+    };
+    // 離脱するターミナルのスプリット状態を保存（タブで戻った時に復元される）
+    tsh.map.borrow_mut().insert(
+        prev_tid,
+        (
+            *tsh.ts_ref.borrow(),
+            *tsh.tse_ref.borrow(),
+            (*tsh.sps_ref.borrow()).clone(),
+        ),
+    );
+    atid.set(None);
+    *atref.borrow_mut() = None;
+    *tsh.tse_ref.borrow_mut() = false;
+    tsh.tse_state.set(false);
+    tsh.sps_state.set(None);
+    *tsh.sps_ref.borrow_mut() = None;
+    restore_sheet_view_mode(
+        tsh,
+        sheets_ref,
+        target_sheet_id,
+        is_preview_visible,
+        preview_overlay_opacity,
+    );
+    true
+}
+
 fn close_tab_direct(
     close_id: String,
     rs: Rc<RefCell<Vec<Sheet>>>,
@@ -2079,12 +2149,23 @@ pub fn app() -> Html {
                     let existing_id = existing.id.clone();
                     iv.set(false); // ファイル選択ダイアログを閉じる
                     crate::js_interop::activate_sheet_session(&existing_id, &existing.content, &existing.title);
-                    // 別シートへ切り替えた場合のみ、そのシートの表示モード（編集／プレビュー）に画面を合わせる。
-                    // アクティブシート自身の再選択では現在の表示をそのまま維持する。
                     let is_same_as_active = (*aid).as_deref() == Some(existing_id.as_str());
+                    let tsh = TerminalSplitHandles {
+                        ts_state: ts_sel.clone(), ts_ref: ts_ref_sel.clone(),
+                        tse_state: tse_fo.clone(), tse_ref: tse_ref_fo.clone(),
+                        sps_state: spid_fo.clone(), sps_ref: spid_ref_fo.clone(),
+                        skip_fade: ssf_sel.clone(), map: ts_map_fo.clone(),
+                    };
+                    // ターミナル（スプリット含む）から開いた場合はコンテキストを抜けて
+                    // 開くシート本来の表示モードへ戻す
+                    let left_terminal = leave_terminal_for_sheet(
+                        &tsh, &atid_fo, &atref_fo, &rs, Some(existing_id.as_str()), &ip_sel, &pop_sel,
+                    );
                     aid.set(Some(existing_id.clone()));
-                    if !is_same_as_active {
-                        apply_preview_visibility(&ip_sel, &pop_sel, existing.is_preview);
+                    // 別シートへ切り替えた場合のみ、そのシートの表示モード（編集／プレビュー／スプリット）
+                    // に画面を合わせる。アクティブシート自身の再選択では現在の表示をそのまま維持する。
+                    if !is_same_as_active && !left_terminal {
+                        restore_sheet_view_mode(&tsh, &rs, Some(existing_id.as_str()), &ip_sel, &pop_sel);
                     }
                     focus_editor();
                     return;
@@ -2260,21 +2341,19 @@ pub fn app() -> Html {
         let ip_imp = is_preview_visible.clone();
         let pop_imp = preview_overlay_opacity.clone();
         Callback::from(move |_| {
-            // ターミナルがアクティブな場合、スプリット状態をts_mapに保存してターミナルコンテキストを抜ける
-            let prev_tid = atref_imp.borrow().clone();
-            if let Some(tid) = prev_tid {
-                let ts_val = *ts_ref_imp.borrow();
-                let tse_val = *tse_ref_imp.borrow();
-                let spid_val = spid_ref_imp.borrow().clone();
-                ts_map_imp.borrow_mut().insert(tid, (ts_val, tse_val, spid_val));
-                atid_imp.set(None);
-                *atref_imp.borrow_mut() = None;
-                *tse_ref_imp.borrow_mut() = false;
-                tse_imp.set(false);
-                spid_imp.set(None);
-                *spid_ref_imp.borrow_mut() = None;
-            }
+            let tsh_imp = TerminalSplitHandles {
+                ts_state: ts_imp.clone(), ts_ref: ts_ref_imp.clone(),
+                tse_state: tse_imp.clone(), tse_ref: tse_ref_imp.clone(),
+                sps_state: spid_imp.clone(), sps_ref: spid_ref_imp.clone(),
+                skip_fade: ssf_imp.clone(), map: ts_map_imp.clone(),
+            };
             let aid_val = (*aid_state).clone();
+            // ターミナルがアクティブな場合、スプリット状態をts_mapに保存してターミナルコンテキストを抜け、
+            // 直前のシート本来の表示モード（編集／プレビュー／スプリット）へ戻す。
+            // （ファイルダイアログをキャンセルしてもスプリット表示に化けないようにする）
+            leave_terminal_for_sheet(
+                &tsh_imp, &atid_imp, &atref_imp, &r_s, aid_val.as_deref(), &ip_imp, &pop_imp,
+            );
             let mut save_target_id: Option<String> = None;
             if let Some(id) = aid_val.clone() {
                 let cur_s = (*r_s.borrow()).clone();
@@ -2294,6 +2373,7 @@ pub fn app() -> Html {
             let ssf_imp_c = ssf_imp.clone();
             let ip_imp_c = ip_imp.clone();
             let pop_imp_c = pop_imp.clone();
+            let tsh_imp_c = tsh_imp.clone();
             spawn_local(async move {
                 let res = open_local_file().await; if res.is_null() || res.is_undefined() { return; }
 
@@ -2308,6 +2388,8 @@ pub fn app() -> Html {
                     if let Some(existing) = cur_s.iter().find(|s| s.category == "__LOCAL__" && s.title == *name) {
                         let existing_id = existing.id.clone();
                         crate::js_interop::activate_sheet_session(&existing_id, &existing.content, &existing.title);
+                        // 開くシート本来の表示モード（編集／プレビュー／スプリット）へ合わせる
+                        restore_sheet_view_mode(&tsh_imp_c, &r_s_c, Some(existing_id.as_str()), &ip_imp_c, &pop_imp_c);
                         aid_state_c.set(Some(existing_id));
                         set_gutter_status("local");
                         focus_editor();
