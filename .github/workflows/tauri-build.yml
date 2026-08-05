@@ -31,6 +31,15 @@ jobs:
             args: ''
             target: ''
             artifact_name: leaf-linux
+            linux_arch: amd64
+          # ARM Chromebook(Crostini) など Linux/ARM64 向け。
+          # ARM の AppImage は ARM 実機でしかビルドできないため、
+          # クロスコンパイルではなく GitHub の ARM64 ホストランナーを使う。
+          - platform: ubuntu-22.04-arm
+            args: ''
+            target: ''
+            artifact_name: leaf-linux-arm64
+            linux_arch: arm64
 
     runs-on: ${{ matrix.platform }}
 
@@ -60,7 +69,7 @@ jobs:
 
       # Linux dependencies
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev
@@ -71,7 +80,7 @@ jobs:
         run: brew install binaryen
 
       - name: Install wasm-opt (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         run: sudo apt-get install -y binaryen
 
       - name: Install wasm-opt (Windows)
@@ -128,7 +137,7 @@ jobs:
             src-tauri/target/release/bundle/nsis/*.exe
 
       - name: Upload artifacts (Linux)
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu-')
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
@@ -166,12 +175,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload fixed-name release asset (Linux)
-        if: startsWith(github.ref, 'refs/tags/') && matrix.platform == 'ubuntu-22.04'
+        if: startsWith(github.ref, 'refs/tags/') && startsWith(matrix.platform, 'ubuntu-')
         run: |
-          appimage=$(ls src-tauri/target/release/bundle/appimage/*.AppImage | head -1)
-          cp "$appimage" Leaf_amd64.AppImage
+          arch=${{ matrix.linux_arch }}
           deb=$(ls src-tauri/target/release/bundle/deb/*.deb | head -1)
-          cp "$deb" Leaf_amd64.deb
-          gh release upload ${{ github.ref_name }} Leaf_amd64.AppImage Leaf_amd64.deb --clobber
+          cp "$deb" Leaf_${arch}.deb
+          assets="Leaf_${arch}.deb"
+          # AppImage は生成されない構成もありうるので存在確認してから追加する
+          appimage=$(ls src-tauri/target/release/bundle/appimage/*.AppImage 2>/dev/null | head -1)
+          if [ -n "$appimage" ]; then
+            cp "$appimage" Leaf_${arch}.AppImage
+            assets="$assets Leaf_${arch}.AppImage"
+          fi
+          gh release upload ${{ github.ref_name }} $assets --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
