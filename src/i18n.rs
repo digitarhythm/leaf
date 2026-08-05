@@ -1,6 +1,9 @@
 use web_sys::window;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// 明示的に選択された表示言語の保存キー（localStorage）
+const LANGUAGE_KEY: &str = "leaf_language";
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Language {
     En,
     Ja,
@@ -13,13 +16,42 @@ pub enum Language {
     Nl,
 }
 
-impl Language {
-    pub fn detect() -> Self {
-        let lang = window()
-            .and_then(|w| w.navigator().language())
-            .unwrap_or_else(|| "en".to_string())
-            .to_lowercase();
+/// 設定ダイアログに表示する言語の一覧（表示名は各言語での表記のため翻訳しない）
+pub const LANGUAGES: &[(Language, &str)] = &[
+    (Language::En, "English"),
+    (Language::Ja, "日本語"),
+    (Language::Zh, "中文"),
+    (Language::Ko, "한국어"),
+    (Language::Es, "Español"),
+    (Language::De, "Deutsch"),
+    (Language::Fr, "Français"),
+    (Language::It, "Italiano"),
+    (Language::Nl, "Nederlands"),
+];
 
+impl Language {
+    /// 保存用の言語コード
+    pub fn code(self) -> &'static str {
+        match self {
+            Language::En => "en",
+            Language::Ja => "ja",
+            Language::Zh => "zh",
+            Language::Ko => "ko",
+            Language::Es => "es",
+            Language::De => "de",
+            Language::Fr => "fr",
+            Language::It => "it",
+            Language::Nl => "nl",
+        }
+    }
+
+    /// 保存された言語コードから復元する。未知のコードは None。
+    pub fn from_code(code: &str) -> Option<Self> {
+        LANGUAGES.iter().map(|(l, _)| *l).find(|l| l.code() == code)
+    }
+
+    /// `navigator.language`（"ja-JP" 等）の先頭一致で判定する。
+    fn from_prefix(lang: &str) -> Self {
         if lang.starts_with("ja") { Language::Ja }
         else if lang.starts_with("zh") { Language::Zh }
         else if lang.starts_with("ko") { Language::Ko }
@@ -29,6 +61,85 @@ impl Language {
         else if lang.starts_with("it") { Language::It }
         else if lang.starts_with("nl") { Language::Nl }
         else { Language::En }
+    }
+
+    /// 保存値と `navigator.language` から表示言語を決定する（副作用なし）。
+    ///
+    /// 保存値を優先するのは、Chromebook の Linux 環境（Crostini）のように
+    /// OS のロケールが引き継がれず `navigator.language` が実際の希望と
+    /// 一致しない環境でもユーザーが言語を選べるようにするため。
+    pub fn resolve(stored: Option<&str>, navigator_lang: &str) -> Self {
+        if let Some(code) = stored {
+            if let Some(lang) = Language::from_code(code) {
+                return lang;
+            }
+        }
+        Language::from_prefix(&navigator_lang.to_lowercase())
+    }
+
+    pub fn detect() -> Self {
+        let navigator_lang = window()
+            .and_then(|w| w.navigator().language())
+            .unwrap_or_else(|| "en".to_string());
+        Language::resolve(stored_language().as_deref(), &navigator_lang)
+    }
+}
+
+/// 明示的に選択された言語コードを取得する（未設定＝Auto なら None）
+pub fn stored_language() -> Option<String> {
+    window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item(LANGUAGE_KEY).ok().flatten())
+        .filter(|c| !c.is_empty())
+}
+
+/// 表示言語を保存する。None を渡すと Auto（システム設定に従う）に戻す。
+pub fn set_stored_language(code: Option<&str>) {
+    if let Some(storage) = window().and_then(|w| w.local_storage().ok().flatten()) {
+        match code {
+            Some(c) => { let _ = storage.set_item(LANGUAGE_KEY, c); }
+            None => { let _ = storage.remove_item(LANGUAGE_KEY); }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn navigator_language_is_used_when_nothing_is_stored() {
+        assert_eq!(Language::resolve(None, "ja-JP"), Language::Ja);
+        assert_eq!(Language::resolve(None, "en-US"), Language::En);
+        assert_eq!(Language::resolve(None, "fr"), Language::Fr);
+        // 未対応の言語は英語へフォールバックする
+        assert_eq!(Language::resolve(None, "pt-BR"), Language::En);
+    }
+
+    #[test]
+    fn navigator_language_is_case_insensitive() {
+        assert_eq!(Language::resolve(None, "JA-JP"), Language::Ja);
+    }
+
+    #[test]
+    fn stored_language_takes_precedence_over_navigator() {
+        // Crostini のように navigator.language が en でも保存値が優先される
+        assert_eq!(Language::resolve(Some("ja"), "en-US"), Language::Ja);
+        assert_eq!(Language::resolve(Some("en"), "ja-JP"), Language::En);
+    }
+
+    #[test]
+    fn invalid_stored_language_falls_back_to_navigator() {
+        assert_eq!(Language::resolve(Some("xx"), "ja-JP"), Language::Ja);
+        assert_eq!(Language::resolve(Some(""), "ja-JP"), Language::Ja);
+    }
+
+    #[test]
+    fn code_and_from_code_round_trip() {
+        for (lang, _) in LANGUAGES {
+            assert_eq!(Language::from_code(lang.code()), Some(*lang));
+        }
+        assert_eq!(Language::from_code("unknown"), None);
     }
 }
 
@@ -663,6 +774,39 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::It => "Apri file",
             Language::Nl => "Bestand openen",
             _ => "Open File",
+        }.to_string(),
+        "language" => match lang {
+            Language::Ja => "表示言語",
+            Language::Zh => "显示语言",
+            Language::Ko => "표시 언어",
+            Language::Es => "Idioma",
+            Language::De => "Sprache",
+            Language::Fr => "Langue",
+            Language::It => "Lingua",
+            Language::Nl => "Taal",
+            _ => "Language",
+        }.to_string(),
+        "language_auto" => match lang {
+            Language::Ja => "自動",
+            Language::Zh => "自动",
+            Language::Ko => "자동",
+            Language::Es => "Automático",
+            Language::De => "Automatisch",
+            Language::Fr => "Automatique",
+            Language::It => "Automatico",
+            Language::Nl => "Automatisch",
+            _ => "Auto",
+        }.to_string(),
+        "language_reload_note" => match lang {
+            Language::Ja => "変更すると保存後に画面を再読み込みします",
+            Language::Zh => "更改后将保存并重新加载页面",
+            Language::Ko => "변경하면 저장 후 화면을 다시 불러옵니다",
+            Language::Es => "Al cambiarlo, se guardará y se recargará la página",
+            Language::De => "Bei einer Änderung wird gespeichert und die Seite neu geladen",
+            Language::Fr => "La modification enregistre puis recharge la page",
+            Language::It => "La modifica salva e ricarica la pagina",
+            Language::Nl => "Bij wijziging wordt opgeslagen en de pagina herladen",
+            _ => "Changing this saves your work and reloads the page",
         }.to_string(),
         "settings" => match lang {
             Language::Ja => "設定",

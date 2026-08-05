@@ -1094,7 +1094,11 @@ export async function terminal_open(id, containerId, cols, rows) {
 
     const terminal = new window.Terminal({
         cursorBlink: true, fontSize: 14,
-        fontFamily: "'JetBrains Mono', 'Menlo', 'Monaco', 'Courier New', monospace",
+        // xterm.js は行の高さをフォントリスト先頭の欧文フォントのメトリクスから算出する。
+        // CJK フォントは ascent/descent が大きく既定の lineHeight(1.0) では収まらず
+        // 日本語などの上下が切れるため余裕を持たせる。
+        lineHeight: 1.2,
+        fontFamily: "'JetBrains Mono', 'Menlo', 'Monaco', 'Noto Sans Mono CJK JP', 'Noto Sans CJK JP', 'Courier New', monospace",
         theme: {
             background: '#1d2021', foreground: '#ebdbb2', cursor: '#ebdbb2', selectionBackground: '#504945',
             black: '#282828', red: '#cc241d', green: '#98971a', yellow: '#d79921',

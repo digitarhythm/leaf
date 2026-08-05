@@ -141,6 +141,8 @@ const TERMINAL_FONT_SIZE_KEY: &str = "leaf_terminal_font_size";
 const GUEST_MODE_KEY: &str = "leaf_guest_mode";
 const LOCAL_AUTO_SAVE_KEY: &str = "leaf_local_auto_save";
 const SEARCH_CASE_KEY: &str = "leaf_search_match_case";
+/// デスクトップ版でモバイルレイアウトへ切り替えるウィンドウ幅の上限（px）
+const MOBILE_MAX_WIDTH: f64 = 700.0;
 
 /// アカウント別のlocalStorageキーを返す
 fn account_key(base_key: &str) -> String {
@@ -1001,7 +1003,15 @@ pub fn app() -> Html {
                     let window_is_portrait = win_w < win_h;
                     let is_narrow_window = win_w <= (scr_w / 2.0);
 
-                    let is_portrait = device_is_portrait || (window_is_portrait && is_narrow_window);
+                    // デスクトップ版では screen を参照しない。
+                    // WebKitGTK（Chromebook の Crostini 等）は横長ディスプレイでも
+                    // screen を縦長として報告することがあり、常にモバイルモードへ
+                    // 固定されてしまうため、ウィンドウ形状だけで判定する。
+                    let is_portrait = if crate::js_interop::is_tauri() {
+                        win_w < win_h && win_w <= MOBILE_MAX_WIDTH
+                    } else {
+                        device_is_portrait || (window_is_portrait && is_narrow_window)
+                    };
 
                     if let Some(doc) = window_c.document() {
                         if let Some(body) = doc.body() {
@@ -5595,6 +5605,23 @@ pub fn app() -> Html {
                                     tfs.set(new_size);
                                 })
                             }) } else { None }}
+                            language={crate::i18n::stored_language()}
+                            on_change_language={{
+                                let os_lang = on_save_cb.clone();
+                                Callback::from(move |code: Option<String>| {
+                                    if crate::i18n::stored_language() == code { return; }
+                                    crate::i18n::set_stored_language(code.as_deref());
+                                    // Language::detect() は各コンポーネントがレンダリング時に呼ぶため、
+                                    // 全画面へ反映するにはページの再読み込みが必要。
+                                    // 破壊的操作の前に現在のシートを保存する既存パターンに合わせる。
+                                    os_lang.emit((false, None));
+                                    Timeout::new(300, move || {
+                                        if let Some(w) = web_sys::window() {
+                                            let _ = w.location().reload();
+                                        }
+                                    }).forget();
+                                })
+                            }}
                             is_guest_mode={*is_guest_mode}
                             local_auto_save={*local_auto_save}
                             on_toggle_local_auto_save={Some({

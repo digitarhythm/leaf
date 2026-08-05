@@ -76,6 +76,11 @@ pub struct SettingsDialogProps {
     pub on_toggle_local_auto_save: Option<Callback<()>>,
     #[prop_or_default]
     pub on_google_login: Option<Callback<()>>,
+    /// 明示的に選択された言語コード。None は Auto（システム設定に従う）。
+    #[prop_or_default]
+    pub language: Option<String>,
+    /// 言語変更。None を渡すと Auto に戻す。
+    pub on_change_language: Callback<Option<String>>,
     pub on_close: Callback<()>,
 }
 
@@ -102,6 +107,11 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
 
     let is_light = LIGHT_THEMES.iter().any(|(id, _)| *id == props.current_theme.as_str());
     let theme_tab = use_state(move || is_light); // false=Dark, true=Light
+
+    // 言語の選択肢。先頭が Auto（保存値なし）、以降は各言語（表示名はその言語での表記）
+    let language_items: Vec<(Option<String>, String)> = std::iter::once((None, i18n::t("language_auto", lang)))
+        .chain(i18n::LANGUAGES.iter().map(|(l, name)| (Some(l.code().to_string()), name.to_string())))
+        .collect();
 
     let on_close = {
         let is_closing = is_closing.clone();
@@ -291,6 +301,38 @@ pub fn settings_dialog(props: &SettingsDialogProps) -> Html {
                             </div>
                         </div>
                     }
+
+                    // Separator
+                    <div class="border-t border-[#3c3836]"></div>
+
+                    // Language
+                    <div>
+                        <div class="text-sm font-bold text-[#ebdbb2] mb-1">{ i18n::t("language", lang) }</div>
+                        <div class="text-xs text-gray-500 mb-3">{ i18n::t("language_reload_note", lang) }</div>
+                        <div class="grid grid-cols-2 gap-2">
+                            { for language_items.iter().map(|(code, name)| {
+                                let is_selected = props.language.as_deref() == code.as_deref();
+                                let on_change = props.on_change_language.clone();
+                                let code_owned = code.clone();
+                                html! {
+                                    <button
+                                        onclick={Callback::from(move |_| on_change.emit(code_owned.clone()))}
+                                        class={classes!(
+                                            "py-2", "px-3", "rounded-lg", "text-xs", "font-bold", "transition-all", "duration-150",
+                                            "border", "text-left",
+                                            if is_selected {
+                                                "bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-500/20"
+                                            } else {
+                                                "bg-[#282828] text-gray-400 border-[#3c3836] hover:bg-[#3c3836] hover:text-gray-200"
+                                            }
+                                        )}
+                                    >
+                                        { name }
+                                    </button>
+                                }
+                            })}
+                        </div>
+                    </div>
 
                     // Separator
                     <div class="border-t border-[#3c3836]"></div>
