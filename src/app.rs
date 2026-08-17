@@ -1060,6 +1060,9 @@ pub fn app() -> Html {
     // Drive へログインしている場合のみ利用できる。
     let is_project_dialog_visible = use_state(|| false);
     let project_store = use_state(crate::project::ProjectStore::new);
+    // 現在開いているプロジェクト。Alt+R のシート切り替えダイアログの有効判定に使う。
+    let active_project_id = use_state(|| None::<String>);
+    let is_project_switcher_visible = use_state(|| false);
     let terminal_ids_ref = use_mut_ref(|| Vec::<String>::new());
     let active_terminal_id = use_state(|| None::<String>);
     let active_terminal_ref = use_mut_ref(|| None::<String>);
@@ -3564,6 +3567,8 @@ pub fn app() -> Html {
                 let is_guest_mode_ev = is_guest_mode.clone();
                 let is_project_ev = is_project_dialog_visible.clone();
                 let app_folder_ev = (*leaf_data_folder_id).clone();
+                let is_switcher_ev = is_project_switcher_visible.clone();
+                let has_active_project_ev = (*active_project_id).is_some();
                 let is_char_code_ev = is_char_code_visible.clone();
                 let char_code_char_ev = char_code_char.clone();
                 let is_sheet_info_ev = is_sheet_info_visible.clone();
@@ -3573,8 +3578,8 @@ pub fn app() -> Html {
                 let is_editor_search_ev = is_editor_search_visible.clone();
                 let editor_search_ref_ev = editor_search_ref.clone();
                 let editor_search_pane_ev = editor_search_pane.clone();
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev, *is_project_ev, app_folder_ev.is_some())), move |deps| {
-                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open, project_open, has_app_folder)) = *deps;
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev, *is_project_ev, app_folder_ev.is_some(), *is_switcher_ev, has_active_project_ev)), move |deps| {
+                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open, project_open, has_app_folder, switcher_open, has_active_project)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
@@ -3622,6 +3627,7 @@ pub fn app() -> Html {
                     let split_content_opacity_c = split_content_opacity_ev.clone();
                     let is_guest_c = is_guest_mode_ev.clone();
                     let is_project_c = is_project_ev.clone();
+                    let is_switcher_c = is_switcher_ev.clone();
                     let is_char_code_c = is_char_code_ev.clone();
                     let char_code_char_c = char_code_char_ev.clone();
                     let is_sheet_info_c = is_sheet_info_ev.clone();
@@ -3636,7 +3642,7 @@ pub fn app() -> Html {
                         let key = ke.key(); let code = ke.code();
                         // Cmd/Ctrl 併用時はアプリショートカットとして扱わない（DevTools の Cmd+Opt+I 等を通す）
                         let modifier_active = ke.alt_key() && !ke.meta_key() && !ke.ctrl_key();
-                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open || is_tab_select || is_split_close_dialog || project_open;
+                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open || is_tab_select || is_split_close_dialog || project_open || switcher_open;
                         let is_overlay_active = is_dialog_open || imp_lock;
                         let key_lower = key.to_lowercase();
                         let is_l_key = code == "KeyL" || key_lower == "l" || key_lower == "¬";
@@ -3653,6 +3659,9 @@ pub fn app() -> Html {
                         // Alt+Shift+P を代替として使えるようにしておく）。
                         let is_p_key = code == "KeyP" || key_lower == "p" || key_lower == "π"
                             || key_lower == "∏" || ke.key_code() == 80;
+                        // macOS では Option+R が "®" になる
+                        let is_r_key = code == "KeyR" || key_lower == "r" || key_lower == "®"
+                            || ke.key_code() == 82;
                         let is_plus_key = code == "Equal" || key == "=" || key == "+" || key == "≠";
                         let is_minus_key = code == "Minus" || key == "-" || key == "–";
                         let is_toggle_shortcut = modifier_active && (is_l_key || is_h_key || is_m_key);
@@ -3664,7 +3673,7 @@ pub fn app() -> Html {
                                 || code == "KeyN" || code == "KeyS" || code == "KeyO" || code == "KeyF" || code == "KeyW"
                                 || code == "BracketLeft" || code == "BracketRight"
                                 || code == "Comma" || code == "KeyT" || code == "KeyE" || code == "KeyI"
-                                || code == "KeyP";
+                                || code == "KeyP" || code == "KeyR";
                             if is_app_key { e.prevent_default(); e.stop_immediate_propagation(); }
                         }
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
@@ -3976,6 +3985,7 @@ pub fn app() -> Html {
                             // Alt+許可ショートカットのみ通す（L,H,M,O,[,],W,,,フォントサイズ）
                             if modifier_active {
                                 let is_allowed = is_l_key || is_h_key || is_m_key || is_o_key
+                                    || is_p_key || is_r_key
                                     || code == "BracketLeft" || code == "BracketRight"
                                     || code == "KeyW" || code == "Comma"
                                     || code == "KeyN" || code == "KeyT";
@@ -4083,6 +4093,18 @@ pub fn app() -> Html {
                                 is_project_c.set(false);
                             } else if has_app_folder {
                                 is_project_c.set(true);
+                            }
+                            return;
+                        }
+
+                        // Alt + R: プロジェクトのシート切り替えダイアログ。
+                        // プロジェクトを開いている時だけ有効。
+                        if modifier_active && is_r_key && (!is_overlay_active || switcher_open) {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            if switcher_open {
+                                is_switcher_c.set(false);
+                            } else if has_active_project {
+                                is_switcher_c.set(true);
                             }
                             return;
                         }
@@ -4264,9 +4286,9 @@ pub fn app() -> Html {
                             let skip_nav_block = help && is_nav_key;
                             if (is_nav_key || is_edit_key) && !skip_nav_block { if is_target_in_editor || is_target_body { e.stop_immediate_propagation(); let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false); if !is_input { e.prevent_default(); } } }
                             if key == "Escape" {
-                                if fd_sub || file_open || project_open {
-                                    // FileOpenDialog / ProjectDialog が表示中は、ダイアログ自身の
-                                    // on_keydown に処理を委譲する。
+                                if fd_sub || file_open || project_open || switcher_open {
+                                    // FileOpenDialog / ProjectDialog / シート切り替えが表示中は、
+                                    // ダイアログ自身の on_keydown に処理を委譲する。
                                     // これによりスライドアウト/フェードアウトアニメーションが正しく再生される。
                                     return;
                                 }
@@ -4359,6 +4381,7 @@ pub fn app() -> Html {
         let sp = is_suppressing_changes.clone();
         let os = on_save_cb.clone();
         let pv = is_project_dialog_visible.clone();
+        let apid = active_project_id.clone();
         let folder = (*leaf_data_folder_id).clone();
         Callback::from(move |project_id: String| {
             let store = (*ps).clone();
@@ -4405,6 +4428,7 @@ pub fn app() -> Html {
             let ifo_inner = ifo.clone();
             let sp_inner = sp.clone();
             let folder_inner = folder.clone();
+            let apid_inner = apid.clone();
             spawn_local(async move {
                 // 保存処理の発火を待ってから閉じる
                 sleep_ms(200).await;
@@ -4441,6 +4465,8 @@ pub fn app() -> Html {
                 let first = opened[0].clone();
                 *rs_inner.borrow_mut() = opened.clone();
                 s_inner.set(opened.clone());
+                // 開いたプロジェクトを記録（Alt+R のシート切り替えを有効にする）
+                apid_inner.set(Some(target.id.clone()));
                 // ターミナルからプロジェクトを開いた場合はシート側へ戻す
                 atid_inner.set(None);
                 *atref_inner.borrow_mut() = None;
@@ -5941,6 +5967,41 @@ pub fn app() -> Html {
                             />
                         </div>
                     }
+                }
+                if *is_project_switcher_visible {
+                    <div class="pointer-events-auto">
+                        <crate::components::project_sheet_switcher::ProjectSheetSwitcher
+                            // 対象はシートのみ（ターミナルタブは含めない）
+                            sheets={sheets.iter().map(|s| crate::components::project_sheet_switcher::SwitcherSheet {
+                                id: s.id.clone(),
+                                title: s.title.clone(),
+                                content: s.content.clone(),
+                                tab_color: s.tab_color.clone(),
+                            }).collect::<Vec<_>>()}
+                            active_sheet_id={(*active_sheet_id).clone()}
+                            on_select={{
+                                let sv = is_project_switcher_visible.clone();
+                                let ots = on_tab_select_cb.clone();
+                                Callback::from(move |id: String| {
+                                    sv.set(false);
+                                    // 表示状態の復元は既存のタブ切り替え処理に任せる
+                                    ots.emit(id);
+                                })
+                            }}
+                            on_close={{
+                                let sv = is_project_switcher_visible.clone();
+                                let atref_sw = active_terminal_ref.clone();
+                                Callback::from(move |_| {
+                                    sv.set(false);
+                                    if let Some(ref tid) = *atref_sw.borrow() {
+                                        crate::js_interop::terminal_focus(tid);
+                                    } else {
+                                        focus_editor();
+                                    }
+                                })
+                            }}
+                        />
+                    </div>
                 }
                 if *is_sheet_list_visible {
                     <div class="pointer-events-auto">

@@ -69,6 +69,20 @@
   to { transform: translateY(100%); }
 }
 
+/* プロジェクトのシート切り替え: 上から降りてくる（0.1秒） */
+@keyframes roll-down-in {
+  from { transform: translateY(-100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes roll-down-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(-100%); }
+}
+
+.animate-roll-down-in { animation: roll-down-in 0.1s ease-out forwards; }
+.animate-roll-down-out { animation: roll-down-out 0.1s ease-in forwards; }
+
 .animate-dialog-in { animation: dialog-in 0.2s ease-out forwards; }
 .animate-dialog-out { animation: dialog-out 0.2s ease-in forwards; }
 .animate-slide-in { animation: slide-in 0.2s ease-out forwards; }
@@ -158,6 +172,33 @@
 :is(.mermaid, .mermaid-pre) marker path {
   fill: #334155;
   stroke: none;
+}
+
+/* ── プロジェクトのシート切り替え(Alt+R)のカード内プレビュー ──────
+   プレビュー画面と同じレンダラ(marked / highlight.js)の出力を、
+   縦横比 1:2 の小さなカードに収める。
+
+   font-size を直接小さくすると行の折り返し位置が変わって別物の見た目に
+   なってしまうため、zoom で「フルサイズの書類を縮小した」状態にする。
+   これにより見出しの大きさ・余白・折り返しの比率が通常のプレビューと揃う。 */
+.leaf-switcher-doc {
+  zoom: 0.2;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 14px;
+}
+.leaf-switcher-doc pre code {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.leaf-switcher-doc img,
+.leaf-switcher-doc svg {
+  max-width: 100%;
+  height: auto;
+}
+/* はみ出しで横スクロールが出ないように抑える */
+.leaf-switcher-doc * {
+  max-width: 100%;
 }
 
 /* ── プレビュー内検索のハイライト ─────────────────────────────

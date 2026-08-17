@@ -5,6 +5,7 @@ pub mod empty_sheet_dialog;
 pub mod file_open_dialog;
 pub mod preview;
 pub mod project_dialog;
+pub mod project_sheet_switcher;
 pub mod search_bar;
 pub mod settings_dialog;
 pub mod sheet_info_dialog;
