@@ -121,6 +121,11 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
     let lang = Language::detect();
     let root_ref = use_node_ref();
     let is_closing = use_state(|| false);
+    // Tauri(デスクトップ)版は同じ指定でも文字が小さく見えるため一回り大きくする
+    // （シート選択ダイアログのファイル名ラベルと同じ調整）
+    let is_desktop = crate::js_interop::is_tauri();
+    let head_text_class = if is_desktop { "text-xs" } else { "text-[9px]" };
+    let badge_text_class = if is_desktop { "text-[10px]" } else { "text-[8px]" };
     // 初期選択は現在アクティブなシート
     let selected = use_state({
         let sheets = props.sheets.clone();
@@ -288,13 +293,13 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         <div class="flex items-center gap-1 px-2 py-1 bg-gray-800 border-b border-white/10 flex-shrink-0">
                                             <span class="w-2 h-2 rounded-full flex-shrink-0" style={format!("background-color: {};", sheet.tab_color)}></span>
                                             // 1行目を可能な限り表示する（入り切らない分は省略）
-                                            <span class={classes!("flex-1", "min-w-0", "truncate", "text-[9px]", "font-bold",
+                                            <span class={classes!("flex-1", "min-w-0", "truncate", head_text_class, "font-bold",
                                                 if is_sel { "text-white" } else { "text-gray-300" })}
                                                 title={first_line(sheet)}
                                             >
                                                 { first_line(sheet) }
                                             </span>
-                                            <span class={classes!("px-1", "rounded", "text-[8px]", "font-black", "uppercase", "tracking-tighter", "flex-shrink-0",
+                                            <span class={classes!("px-1", "rounded", badge_text_class, "font-black", "uppercase", "tracking-tighter", "flex-shrink-0",
                                                 match style {
                                                     DocStyle::Markdown => "bg-sky-500/20 text-sky-300",
                                                     DocStyle::Code => "bg-amber-500/20 text-amber-300",
@@ -309,7 +314,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         </div>
                                         // 現在開いているシートの印
                                         if is_active {
-                                            <div class="absolute bottom-1 right-1 px-1 py-0.5 rounded bg-emerald-600 text-white text-[8px] font-black uppercase tracking-tighter">
+                                            <div class={classes!("absolute", "bottom-1", "right-1", "px-1", "py-0.5", "rounded", "bg-emerald-600", "text-white", badge_text_class, "font-black", "uppercase", "tracking-tighter")}>
                                                 { i18n::t("active_sheet", lang) }
                                             </div>
                                         }

@@ -37,6 +37,21 @@ pub struct Project {
 }
 
 impl Project {
+    /// 所属シートのうち、まだタブとして開かれていない guid を登録順で返す。
+    ///
+    /// 起動時にプロジェクトを復元する際、既に開いているタブはそのまま活かし、
+    /// 他の端末で追加されたシートだけを後から開くために使う。
+    pub fn missing_sheets(&self, open_guids: &HashSet<String>) -> Vec<String> {
+        let mut seen = HashSet::new();
+        self.sheets
+            .iter()
+            .filter(|guid| !open_guids.contains(*guid))
+            // 同じ guid が二重に登録されていても 1 回だけ返す
+            .filter(|guid| seen.insert((*guid).clone()))
+            .cloned()
+            .collect()
+    }
+
     /// 開けるプロジェクトかどうか。
     /// シートが 1 件も無いプロジェクトを開くと、全タブを閉じた結果として
     /// 空のシートが 1 枚できるだけで意味がないため開けないようにする。
@@ -468,6 +483,45 @@ mod tests {
         // 最後の 1 件を外すと再び開けなくなる
         store.toggle_sheet("id-1", "guid-a", T1);
         assert!(!store.is_openable("id-1"));
+    }
+
+    fn guids(list: &[&str]) -> HashSet<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn missing_sheets_returns_only_unopened_in_registration_order() {
+        let mut store = store_with(&[("id-1", "Alpha")]);
+        for g in ["guid-a", "guid-b", "guid-c"] {
+            store.toggle_sheet("id-1", g, T0);
+        }
+        let project = store.find("id-1").unwrap();
+
+        // 何も開いていなければ登録順どおり全部
+        assert_eq!(
+            project.missing_sheets(&guids(&[])),
+            vec!["guid-a", "guid-b", "guid-c"]
+        );
+        // 一部だけ開いている場合は残りだけを登録順で
+        assert_eq!(project.missing_sheets(&guids(&["guid-b"])), vec!["guid-a", "guid-c"]);
+        // 全部開いていれば空
+        assert!(project.missing_sheets(&guids(&["guid-a", "guid-b", "guid-c"])).is_empty());
+    }
+
+    #[test]
+    fn missing_sheets_ignores_open_sheets_outside_the_project() {
+        let mut store = store_with(&[("id-1", "Alpha")]);
+        store.toggle_sheet("id-1", "guid-a", T0);
+        let project = store.find("id-1").unwrap();
+
+        // プロジェクトに属さないシートが開かれていても影響しない
+        assert_eq!(project.missing_sheets(&guids(&["guid-other"])), vec!["guid-a"]);
+    }
+
+    #[test]
+    fn missing_sheets_of_empty_project_is_empty() {
+        let store = store_with(&[("id-1", "Alpha")]);
+        assert!(store.find("id-1").unwrap().missing_sheets(&guids(&[])).is_empty());
     }
 
     #[test]

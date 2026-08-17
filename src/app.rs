@@ -141,6 +141,8 @@ const TERMINAL_FONT_SIZE_KEY: &str = "leaf_terminal_font_size";
 const GUEST_MODE_KEY: &str = "leaf_guest_mode";
 const LOCAL_AUTO_SAVE_KEY: &str = "leaf_local_auto_save";
 const SEARCH_CASE_KEY: &str = "leaf_search_match_case";
+/// 最後に開いたプロジェクトの ID（起動時に復元する）
+const ACTIVE_PROJECT_KEY: &str = "leaf_active_project";
 /// デスクトップ版でモバイルレイアウトへ切り替えるウィンドウ幅の上限（px）
 const MOBILE_MAX_WIDTH: f64 = 700.0;
 
@@ -629,6 +631,23 @@ fn guid_from_drive_name(name: &str) -> String {
         Some(pos) if pos > 0 => name[..pos].to_string(),
         _ => name.to_string(),
     }
+}
+
+/// 開いているシートが、どのプロジェクト guid に対応するかの候補を返す。
+///
+/// `Sheet.guid` は開かれた経路によって拡張子が残る場合（`abc.md`）と
+/// 残らない場合（`abc`）があるため、`guid` と `title` の双方から
+/// 拡張子を除いた値も候補に含めて取りこぼしを防ぐ。
+fn sheet_project_keys(sheet: &Sheet) -> Vec<String> {
+    let mut keys = Vec::new();
+    if let Some(guid) = sheet.guid.as_ref() {
+        keys.push(guid.clone());
+        keys.push(guid_from_drive_name(guid));
+    }
+    if !sheet.title.is_empty() {
+        keys.push(guid_from_drive_name(&sheet.title));
+    }
+    keys
 }
 
 /// カテゴリー配下の全ファイルを走査して guid → (drive_id, ファイル名, カテゴリーID) を作る。
@@ -4365,6 +4384,116 @@ pub fn app() -> Html {
         });
     }
 
+    // 起動時に前回開いていたプロジェクトを復元する。
+    //
+    // タブ自体は IndexedDB から復元済みなので開き直さない（Drive 通信を避けて起動を速く保つ）。
+    // ここでは 1) プロジェクト ID を復元して Alt+R を使えるようにし、
+    // 2) 他の端末でプロジェクトへ追加されたシートだけを後から追加で開く。
+    {
+        let apid = active_project_id.clone();
+        let ps = project_store.clone();
+        let cats = categories.clone();
+        let rs = sheets_ref.clone();
+        let s_state = sheets.clone();
+        let is_auth = *is_authenticated;
+        let folder = (*leaf_data_folder_id).clone();
+        let restored_ref = use_mut_ref(|| false);
+        use_effect_with((is_auth, folder.clone()), move |(is_auth, folder)| {
+            let app_folder = match (is_auth, folder.clone()) {
+                (true, Some(f)) => f,
+                _ => return,
+            };
+            // 1 セッションにつき 1 回だけ実行する
+            if *restored_ref.borrow() {
+                return;
+            }
+            let saved_id = match get_account_storage(ACTIVE_PROJECT_KEY) {
+                Some(id) if !id.is_empty() => id,
+                _ => return,
+            };
+            *restored_ref.borrow_mut() = true;
+            // まず ID だけ復元して Alt+R を有効にする
+            apid.set(Some(saved_id.clone()));
+
+            let ps = ps.clone();
+            let cats = cats.clone();
+            let rs = rs.clone();
+            let s_state = s_state.clone();
+            let apid_async = apid.clone();
+            spawn_local(async move {
+                // IndexedDB からのタブ復元が終わるのを待ってから差分を見る。
+                // 復元前に判定するとタブが二重に開かれるため、実際にシートが
+                // 載るまで待つ（載らない場合も一定時間で打ち切る）。
+                for _ in 0..30 {
+                    if !rs.borrow().is_empty() {
+                        break;
+                    }
+                    sleep_ms(300).await;
+                }
+                sleep_ms(500).await;
+
+                let store = crate::project_store::load(&app_folder).await;
+                let project = match store.find(&saved_id) {
+                    Some(p) => p.clone(),
+                    None => {
+                        // プロジェクトが削除されていた場合は記録も消す
+                        apid_async.set(None);
+                        set_account_storage(ACTIVE_PROJECT_KEY, "");
+                        return;
+                    }
+                };
+                ps.set(store);
+
+                let open_guids: std::collections::HashSet<String> =
+                    rs.borrow().iter().flat_map(sheet_project_keys).collect();
+                let missing = project.missing_sheets(&open_guids);
+                if missing.is_empty() {
+                    return;
+                }
+
+                let by_guid = collect_drive_sheets_by_guid(&cats).await;
+                let mut added: Vec<Sheet> = Vec::new();
+                for guid in missing.iter() {
+                    if let Some((drive_id, title, cat_id)) = by_guid.get(guid) {
+                        if let Some(sheet) = load_sheet_from_drive(drive_id, title, cat_id).await {
+                            added.push(sheet);
+                        }
+                    }
+                }
+                if added.is_empty() {
+                    return;
+                }
+
+                // 取得中に同じシートが開かれた場合に備え、直前でもう一度重複を除く。
+                // guid だけでなく drive_id でも突き合わせる。
+                let mut current = (*rs.borrow()).clone();
+                let already: std::collections::HashSet<String> =
+                    current.iter().flat_map(sheet_project_keys).collect();
+                let open_drive_ids: std::collections::HashSet<String> =
+                    current.iter().filter_map(|s| s.drive_id.clone()).collect();
+                added.retain(|s| {
+                    let dup_drive = s.drive_id.as_ref().map(|d| open_drive_ids.contains(d)).unwrap_or(false);
+                    let dup_key = sheet_project_keys(s).iter().any(|k| already.contains(k));
+                    !dup_drive && !dup_key
+                });
+                if added.is_empty() {
+                    return;
+                }
+                // アクティブタブは変えずに末尾へ追加するだけに留める
+                current.extend(added.iter().cloned());
+                *rs.borrow_mut() = current.clone();
+                s_state.set(current);
+                for sheet in added.iter() {
+                    let js = sheet.to_js();
+                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                    if let Ok(v) = js.serialize(&ser) {
+                        let _ = save_sheet(v).await;
+                    }
+                }
+            });
+        });
+    }
+
     // プロジェクトを開く: ターミナル以外の全タブを保存して閉じ、プロジェクトのシートを開く
     let on_open_project_cb = {
         let ps = project_store.clone();
@@ -4465,8 +4594,9 @@ pub fn app() -> Html {
                 let first = opened[0].clone();
                 *rs_inner.borrow_mut() = opened.clone();
                 s_inner.set(opened.clone());
-                // 開いたプロジェクトを記録（Alt+R のシート切り替えを有効にする）
+                // 開いたプロジェクトを記録（Alt+R のシート切り替えと、次回起動時の復元に使う）
                 apid_inner.set(Some(target.id.clone()));
+                set_account_storage(ACTIVE_PROJECT_KEY, &target.id);
                 // ターミナルからプロジェクトを開いた場合はシート側へ戻す
                 atid_inner.set(None);
                 *atref_inner.borrow_mut() = None;
