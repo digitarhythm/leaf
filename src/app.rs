@@ -600,6 +600,97 @@ fn is_sheet_locked_by_terminal(
     })
 }
 
+/// 指定ミリ秒だけ待つ（gloo の future 機能を使わずに setTimeout を Promise 化する）
+async fn sleep_ms(ms: i32) {
+    let promise = js_sys::Promise::new(&mut |resolve, _reject| {
+        if let Some(win) = web_sys::window() {
+            let _ = win.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, ms);
+        }
+    });
+    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+}
+
+/// プロジェクト設定を画面状態へ反映し、Drive へも保存する。
+/// 画面は即時更新し、Drive への書き込みは非同期で行う（操作を待たせない）。
+fn persist_project_store(
+    handle: &UseStateHandle<crate::project::ProjectStore>,
+    store: crate::project::ProjectStore,
+    app_folder_id: String,
+) {
+    handle.set(store.clone());
+    spawn_local(async move {
+        let _ = crate::project_store::save(&app_folder_id, &store).await;
+    });
+}
+
+/// Drive 上のファイル名（`{guid}.{拡張子}`）から guid を取り出す
+fn guid_from_drive_name(name: &str) -> String {
+    match name.rfind('.') {
+        Some(pos) if pos > 0 => name[..pos].to_string(),
+        _ => name.to_string(),
+    }
+}
+
+/// カテゴリー配下の全ファイルを走査して guid → (drive_id, ファイル名, カテゴリーID) を作る。
+/// プロジェクトはシートを guid で保持しているため、開く際にこの対応表が必要になる。
+async fn collect_drive_sheets_by_guid(
+    categories: &[crate::db_interop::JSCategory],
+) -> std::collections::HashMap<String, (String, String, String)> {
+    let mut map = std::collections::HashMap::new();
+    for cat in categories {
+        let listed = match list_files(&cat.id, None).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let files = match js_sys::Reflect::get(&listed, &JsValue::from_str("files")) {
+            Ok(f) => js_sys::Array::from(&f),
+            Err(_) => continue,
+        };
+        for file in files.iter() {
+            let id = js_sys::Reflect::get(&file, &JsValue::from_str("id")).ok().and_then(|v| v.as_string());
+            let name = js_sys::Reflect::get(&file, &JsValue::from_str("name")).ok().and_then(|v| v.as_string());
+            if let (Some(id), Some(name)) = (id, name) {
+                map.insert(guid_from_drive_name(&name), (id, name, cat.id.clone()));
+            }
+        }
+    }
+    map
+}
+
+/// Drive 上の 1 ファイルを読み込んで [`Sheet`] を作る。取得できなければ None。
+async fn load_sheet_from_drive(drive_id: &str, title: &str, cat_id: &str) -> Option<Sheet> {
+    let cv = download_file(drive_id, None, None).await.ok()?;
+    let bytes = js_sys::Uint8Array::new(&cv).to_vec();
+    let has_bom = has_utf8_bom(&bytes);
+    let content = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string();
+    let content_len = content.len() as u64;
+    let sync_ts = get_file_metadata(drive_id).await.ok().and_then(|m| extract_modified_time(&m));
+    let title_lc = title.to_lowercase();
+    let is_md_default_preview = title_lc.ends_with(".md") || title_lc.ends_with(".markdown");
+    Some(Sheet {
+        id: format!("{}-{}", js_sys::Date::now(), drive_id),
+        guid: Some(guid_from_drive_name(title)),
+        category: cat_id.to_string(),
+        title: title.to_string(),
+        content,
+        is_modified: false,
+        drive_id: Some(drive_id.to_string()),
+        temp_content: None,
+        temp_timestamp: None,
+        last_sync_timestamp: sync_ts,
+        tab_color: generate_random_color(),
+        total_size: content_len,
+        loaded_bytes: content_len,
+        needs_bom: has_bom,
+        is_preview: is_md_default_preview,
+        is_split: false,
+        editor_state: None,
+        preview_scroll_top: 0.0,
+        created_at: None,
+        local_path: None,
+    })
+}
+
 /// Drive API のレスポンスから modifiedTime を取り出してミリ秒に変換する
 fn extract_modified_time(value: &JsValue) -> Option<u64> {
     js_sys::Reflect::get(value, &JsValue::from_str("modifiedTime")).ok()
@@ -965,6 +1056,10 @@ pub fn app() -> Html {
     let pending_close_unsynced_tab = use_state(|| None::<String>);
     let pending_save_close_tab = use_state(|| None::<String>);
     let is_sheet_list_visible = use_state(|| false);
+    // プロジェクト機能。設定は Drive のアプリケーションフォルダに置くため、
+    // Drive へログインしている場合のみ利用できる。
+    let is_project_dialog_visible = use_state(|| false);
+    let project_store = use_state(crate::project::ProjectStore::new);
     let terminal_ids_ref = use_mut_ref(|| Vec::<String>::new());
     let active_terminal_id = use_state(|| None::<String>);
     let active_terminal_ref = use_mut_ref(|| None::<String>);
@@ -3467,6 +3562,8 @@ pub fn app() -> Html {
                 let tfs_ev = terminal_font_size.clone();
                 let tfs_ref_ev = terminal_font_size_ref.clone();
                 let is_guest_mode_ev = is_guest_mode.clone();
+                let is_project_ev = is_project_dialog_visible.clone();
+                let app_folder_ev = (*leaf_data_folder_id).clone();
                 let is_char_code_ev = is_char_code_visible.clone();
                 let char_code_char_ev = char_code_char.clone();
                 let is_sheet_info_ev = is_sheet_info_visible.clone();
@@ -3476,8 +3573,8 @@ pub fn app() -> Html {
                 let is_editor_search_ev = is_editor_search_visible.clone();
                 let editor_search_ref_ev = editor_search_ref.clone();
                 let editor_search_pane_ev = editor_search_pane.clone();
-                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev)), move |deps| {
-                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open)) = *deps;
+                use_effect_with((*is_auth, (*is_file_open, *is_preview, *is_help, *is_logout_conf, *is_imp_lock, *is_drop_ev, *is_fd_sub, *is_creating_cat_ev, *is_ld_ev, *is_fo_ev, *is_tab_select_ev, *is_split_close_ev), ((*pending_del).is_some(), !(*conflicts).is_empty(), !(*fallbacks).is_empty(), !(*ncq_esc).is_empty(), *is_settings_ev, *is_project_ev, app_folder_ev.is_some())), move |deps| {
+                    let (auth, (file_open, _preview, help, logout_conf, imp_lock, drop_open, fd_sub, is_creating_cat, is_loading, is_fading_out, is_tab_select, is_split_close_dialog), (has_del, has_conf, has_fall, has_nc, settings_open, project_open, has_app_folder)) = *deps;
                     if !auth { return Box::new(|| ()) as Box<dyn FnOnce()>; }
                     let window = web_sys::window().unwrap();
                     let is_file_open_c = is_file_open.clone(); let is_preview_c = is_preview.clone();
@@ -3524,6 +3621,7 @@ pub fn app() -> Html {
                     let tfs_ref_c = tfs_ref_ev.clone();
                     let split_content_opacity_c = split_content_opacity_ev.clone();
                     let is_guest_c = is_guest_mode_ev.clone();
+                    let is_project_c = is_project_ev.clone();
                     let is_char_code_c = is_char_code_ev.clone();
                     let char_code_char_c = char_code_char_ev.clone();
                     let is_sheet_info_c = is_sheet_info_ev.clone();
@@ -3538,7 +3636,7 @@ pub fn app() -> Html {
                         let key = ke.key(); let code = ke.code();
                         // Cmd/Ctrl 併用時はアプリショートカットとして扱わない（DevTools の Cmd+Opt+I 等を通す）
                         let modifier_active = ke.alt_key() && !ke.meta_key() && !ke.ctrl_key();
-                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open || is_tab_select || is_split_close_dialog;
+                        let is_dialog_open = file_open || help || has_del || has_conf || has_fall || logout_conf || has_nc || drop_open || is_loading || is_fading_out || is_creating_cat || settings_open || is_tab_select || is_split_close_dialog || project_open;
                         let is_overlay_active = is_dialog_open || imp_lock;
                         let key_lower = key.to_lowercase();
                         let is_l_key = code == "KeyL" || key_lower == "l" || key_lower == "¬";
@@ -3549,6 +3647,12 @@ pub fn app() -> Html {
                         let is_i_key = code == "KeyI" || key_lower == "i" || key_lower == "ˆ";
                         let is_o_key = code == "KeyO" || key_lower == "o" || key_lower == "ø";
                         let is_f_key = code == "KeyF" || key_lower == "f" || key_lower == "ƒ";
+                        // macOS では Option+P が "π"、Option+Shift+P が "∏" になるため
+                        // key だけでは判定できない。keyCode も見て取りこぼしを防ぐ。
+                        // Shift の有無は問わない（環境によっては OS 側が Option+P を横取りするため、
+                        // Alt+Shift+P を代替として使えるようにしておく）。
+                        let is_p_key = code == "KeyP" || key_lower == "p" || key_lower == "π"
+                            || key_lower == "∏" || ke.key_code() == 80;
                         let is_plus_key = code == "Equal" || key == "=" || key == "+" || key == "≠";
                         let is_minus_key = code == "Minus" || key == "-" || key == "–";
                         let is_toggle_shortcut = modifier_active && (is_l_key || is_h_key || is_m_key);
@@ -3559,7 +3663,8 @@ pub fn app() -> Html {
                             let is_app_key = is_l_key || is_h_key || is_m_key || is_plus_key || is_minus_key
                                 || code == "KeyN" || code == "KeyS" || code == "KeyO" || code == "KeyF" || code == "KeyW"
                                 || code == "BracketLeft" || code == "BracketRight"
-                                || code == "Comma" || code == "KeyT" || code == "KeyE" || code == "KeyI";
+                                || code == "Comma" || code == "KeyT" || code == "KeyE" || code == "KeyI"
+                                || code == "KeyP";
                             if is_app_key { e.prevent_default(); e.stop_immediate_propagation(); }
                         }
                         if is_loading || is_fading_out { e.prevent_default(); e.stop_immediate_propagation(); return; }
@@ -3969,6 +4074,19 @@ pub fn app() -> Html {
                             return;
                         }
                         
+                        // Alt + P: プロジェクトダイアログのトグル。
+                        // 設定を Drive のアプリケーションフォルダに置くため、
+                        // ゲストモード・未ログインでは開かない。
+                        if modifier_active && is_p_key && (!is_overlay_active || project_open) && !*is_guest_c {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            if project_open {
+                                is_project_c.set(false);
+                            } else if has_app_folder {
+                                is_project_c.set(true);
+                            }
+                            return;
+                        }
+
                         // Alt + H (Help) のトグル
                         if modifier_active && is_h_key && (!is_overlay_active || *is_help_c) {
                             e.prevent_default(); e.stop_immediate_propagation();
@@ -4146,8 +4264,9 @@ pub fn app() -> Html {
                             let skip_nav_block = help && is_nav_key;
                             if (is_nav_key || is_edit_key) && !skip_nav_block { if is_target_in_editor || is_target_body { e.stop_immediate_propagation(); let is_input = target.as_ref().map(|t| t.tag_name().to_lowercase() == "input" || t.tag_name().to_lowercase() == "textarea").unwrap_or(false); if !is_input { e.prevent_default(); } } }
                             if key == "Escape" {
-                                if fd_sub || file_open {
-                                    // FileOpenDialogが表示中は、ダイアログ自身のon_keydownに処理を委譲する。
+                                if fd_sub || file_open || project_open {
+                                    // FileOpenDialog / ProjectDialog が表示中は、ダイアログ自身の
+                                    // on_keydown に処理を委譲する。
                                     // これによりスライドアウト/フェードアウトアニメーションが正しく再生される。
                                     return;
                                 }
@@ -4205,6 +4324,205 @@ pub fn app() -> Html {
     // --- Tab Bar ---
     // tab_order_stateの順序でtab_infosを構築（シート+ターミナル統合）
     // RefCellから直接読み、sheets/terminalsと即時同期して1フレーム遅延を防ぐ
+    // プロジェクトダイアログを開いた時に Drive から設定ファイルを読み込む。
+    // 別デバイスでの変更を取り込むため、開くたびに読み直す。
+    {
+        let ps = project_store.clone();
+        let folder = (*leaf_data_folder_id).clone();
+        use_effect_with((*is_project_dialog_visible, folder.clone()), move |(visible, folder)| {
+            if *visible {
+                if let Some(app_folder) = folder.clone() {
+                    let ps = ps.clone();
+                    spawn_local(async move {
+                        let loaded = crate::project_store::load(&app_folder).await;
+                        ps.set(loaded);
+                    });
+                }
+            }
+            || ()
+        });
+    }
+
+    // プロジェクトを開く: ターミナル以外の全タブを保存して閉じ、プロジェクトのシートを開く
+    let on_open_project_cb = {
+        let ps = project_store.clone();
+        let cats = categories.clone();
+        let rs = sheets_ref.clone();
+        let s_state = sheets.clone();
+        let aid = active_sheet_id.clone();
+        let aid_ref = active_id_ref.clone();
+        let atid = active_terminal_id.clone();
+        let atref = active_terminal_ref.clone();
+        let il = is_loading.clone();
+        let ifo = is_fading_out.clone();
+        let lmk = loading_message_key.clone();
+        let sp = is_suppressing_changes.clone();
+        let os = on_save_cb.clone();
+        let pv = is_project_dialog_visible.clone();
+        let folder = (*leaf_data_folder_id).clone();
+        Callback::from(move |project_id: String| {
+            let store = (*ps).clone();
+            let target = match store.find(&project_id) {
+                Some(p) if p.is_openable() => p.clone(),
+                // シートが 1 件も無いプロジェクトは開かない
+                _ => return,
+            };
+
+            // 開いているシートのうち未保存のものを保存してから閉じる
+            let current = (*rs.borrow()).clone();
+            let editor_content = get_editor_content().as_string();
+            let active_id = (*aid_ref.borrow()).clone();
+            for sheet in current.iter() {
+                let is_active = active_id.as_deref() == Some(sheet.id.as_str());
+                let changed = if is_active {
+                    editor_content
+                        .as_ref()
+                        .map(|c| !c.trim().is_empty() && (sheet.is_modified || &sheet.content != c))
+                        .unwrap_or(sheet.is_modified)
+                } else {
+                    sheet.is_modified
+                };
+                if changed {
+                    os.emit((false, Some(sheet.id.clone())));
+                }
+            }
+
+            pv.set(false);
+            lmk.set("synchronizing");
+            il.set(true);
+            ifo.set(false);
+            sp.set(true);
+
+            let ps_inner = ps.clone();
+            let cats_inner = (*cats).clone();
+            let rs_inner = rs.clone();
+            let s_inner = s_state.clone();
+            let aid_inner = aid.clone();
+            let aid_ref_inner = aid_ref.clone();
+            let atid_inner = atid.clone();
+            let atref_inner = atref.clone();
+            let il_inner = il.clone();
+            let ifo_inner = ifo.clone();
+            let sp_inner = sp.clone();
+            let folder_inner = folder.clone();
+            spawn_local(async move {
+                // 保存処理の発火を待ってから閉じる
+                sleep_ms(200).await;
+
+                let by_guid = collect_drive_sheets_by_guid(&cats_inner).await;
+                let mut opened: Vec<Sheet> = Vec::new();
+                let mut missing: Vec<String> = Vec::new();
+                for guid in target.sheets.iter() {
+                    match by_guid.get(guid) {
+                        Some((drive_id, title, cat_id)) => {
+                            if let Some(sheet) = load_sheet_from_drive(drive_id, title, cat_id).await {
+                                opened.push(sheet);
+                            } else {
+                                missing.push(guid.clone());
+                            }
+                        }
+                        // Drive 上に存在しないシートはスキップし、設定からも取り除く
+                        None => missing.push(guid.clone()),
+                    }
+                }
+
+                if opened.is_empty() {
+                    il_inner.set(false);
+                    sp_inner.set(false);
+                    return;
+                }
+
+                // 既存シートのセッションを破棄してから差し替える
+                for sheet in (*rs_inner.borrow()).iter() {
+                    crate::js_interop::clear_undo_state(&sheet.id);
+                    crate::js_interop::destroy_sheet_session(&sheet.id);
+                }
+
+                let first = opened[0].clone();
+                *rs_inner.borrow_mut() = opened.clone();
+                s_inner.set(opened.clone());
+                // ターミナルからプロジェクトを開いた場合はシート側へ戻す
+                atid_inner.set(None);
+                *atref_inner.borrow_mut() = None;
+                crate::js_interop::activate_sheet_session(&first.id, &first.content, &first.title);
+                aid_inner.set(Some(first.id.clone()));
+                *aid_ref_inner.borrow_mut() = Some(first.id.clone());
+                set_gutter_status("none");
+
+                for sheet in opened.iter() {
+                    let js = sheet.to_js();
+                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                    if let Ok(v) = js.serialize(&ser) {
+                        let _ = save_sheet(v).await;
+                    }
+                }
+
+                // 見つからなかったシートを設定ファイルから取り除く
+                if !missing.is_empty() {
+                    if let Some(app_folder) = folder_inner {
+                        let existing: std::collections::HashSet<String> = by_guid.keys().cloned().collect();
+                        let mut store = (*ps_inner).clone();
+                        if store.prune_missing_sheets(&existing, js_sys::Date::now() as u64) {
+                            ps_inner.set(store.clone());
+                            let _ = crate::project_store::save(&app_folder, &store).await;
+                        }
+                    }
+                }
+
+                focus_editor();
+                Timeout::new(50, move || {
+                    ifo_inner.set(true);
+                    let ifo_final = ifo_inner.clone();
+                    Timeout::new(300, move || {
+                        il_inner.set(false);
+                        sp_inner.set(false);
+                        ifo_final.set(false);
+                    })
+                    .forget();
+                })
+                .forget();
+            });
+        })
+    };
+
+    // プロジェクトダイアログの右ペイン用。保存済みプレビューを基本にしつつ、
+    // 開いているシートは現在の本文から作り直して最新の内容を見せる。
+    let project_sheet_previews: Vec<crate::components::project_dialog::ProjectSheetInfo> = {
+        let mut items: Vec<crate::components::project_dialog::ProjectSheetInfo> = project_store
+            .previews
+            .iter()
+            .map(|(guid, preview)| crate::components::project_dialog::ProjectSheetInfo {
+                guid: guid.clone(),
+                preview: preview.clone(),
+                lang: String::new(),
+            })
+            .collect();
+        for sheet in sheets.iter() {
+            let guid = match sheet.guid.as_ref() {
+                Some(g) => g.clone(),
+                None => continue,
+            };
+            let preview = crate::project::preview_from_content(&sheet.content);
+            let lang = sheet
+                .title
+                .rsplit('.')
+                .next()
+                .filter(|e| *e != sheet.title)
+                .unwrap_or("")
+                .to_uppercase();
+            match items.iter_mut().find(|i| i.guid == guid) {
+                Some(existing) => {
+                    if !preview.trim().is_empty() {
+                        existing.preview = preview;
+                    }
+                    existing.lang = lang;
+                }
+                None => items.push(crate::components::project_dialog::ProjectSheetInfo { guid, preview, lang }),
+            }
+        }
+        items
+    };
+
     let tab_infos: Vec<TabInfo> = {
         let rs = sheets_ref.borrow();
         let active_id = active_sheet_id.as_ref();
@@ -5478,6 +5796,24 @@ pub fn app() -> Html {
                                 close_trigger={*file_close_trigger}
                                 active_category_id={current_cat.clone()}
                                 active_drive_id={active_sheet_id.as_ref().and_then(|id| sheets.iter().find(|s| s.id == *id).and_then(|s| s.drive_id.clone()))}
+                                project_store={(*project_store).clone()}
+                                on_toggle_project={{
+                                    let ps = project_store.clone();
+                                    let folder = (*leaf_data_folder_id).clone();
+                                    folder.map(|app_folder| {
+                                        Callback::from(move |(pid, guid, content): (String, String, String)| {
+                                            let mut store = (*ps).clone();
+                                            let now = js_sys::Date::now() as u64;
+                                            match store.toggle_sheet(&pid, &guid, now) {
+                                                // 追加時のみ一覧表示用のプレビューを控える
+                                                Some(true) => { store.set_sheet_preview(&guid, &content); }
+                                                Some(false) => {}
+                                                None => return,
+                                            }
+                                            persist_project_store(&ps, store, app_folder.clone());
+                                        })
+                                    })
+                                }}
                             />
                         </div>
                     }
@@ -5546,6 +5882,65 @@ pub fn app() -> Html {
                             }
                         })}
                     /></div>
+                }
+                if *is_project_dialog_visible && *is_authenticated {
+                    if let Some(app_folder) = (*leaf_data_folder_id).clone() {
+                        <div class="pointer-events-auto">
+                            <crate::components::project_dialog::ProjectDialog
+                                store={(*project_store).clone()}
+                                sheet_previews={project_sheet_previews.clone()}
+                                on_create={{
+                                    let ps = project_store.clone(); let folder = app_folder.clone();
+                                    Callback::from(move |(name, memo): (String, String)| {
+                                        let mut store = (*ps).clone();
+                                        if store.add(&name, &memo, &crate::js_interop::generate_uuid(), js_sys::Date::now() as u64).is_ok() {
+                                            persist_project_store(&ps, store, folder.clone());
+                                        }
+                                    })
+                                }}
+                                on_update={{
+                                    let ps = project_store.clone(); let folder = app_folder.clone();
+                                    Callback::from(move |(id, name, memo): (String, String, String)| {
+                                        let mut store = (*ps).clone();
+                                        if store.update(&id, &name, &memo, js_sys::Date::now() as u64).is_ok() {
+                                            persist_project_store(&ps, store, folder.clone());
+                                        }
+                                    })
+                                }}
+                                on_delete={{
+                                    let ps = project_store.clone(); let folder = app_folder.clone();
+                                    Callback::from(move |id: String| {
+                                        let mut store = (*ps).clone();
+                                        if store.remove(&id) {
+                                            persist_project_store(&ps, store, folder.clone());
+                                        }
+                                    })
+                                }}
+                                on_remove_sheet={{
+                                    let ps = project_store.clone(); let folder = app_folder.clone();
+                                    Callback::from(move |(pid, guid): (String, String)| {
+                                        let mut store = (*ps).clone();
+                                        if store.remove_sheet(&pid, &guid, js_sys::Date::now() as u64) {
+                                            persist_project_store(&ps, store, folder.clone());
+                                        }
+                                    })
+                                }}
+                                on_open={on_open_project_cb.clone()}
+                                on_close={{
+                                    let pv = is_project_dialog_visible.clone();
+                                    let atref_pd = active_terminal_ref.clone();
+                                    Callback::from(move |_| {
+                                        pv.set(false);
+                                        if let Some(ref tid) = *atref_pd.borrow() {
+                                            crate::js_interop::terminal_focus(tid);
+                                        } else {
+                                            focus_editor();
+                                        }
+                                    })
+                                }}
+                            />
+                        </div>
+                    }
                 }
                 if *is_sheet_list_visible {
                     <div class="pointer-events-auto">

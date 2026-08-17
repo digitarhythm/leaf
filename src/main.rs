@@ -5,6 +5,8 @@ mod auth_interop;
 mod db_interop;
 mod drive_interop;
 mod i18n;
+mod project;
+mod project_store;
 
 use app::App;
 

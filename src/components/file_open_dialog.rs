@@ -131,6 +131,13 @@ pub struct FileOpenDialogProps {
     pub active_category_id: String,
     #[prop_or_default]
     pub active_drive_id: Option<String>,
+    /// プロジェクト設定。Drive ログイン時のみ渡される。
+    #[prop_or_default]
+    pub project_store: crate::project::ProjectStore,
+    /// (プロジェクトID, シートguid, シート本文) — 所属の切り替え。
+    /// 本文は一覧表示用プレビューの更新に使う。
+    #[prop_or_default]
+    pub on_toggle_project: Option<Callback<(String, String, String)>>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -142,6 +149,14 @@ const STORAGE_KEY_VIEW: &str = "leaf_file_view_mode";
 const STORAGE_KEY_SORT: &str = "leaf_file_sort_key";
 const STORAGE_KEY_MOD_DESC: &str = "leaf_file_sort_mod_desc";
 const STORAGE_KEY_CRE_DESC: &str = "leaf_file_sort_cre_desc";
+
+/// Drive 上のファイル名（`{guid}.{拡張子}`）から guid を取り出す
+fn guid_of_drive_name(name: &str) -> String {
+    match name.rfind('.') {
+        Some(pos) if pos > 0 => name[..pos].to_string(),
+        _ => name.to_string(),
+    }
+}
 
 fn ls_get(key: &str) -> Option<String> {
     web_sys::window()
@@ -172,6 +187,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
     let dropdown_pos = use_state(|| (0.0_f64, 0.0_f64)); // ドロップダウンの固定位置 (right from viewport right, top)
     let active_filetype_file_id = use_state(|| None::<String>); // 拡張子変更ドロップダウンを開いているファイル
     let filetype_dropdown_pos = use_state(|| (0.0_f64, 0.0_f64));
+    let active_project_file_id = use_state(|| None::<String>); // プロジェクト選択ドロップダウンを開いているファイル
+    let project_dropdown_pos = use_state(|| (0.0_f64, 0.0_f64));
     let preview_modal_data = use_state(|| None::<FilePreview>);
     let is_preview_fading_out = use_state(|| false); 
     let is_loading_preview = use_state(|| false); 
@@ -1442,6 +1459,14 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let file_id_inner = file.id.clone();
                             let file_name_inner = file.name.clone();
                             let p_del_inner = p_del_state.clone();
+                            let apf_row = active_project_file_id.clone();
+                            let pdp_row = project_dropdown_pos.clone();
+                            let project_enabled_row = props.on_toggle_project.is_some();
+                            // いずれかのプロジェクトに所属していればアイコンを常時表示して見分けられるようにする
+                            let in_project_row = !props
+                                .project_store
+                                .projects_for_sheet(&guid_of_drive_name(&file.name))
+                                .is_empty();
 
                             // スワイプ削除用
                             let this_swipe_offset = if swipe_fid.as_ref() == Some(&file.id) { *swipe_off } else { 0.0 };
@@ -1616,7 +1641,23 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
                                                     </button>
                                                 </div>
-                                                <button 
+                                                if project_enabled_row {
+                                                    // プロジェクトへの追加・解除
+                                                    <button
+                                                        onclick={let apf = apf_row.clone(); let fid = file_id_inner.clone(); let pdp = pdp_row.clone(); move |e: MouseEvent| {
+                                                            e.stop_propagation();
+                                                            let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                                            if let Some(el) = btn { let rect = el.get_bounding_client_rect(); pdp.set((rect.right(), rect.bottom() + 4.0)); }
+                                                            apf.set(Some(fid.clone()));
+                                                        }}
+                                                        class={classes!("p-1", "rounded-md", "hover:bg-emerald-500/40", "transition-colors",
+                                                            if in_project_row { "text-emerald-400" } else if is_sel { "text-white" } else { "text-gray-500" })}
+                                                        title={i18n::t("add_to_project", lang)}
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.5 9.9h3v2h-3zM12 11.9v1.6M8.5 13.5h7M8.5 13.5v1.3M15.5 13.5v1.3M7 14.8h3v2H7zM14 14.8h3v2h-3z" /></svg>
+                                                    </button>
+                                                }
+                                                <button
                                                     onclick={let fid = file_id_inner.clone(); let fname = file_name_inner.clone(); let p_del = p_del_inner.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid.clone(), fname.clone()))); }}
                                                     class={classes!("p-1", "rounded-md", "hover:bg-red-500/40", "transition-colors", if is_sel { "text-white" } else { "text-gray-500" })}
                                                     title="Delete Sheet"
@@ -1800,6 +1841,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
         let p_del_state = pending_delete_file.clone();
         let ads_state = active_dropdown_file_id.clone();
         let dp_state = dropdown_pos.clone();
+        let apf_state = active_project_file_id.clone();
+        let pdp_state = project_dropdown_pos.clone();
+        // プロジェクト機能が使えるか（Drive ログイン時のみ親からコールバックが渡る）
+        let project_enabled = props.on_toggle_project.is_some();
+        let project_store_ref = props.project_store.clone();
         let cat_name = (*current_category_name).clone();
         let is_loading = props.is_loading;
         // Tauri(デスクトップ)版ではファイル名ラベルの文字が小さく見えるため一回り大きくする
@@ -1843,6 +1889,11 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             let dp_inner = dp_state.clone();
             let ft_inner = active_filetype_file_id.clone();
             let ftp_inner = filetype_dropdown_pos.clone();
+            let apf_inner = apf_state.clone();
+            let pdp_inner = pdp_state.clone();
+            let in_project_card = !project_store_ref
+                .projects_for_sheet(&guid_of_drive_name(&file.name))
+                .is_empty();
             let fid = file.id.clone();
             let fname = file.name.clone();
             let is_loaded = file.is_loaded;
@@ -1887,6 +1938,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
                             </button>
+                            if project_enabled {
+                                // プロジェクトへの追加・解除（4つ目のアイコン）
+                                <button
+                                    onclick={let apf = apf_inner.clone(); let fid_p = fid.clone(); let pdp = pdp_inner.clone(); move |e: MouseEvent| {
+                                        e.stop_propagation();
+                                        let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                        if let Some(el) = btn { let rect = el.get_bounding_client_rect(); pdp.set((rect.right(), rect.bottom() + 4.0)); }
+                                        apf.set(Some(fid_p.clone()));
+                                    }}
+                                    class={classes!("absolute","bottom-1","left-1","hidden","group-hover:flex","p-0.5","rounded","hover:bg-emerald-600","text-white",
+                                        if in_project_card { "bg-emerald-600/70" } else { "bg-black/40" })}
+                                    title={i18n::t("add_to_project", lang)}
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.5 9.9h3v2h-3zM12 11.9v1.6M8.5 13.5h7M8.5 13.5v1.3M15.5 13.5v1.3M7 14.8h3v2H7zM14 14.8h3v2h-3z" /></svg>
+                                </button>
+                            }
                             <button
                                 onclick={let p_del = p_del_inner.clone(); let fid_d = fid.clone(); let fname_d = fname.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
                                 class="absolute top-1 right-1 hidden group-hover:flex p-0.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
@@ -1976,6 +2043,12 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 let p_del_row = p_del_state.clone();
                                 let fid_row = file.id.clone();
                                 let fname_row = file.name.clone();
+                                let apf_list = apf_state.clone();
+                                let pdp_list = pdp_state.clone();
+                                // いずれかのプロジェクトに所属していればアイコンを強調表示する
+                                let in_project_list = !project_store_ref
+                                    .projects_for_sheet(&guid_of_drive_name(&file.name))
+                                    .is_empty();
                                 html! {
                                     <div
                                         class={classes!(
@@ -2018,6 +2091,22 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                             >
                                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
                                             </button>
+                                            if project_enabled {
+                                                // プロジェクトへの追加・解除
+                                                <button
+                                                    onclick={let apf = apf_list.clone(); let fid_p = fid_row.clone(); let pdp = pdp_list.clone(); move |e: MouseEvent| {
+                                                        e.stop_propagation();
+                                                        let btn = e.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()).and_then(|el| el.closest("button").ok().flatten());
+                                                        if let Some(el) = btn { let rect = el.get_bounding_client_rect(); pdp.set((rect.right(), rect.bottom() + 4.0)); }
+                                                        apf.set(Some(fid_p.clone()));
+                                                    }}
+                                                    class={classes!("flex","p-1.5","rounded","hover:bg-emerald-600","text-white",
+                                                        if in_project_list { "bg-emerald-600/70" } else { "bg-black/40" })}
+                                                    title={i18n::t("add_to_project", lang)}
+                                                >
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.5 9.9h3v2h-3zM12 11.9v1.6M8.5 13.5h7M8.5 13.5v1.3M15.5 13.5v1.3M7 14.8h3v2H7zM14 14.8h3v2h-3z" /></svg>
+                                                </button>
+                                            }
                                             <button
                                                 onclick={let p_del = p_del_row.clone(); let fid_d = fid_row.clone(); let fname_d = fname_row.clone(); move |e: MouseEvent| { e.stop_propagation(); p_del.set(Some((fid_d.clone(), fname_d.clone()))); }}
                                                 class="flex p-1.5 rounded bg-black/50 hover:bg-red-600 text-white shadow"
@@ -2108,6 +2197,72 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                             let cname = c.name.clone();
                             html! { <button onclick={move |e: MouseEvent| { e.stop_propagation(); on_mv.emit((fid.clone(), tcid.clone())); }} class="w-full text-left px-4 py-2 text-xs text-gray-300 hover:bg-emerald-600 hover:text-white transition-colors flex items-center space-x-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg><span>{ if cname == "OTHERS" { i18n::t("OTHERS", lang) } else { cname } }</span></button> }
                         }) }
+                    </div>
+                </div>
+            </>
+        }
+    } else {
+        html! {}
+    };
+
+    // プロジェクト選択ドロップダウン。所属済みのプロジェクトはハイライトし、
+    // 再度クリックするとそのプロジェクトから外れる。
+    let project_dropdown_html = if let Some(ref pj_fid) = *active_project_file_id {
+        let (dd_right, dd_top) = *project_dropdown_pos;
+        let vh = web_sys::window().map(|w| w.inner_height().ok().and_then(|v| v.as_f64()).unwrap_or(800.0)).unwrap_or(800.0);
+        let dropdown_left = (dd_right - 192.0).max(4.0);
+        let max_dropdown_h = 280.0;
+        let use_top = if dd_top + max_dropdown_h > vh { (dd_top - max_dropdown_h - 8.0).max(4.0) } else { dd_top };
+        let apf_dd = active_project_file_id.clone();
+        let target = files.list.iter().find(|f| f.id == *pj_fid);
+        // Drive 上のファイル名 `{guid}.{拡張子}` から guid を取り出す
+        let sheet_guid = target
+            .map(|f| match f.name.rfind('.') {
+                Some(pos) if pos > 0 => f.name[..pos].to_string(),
+                _ => f.name.clone(),
+            })
+            .unwrap_or_default();
+        let sheet_content = target.map(|f| f.content.clone()).unwrap_or_default();
+        let store = props.project_store.clone();
+        let on_toggle = props.on_toggle_project.clone();
+        html! {
+            <>
+                <div class="fixed inset-0 z-[350]" onclick={let apf = apf_dd.clone(); move |_| apf.set(None)}></div>
+                <div class="fixed z-[360] w-48 bg-gray-800 border border-white/10 rounded-lg shadow-2xl py-1 animate-in fade-in zoom-in-95 duration-100"
+                    style={format!("left: {}px; top: {}px;", dropdown_left, use_top)}
+                    onclick={|e: MouseEvent| e.stop_propagation()}
+                >
+                    <div class="px-3 py-1.5 text-[10px] font-bold text-gray-500 uppercase tracking-widest border-b border-white/5 mb-1">{ i18n::t("projects", lang) }</div>
+                    <div class="max-h-64 overflow-y-auto custom-scrollbar">
+                        if store.projects.is_empty() {
+                            <div class="px-4 py-3 text-xs text-gray-500">{ i18n::t("no_projects", lang) }</div>
+                        } else {
+                            { for store.projects.iter().map(|p| {
+                                let belongs = store.contains_sheet(&p.id, &sheet_guid);
+                                let pid = p.id.clone();
+                                let guid = sheet_guid.clone();
+                                let content = sheet_content.clone();
+                                let cb = on_toggle.clone();
+                                html! {
+                                    <button
+                                        onclick={move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            if let Some(cb) = cb.as_ref() { cb.emit((pid.clone(), guid.clone(), content.clone())); }
+                                        }}
+                                        class={classes!("w-full","text-left","px-4","py-2","text-xs","transition-colors","flex","items-center","gap-2",
+                                            if belongs { vec!["bg-emerald-600/30","text-emerald-300","font-bold"] } else { vec!["text-gray-300","hover:bg-emerald-600","hover:text-white"] })}
+                                        title={if belongs { i18n::t("remove_from_project", lang) } else { i18n::t("add_to_project", lang) }}
+                                    >
+                                        if belongs {
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" /></svg>
+                                        } else {
+                                            <span class="w-3 flex-shrink-0"></span>
+                                        }
+                                        <span class="truncate">{ p.name.clone() }</span>
+                                    </button>
+                                }
+                            }) }
+                        }
                     </div>
                 </div>
             </>
@@ -2266,6 +2421,8 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             { dropdown_menu_html.clone() }
 
             { filetype_dropdown_html }
+
+            { project_dropdown_html }
 
             { cat_edit_dialog_html }
 
