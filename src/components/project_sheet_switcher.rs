@@ -118,8 +118,9 @@ pub struct ProjectSheetSwitcherProps {
 
 /// 書類カードの中身に描画する行数。
 /// 縮小表示のため通常のプレビューより多くの行が入る。全文を描画すると
-/// カード枚数ぶんの描画コストが嵩むため、書類が埋まる程度の行数で打ち切る。
-const DOC_PREVIEW_LINES: usize = 60;
+/// カード枚数ぶんの描画コストが嵩むため上限を設ける。
+/// 選択中のカードはスクロールできるので、カードの高さより多めに描画する。
+const DOC_PREVIEW_LINES: usize = 150;
 
 #[function_component(ProjectSheetSwitcher)]
 pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
@@ -318,11 +319,11 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                             // 書類を模したカード（横:縦 = 1:1）
                                             "group", "relative", "aspect-square", "rounded-md", "overflow-hidden",
                                             "cursor-pointer", "transition-all", "duration-150", "flex", "flex-col",
-                                            // 選択中は枠線を太くして見分けやすくする
+                                            // 選択中は枠線を太くし、それ以外は暗くして見分けやすくする
                                             if is_sel {
-                                                vec!["border-4", "border-emerald-400", "ring-4", "ring-emerald-500/30", "scale-[1.02]", "shadow-xl"]
+                                                vec!["border-4", "border-emerald-400", "ring-4", "ring-emerald-500/30", "scale-[1.02]", "shadow-xl", "opacity-100"]
                                             } else {
-                                                vec!["border-2", "border-white/20", "hover:border-emerald-500/60"]
+                                                vec!["border-2", "border-white/20", "hover:border-emerald-500/60", "opacity-50", "hover:opacity-90"]
                                             }
                                         )}
                                     >
@@ -346,7 +347,12 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                             </span>
                                         </div>
                                         // 書類の中身（プレビュー画面と同じレンダリング。結果はキャッシュ済み）
-                                        <div class="flex-1 min-h-0 overflow-hidden bg-[#fdf6e3]">
+                                        // 選択中のカードだけスクロールできるようにする。
+                                        // overscroll-contain で、端まで来てもグリッド側へスクロールが
+                                        // 波及しないようにしている。
+                                        <div class={classes!("flex-1", "min-h-0", "bg-[#fdf6e3]",
+                                            if is_sel { vec!["overflow-y-auto", "overscroll-contain", "custom-scrollbar"] }
+                                            else { vec!["overflow-hidden"] })}>
                                             {
                                                 match rendered_docs.get(i).and_then(|d| d.clone()) {
                                                     Some(html_str) => html! {
