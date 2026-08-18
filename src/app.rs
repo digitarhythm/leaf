@@ -1082,6 +1082,8 @@ pub fn app() -> Html {
     // 現在開いているプロジェクト。Alt+R のシート切り替えダイアログの有効判定に使う。
     let active_project_id = use_state(|| None::<String>);
     let is_project_switcher_visible = use_state(|| false);
+    // Alt+R の再押下でダイアログ自身の閉じる処理（スライドアップ）を走らせるためのトリガー
+    let project_switcher_close_trigger = use_state(|| 0u32);
     let terminal_ids_ref = use_mut_ref(|| Vec::<String>::new());
     let active_terminal_id = use_state(|| None::<String>);
     let active_terminal_ref = use_mut_ref(|| None::<String>);
@@ -3587,6 +3589,7 @@ pub fn app() -> Html {
                 let is_project_ev = is_project_dialog_visible.clone();
                 let app_folder_ev = (*leaf_data_folder_id).clone();
                 let is_switcher_ev = is_project_switcher_visible.clone();
+                let switcher_close_ev = project_switcher_close_trigger.clone();
                 let has_active_project_ev = (*active_project_id).is_some();
                 let is_char_code_ev = is_char_code_visible.clone();
                 let char_code_char_ev = char_code_char.clone();
@@ -3647,6 +3650,7 @@ pub fn app() -> Html {
                     let is_guest_c = is_guest_mode_ev.clone();
                     let is_project_c = is_project_ev.clone();
                     let is_switcher_c = is_switcher_ev.clone();
+                    let switcher_close_c = switcher_close_ev.clone();
                     let is_char_code_c = is_char_code_ev.clone();
                     let char_code_char_c = char_code_char_ev.clone();
                     let is_sheet_info_c = is_sheet_info_ev.clone();
@@ -4121,7 +4125,9 @@ pub fn app() -> Html {
                         if modifier_active && is_r_key && (!is_overlay_active || switcher_open) {
                             e.prevent_default(); e.stop_immediate_propagation();
                             if switcher_open {
-                                is_switcher_c.set(false);
+                                // 直接消すとアニメーションが飛ぶため、Esc と同じ
+                                // ダイアログ側の閉じる処理を走らせる
+                                switcher_close_c.set(*switcher_close_c + 1);
                             } else if has_active_project {
                                 is_switcher_c.set(true);
                             }
@@ -6109,6 +6115,7 @@ pub fn app() -> Html {
                                 tab_color: s.tab_color.clone(),
                             }).collect::<Vec<_>>()}
                             active_sheet_id={(*active_sheet_id).clone()}
+                            close_trigger={*project_switcher_close_trigger}
                             on_select={{
                                 let sv = is_project_switcher_visible.clone();
                                 let ots = on_tab_select_cb.clone();

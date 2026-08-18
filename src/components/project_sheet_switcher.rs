@@ -109,6 +109,11 @@ pub struct ProjectSheetSwitcherProps {
     /// 選択確定。シート ID を渡す。
     pub on_select: Callback<String>,
     pub on_close: Callback<()>,
+    /// 外部（Alt+R の再押下）から閉じるためのトリガー。
+    /// 値が変わるとダイアログ自身の閉じる処理を実行し、
+    /// Esc と同じスライドアップのアニメーションで閉じる。
+    #[prop_or(0)]
+    pub close_trigger: u32,
 }
 
 /// 書類カードの中身に描画する行数。
@@ -124,8 +129,11 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
     // Tauri(デスクトップ)版は同じ指定でも文字が小さく見えるため一回り大きくする
     // （シート選択ダイアログのファイル名ラベルと同じ調整）
     let is_desktop = crate::js_interop::is_tauri();
-    let head_text_class = if is_desktop { "text-xs" } else { "text-[9px]" };
-    let badge_text_class = if is_desktop { "text-[10px]" } else { "text-[8px]" };
+    // ブラウザ版はこのサイズがちょうど良いので変えず、デスクトップ版だけ大きくする
+    let head_text_class = if is_desktop { "text-sm" } else { "text-[9px]" };
+    let badge_text_class = if is_desktop { "text-[11px]" } else { "text-[8px]" };
+    // タイトルバーの高さもデスクトップ版だけ広げる
+    let head_pad_class = if is_desktop { "py-1.5" } else { "py-1" };
     // 初期選択は現在アクティブなシート
     let selected = use_state({
         let sheets = props.sheets.clone();
@@ -160,6 +168,21 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
             gloo::timers::callback::Timeout::new(100, move || cb.emit(())).forget();
         })
     };
+
+    // Alt+R の再押下による外部クローズ（初回マウント時はスキップ）
+    {
+        let handle_close_trigger = handle_close.clone();
+        let close_trigger = props.close_trigger;
+        let is_first_render = use_mut_ref(|| true);
+        use_effect_with(close_trigger, move |_| {
+            if *is_first_render.borrow() {
+                *is_first_render.borrow_mut() = false;
+            } else {
+                handle_close_trigger.emit(());
+            }
+            || ()
+        });
+    }
 
     let confirm = {
         let on_select = props.on_select.clone();
@@ -290,7 +313,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         )}
                                     >
                                         // 書類の上端（タブ色 + 1行目の見出し + 拡張子）
-                                        <div class="flex items-center gap-1 px-2 py-1 bg-gray-800 border-b border-white/10 flex-shrink-0">
+                                        <div class={classes!("flex", "items-center", "gap-1", "px-2", head_pad_class, "bg-gray-800", "border-b", "border-white/10", "flex-shrink-0")}>
                                             <span class="w-2 h-2 rounded-full flex-shrink-0" style={format!("background-color: {};", sheet.tab_color)}></span>
                                             // 1行目を可能な限り表示する（入り切らない分は省略）
                                             <span class={classes!("flex-1", "min-w-0", "truncate", head_text_class, "font-bold",
