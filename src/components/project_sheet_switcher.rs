@@ -134,6 +134,19 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
     let badge_text_class = if is_desktop { "text-[11px]" } else { "text-[8px]" };
     // タイトルバーの高さもデスクトップ版だけ広げる
     let head_pad_class = if is_desktop { "py-1.5" } else { "py-1" };
+    // カード内のプレビューは重い（marked / highlight.js）ため、
+    // 選択が変わるたびに再計算しないようシートの内容が変わった時だけ作り直す
+    let rendered_docs = use_memo(props.sheets.clone(), |sheets| {
+        sheets
+            .iter()
+            .map(|sheet| {
+                let ext = display_extension(&sheet.title);
+                let style = DocStyle::from_extension(&ext);
+                doc_html(sheet, style, &ext)
+            })
+            .collect::<Vec<Option<String>>>()
+    });
+
     // 初期選択は現在アクティブなシート
     let selected = use_state({
         let sheets = props.sheets.clone();
@@ -304,11 +317,12 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         class={classes!(
                                             // 書類を模したカード（横:縦 = 1:1）
                                             "group", "relative", "aspect-square", "rounded-md", "overflow-hidden",
-                                            "cursor-pointer", "transition-all", "duration-150", "border-2", "flex", "flex-col",
+                                            "cursor-pointer", "transition-all", "duration-150", "flex", "flex-col",
+                                            // 選択中は枠線を太くして見分けやすくする
                                             if is_sel {
-                                                vec!["border-emerald-400", "ring-4", "ring-emerald-500/30", "scale-[1.02]", "shadow-xl"]
+                                                vec!["border-4", "border-emerald-400", "ring-4", "ring-emerald-500/30", "scale-[1.02]", "shadow-xl"]
                                             } else {
-                                                vec!["border-white/20", "hover:border-emerald-500/60"]
+                                                vec!["border-2", "border-white/20", "hover:border-emerald-500/60"]
                                             }
                                         )}
                                     >
@@ -331,9 +345,20 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                                 { if ext.is_empty() { "—".to_string() } else { ext.clone() } }
                                             </span>
                                         </div>
-                                        // 書類の中身（プレビュー画面と同じレンダリング）
+                                        // 書類の中身（プレビュー画面と同じレンダリング。結果はキャッシュ済み）
                                         <div class="flex-1 min-h-0 overflow-hidden bg-[#fdf6e3]">
-                                            { doc_body(sheet, style, &ext) }
+                                            {
+                                                match rendered_docs.get(i).and_then(|d| d.clone()) {
+                                                    Some(html_str) => html! {
+                                                        <div class="markdown-body leaf-switcher-doc max-w-none">
+                                                            { Html::from_html_unchecked(AttrValue::from(html_str)) }
+                                                        </div>
+                                                    },
+                                                    None => html! {
+                                                        <div class="text-[8px] text-gray-600 italic p-2">{ "(empty)" }</div>
+                                                    },
+                                                }
+                                            }
                                         </div>
                                         // 現在開いているシートの印
                                         if is_active {
@@ -366,12 +391,14 @@ fn first_line(sheet: &SwitcherSheet) -> String {
         .unwrap_or_else(|| sheet.title.clone())
 }
 
-/// 拡張子に応じてレンダリングした「書類の中身」を組み立てる。
+/// 拡張子に応じてレンダリングした「書類の中身」の HTML を返す。
 ///
-/// プレビュー画面（[`crate::components::preview`]）と同じレンダラを使うことで、
-/// Markdown は整形済みの見た目、ソースコードはシンタックスハイライト付きで表示される。
+/// プレビュー画面（preview.rs）と同じレンダラを使うことで、
+/// Markdown は整形済みの見た目、ソースコードはシンタックスハイライト付きになる。
 /// カードが小さいため、冒頭の一定行数だけを対象にする（重い描画を避ける）。
-fn doc_body(sheet: &SwitcherSheet, style: DocStyle, ext: &str) -> Html {
+///
+/// 本文が空の場合は None。
+fn doc_html(sheet: &SwitcherSheet, style: DocStyle, ext: &str) -> Option<String> {
     let head: String = sheet
         .content
         .lines()
@@ -379,7 +406,7 @@ fn doc_body(sheet: &SwitcherSheet, style: DocStyle, ext: &str) -> Html {
         .collect::<Vec<_>>()
         .join("\n");
     if head.trim().is_empty() {
-        return html! { <div class="text-[8px] text-gray-600 italic">{ "(empty)" }</div> };
+        return None;
     }
 
     // プレビュー画面（preview.rs）と同じ分岐にする。
@@ -394,13 +421,7 @@ fn doc_body(sheet: &SwitcherSheet, style: DocStyle, ext: &str) -> Html {
             lang, code_html
         )
     };
-
-    html! {
-        // プレビュー画面と同じ markdown-body スタイルを、カードに収まる倍率で適用する
-        <div class="markdown-body leaf-switcher-doc max-w-none">
-            { Html::from_html_unchecked(AttrValue::from(rendered)) }
-        </div>
-    }
+    Some(rendered)
 }
 
 #[cfg(test)]

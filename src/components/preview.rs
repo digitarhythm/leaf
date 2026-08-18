@@ -107,6 +107,9 @@ pub fn preview(props: &PreviewProps) -> Html {
                 let is_space = key == " ";
                 let is_home = key == "Home";
                 let is_end = key == "End";
+                // Cmd / Ctrl 併用時はブラウザ標準のショートカット
+                // （コピー・検索・リロード等）をそのまま通す
+                if ke.meta_key() || ke.ctrl_key() { return; }
                 e.stop_immediate_propagation();
                 
                 // ESCキー または (設定されている場合の) スペースキーで閉じる
@@ -136,7 +139,9 @@ pub fn preview(props: &PreviewProps) -> Html {
                     return;
                 }
                 let is_printable = key.len() == 1;
-                if is_printable || key.starts_with("F") { e.prevent_default(); }
+                if (is_printable || key.starts_with("F")) && !ke.meta_key() && !ke.ctrl_key() {
+                    e.prevent_default();
+                }
             });
             Box::new(move || { drop(listener); }) as Box<dyn FnOnce()>
         });

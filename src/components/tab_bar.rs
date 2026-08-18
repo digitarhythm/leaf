@@ -27,15 +27,66 @@ pub struct TabBarProps {
     pub on_drag_end: Option<Callback<()>>,
     #[prop_or_default]
     pub on_new_tab: Option<Callback<()>>,
+    /// 左端に固定するターミナルタブの中身（デスクトップ版のみ）
+    #[prop_or_default]
+    pub terminals: Vec<TabInfo>,
+    /// 新規ターミナルの起動。None ならターミナルタブ自体を表示しない
+    #[prop_or_default]
+    pub on_new_terminal: Option<Callback<()>>,
+    /// 開いているプロジェクトのシート
+    #[prop_or_default]
+    pub project_sheets: Vec<TabInfo>,
+    /// 開いているプロジェクト名。None ならプロジェクトタブを表示しない
+    #[prop_or_default]
+    pub project_name: Option<String>,
+    /// ドロップダウンの開閉を親へ通知する。
+    /// Esc を最優先で受け取るために、親側で開閉状態を持つ必要がある。
+    #[prop_or_default]
+    pub on_menu_open_change: Callback<bool>,
+    /// Esc が押されたことを伝えるトリガー。
+    /// グローバルのキーハンドラが Esc を消費するため、値の変化で受け取って
+    /// ドロップダウンを閉じる。
+    #[prop_or(0)]
+    pub close_menu_trigger: u32,
 }
 
 #[function_component(TabBar)]
 pub fn tab_bar(props: &TabBarProps) -> Html {
     let lang = Language::detect();
     let dragging_id = use_state(|| None::<String>);
+    // 開いている固定タブのドロップダウン（"terminal" / "project"）
+    let open_menu = use_state(|| None::<&'static str>);
+    // タブバーは overflow-x-auto のため、内部に絶対配置するとドロップダウンが
+    // 切り取られてしまう。タブの位置を測って画面に対する固定配置で描画する。
+    let menu_pos = use_state(|| (0.0_f64, 0.0_f64));
 
-    // シートが1つでもタブを表示する(空の時のみ非表示)
-    if props.sheets.is_empty() {
+    // ドロップダウンの開閉を親へ通知する
+    {
+        let notify = props.on_menu_open_change.clone();
+        let is_open = open_menu.is_some();
+        use_effect_with(is_open, move |is_open| {
+            notify.emit(*is_open);
+            || ()
+        });
+    }
+
+    // Esc でドロップダウンを閉じる（初回マウント時はスキップ）
+    {
+        let om = open_menu.clone();
+        let trigger = props.close_menu_trigger;
+        let is_first_render = use_mut_ref(|| true);
+        use_effect_with(trigger, move |_| {
+            if *is_first_render.borrow() {
+                *is_first_render.borrow_mut() = false;
+            } else {
+                om.set(None);
+            }
+            || ()
+        });
+    }
+
+    // 固定タブ（ターミナル／プロジェクト）を含めて何も無い時のみ非表示
+    if props.sheets.is_empty() && props.on_new_terminal.is_none() && props.project_name.is_none() {
         return html! {};
     }
 
@@ -53,12 +104,184 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
         })
     };
 
+    // クリックされたタブの左下座標を求める（ドロップダウンの表示位置）
+    let measure_pos = |e: &MouseEvent| -> (f64, f64) {
+        e.target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+            .and_then(|el| el.closest("[data-fixed-tab]").ok().flatten())
+            .map(|el| {
+                let rect = el.get_bounding_client_rect();
+                (rect.left(), rect.bottom())
+            })
+            .unwrap_or((0.0, 32.0))
+    };
+
+    // --- 左端に固定するタブ（ターミナル／プロジェクト）---
+    // tab_order の管理外で data-tab-id を持たないため、ドラッグの対象にならない
+    let fixed_tab_html = {
+        let active_id = props.active_sheet_id.clone();
+        let is_terminal_active = active_id.as_ref().map(|id| id.starts_with("__TERM__")).unwrap_or(false);
+        let active_project_sheet = active_id
+            .as_ref()
+            .and_then(|id| props.project_sheets.iter().find(|t| &t.id == id))
+            .cloned();
+
+        let terminal_tab = match props.on_new_terminal.clone() {
+            None => html! {},
+            Some(on_new_terminal) => {
+                let is_open = *open_menu == Some("terminal");
+                let label = match props.terminals.iter().find(|t| Some(&t.id) == active_id.as_ref()) {
+                    Some(active) if is_terminal_active => active.title.clone(),
+                    _ => i18n::t("terminal", lang),
+                };
+                let toggle = {
+                    let om = open_menu.clone();
+                    let mp = menu_pos.clone();
+                    let on_new = on_new_terminal.clone();
+                    let has_terminal = !props.terminals.is_empty();
+                    Callback::from(move |e: MouseEvent| {
+                        // 1つも起動していない時は、押すだけで新規ターミナルを起動する
+                        if !has_terminal {
+                            on_new.emit(());
+                            return;
+                        }
+                        mp.set(measure_pos(&e));
+                        om.set(if *om == Some("terminal") { None } else { Some("terminal") });
+                    })
+                };
+                html! {
+                    <div class="shrink-0">
+                        <div
+                            data-fixed-tab="terminal"
+                            onclick={toggle}
+                            class={classes!(
+                                "flex", "items-center", "gap-1", "px-3", "py-1", "cursor-pointer",
+                                "text-xs", "whitespace-nowrap", "select-none", "transition-all", "duration-100",
+                                "border-r", "border-[#3c3836]",
+                                if is_terminal_active { "bg-[#3c3836] text-[#ebdbb2] border-b-2 border-b-emerald-500" }
+                                else { "bg-[#282828] text-gray-400 hover:bg-[#3c3836] hover:text-gray-300 border-b-2 border-b-transparent" }
+                            )}
+                            title={i18n::t("terminal", lang)}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>
+                            <span class="max-w-[140px] truncate">{ label }</span>
+                            <span class="text-[8px] opacity-60">{ "\u{25BC}" }</span>
+                        </div>
+                        if is_open {
+                            <>
+                                <div class="fixed inset-0 z-[80]" onclick={let om = open_menu.clone(); move |_| om.set(None)}></div>
+                                <div class="fixed z-[90] min-w-[200px] bg-gray-800 border border-white/10 rounded-md shadow-2xl py-1"
+                                    style={format!("left: {}px; top: {}px;", menu_pos.0, menu_pos.1 + 2.0)}>
+                                    { for props.terminals.iter().map(|t| {
+                                        let is_sel = Some(&t.id) == active_id.as_ref();
+                                        let sel_id = t.id.clone();
+                                        let close_id = t.id.clone();
+                                        let on_select = props.on_select_tab.clone();
+                                        let on_close = props.on_close_tab.clone();
+                                        let om_sel = open_menu.clone();
+                                        let om_close = open_menu.clone();
+                                        html! {
+                                            <div class={classes!("group", "flex", "items-center", "gap-2", "px-3", "py-1.5", "text-xs", "cursor-pointer", "transition-colors",
+                                                if is_sel { "bg-emerald-600/30 text-emerald-300 font-bold" } else { "text-gray-300 hover:bg-emerald-600 hover:text-white" })}
+                                                onclick={move |_| { on_select.emit(sel_id.clone()); om_sel.set(None); }}
+                                            >
+                                                <span class="flex-1 truncate">{ t.title.clone() }</span>
+                                                <button
+                                                    class="text-gray-500 hover:text-red-400 px-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    title={i18n::t("close_tab", lang)}
+                                                    onclick={move |e: MouseEvent| { e.stop_propagation(); on_close.emit(close_id.clone()); om_close.set(None); }}
+                                                >{ "\u{2715}" }</button>
+                                            </div>
+                                        }
+                                    })}
+                                    <div class="border-t border-white/10 my-1"></div>
+                                    <div
+                                        class="flex items-center gap-2 px-3 py-1.5 text-xs text-emerald-400 hover:bg-emerald-600 hover:text-white cursor-pointer transition-colors"
+                                        onclick={let om = open_menu.clone(); let on_new = on_new_terminal.clone(); move |_| { on_new.emit(()); om.set(None); }}
+                                    >
+                                        <span class="text-sm leading-none">{ "+" }</span>
+                                        <span>{ i18n::t("new_terminal", lang) }</span>
+                                    </div>
+                                </div>
+                            </>
+                        }
+                    </div>
+                }
+            }
+        };
+
+        let project_tab = match props.project_name.clone() {
+            None => html! {},
+            Some(project_name) => {
+                let is_open = *open_menu == Some("project");
+                let is_active = active_project_sheet.is_some();
+                let label = match active_project_sheet.as_ref() {
+                    Some(sheet) => format!("{} / {}", project_name, sheet.title),
+                    None => project_name.clone(),
+                };
+                html! {
+                    <div class="shrink-0">
+                        <div
+                            data-fixed-tab="project"
+                            onclick={let om = open_menu.clone(); let mp = menu_pos.clone(); move |e: MouseEvent| { mp.set(measure_pos(&e)); om.set(if *om == Some("project") { None } else { Some("project") }); }}
+                            class={classes!(
+                                "flex", "items-center", "gap-1", "px-3", "py-1", "cursor-pointer",
+                                "text-xs", "whitespace-nowrap", "select-none", "transition-all", "duration-100",
+                                "border-r", "border-[#3c3836]",
+                                if is_active { "bg-[#3c3836] text-[#ebdbb2] border-b-2 border-b-emerald-500" }
+                                else { "bg-[#282828] text-gray-400 hover:bg-[#3c3836] hover:text-gray-300 border-b-2 border-b-transparent" }
+                            )}
+                            title={project_name.clone()}
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.5 9.9h3v2h-3zM12 11.9v1.6M8.5 13.5h7M8.5 13.5v1.3M15.5 13.5v1.3M7 14.8h3v2H7zM14 14.8h3v2h-3z" /></svg>
+                            <span class="max-w-[200px] truncate">{ label }</span>
+                            <span class="text-[8px] opacity-60">{ "\u{25BC}" }</span>
+                        </div>
+                        if is_open {
+                            <>
+                                <div class="fixed inset-0 z-[80]" onclick={let om = open_menu.clone(); move |_| om.set(None)}></div>
+                                <div class="fixed z-[90] min-w-[220px] max-h-[60vh] overflow-y-auto custom-scrollbar bg-gray-800 border border-white/10 rounded-md shadow-2xl py-1"
+                                    style={format!("left: {}px; top: {}px;", menu_pos.0, menu_pos.1 + 2.0)}>
+                                    if props.project_sheets.is_empty() {
+                                        <div class="px-3 py-2 text-xs text-gray-500">{ i18n::t("no_project_sheets", lang) }</div>
+                                    } else {
+                                        { for props.project_sheets.iter().map(|t| {
+                                            let is_sel = Some(&t.id) == active_id.as_ref();
+                                            let sel_id = t.id.clone();
+                                            let on_select = props.on_select_tab.clone();
+                                            let om_sel = open_menu.clone();
+                                            let is_modified = t.is_modified;
+                                            html! {
+                                                <div class={classes!("flex", "items-center", "gap-2", "px-3", "py-1.5", "text-xs", "cursor-pointer", "transition-colors",
+                                                    if is_sel { "bg-emerald-600/30 text-emerald-300 font-bold" } else { "text-gray-300 hover:bg-emerald-600 hover:text-white" })}
+                                                    onclick={move |_| { on_select.emit(sel_id.clone()); om_sel.set(None); }}
+                                                >
+                                                    <span class="flex-1 truncate">{ t.title.clone() }</span>
+                                                    if is_modified {
+                                                        <span class="text-[10px] text-amber-400" title={i18n::t("modified_indicator", lang)}>{ "\u{25CF}" }</span>
+                                                    }
+                                                </div>
+                                            }
+                                        })}
+                                    }
+                                </div>
+                            </>
+                        }
+                    </div>
+                }
+            }
+        };
+
+        html! { <>{ terminal_tab }{ project_tab }</> }
+    };
+
     html! {
         <div
             class="desktop:flex mobile:hidden items-center bg-[#1d2021] border-b border-[#3c3836] overflow-x-auto scrollbar-none"
             style="min-height: 32px;"
             ondblclick={on_dblclick_area}
         >
+            { fixed_tab_html }
             { for props.sheets.iter().map(|tab| {
                 let is_active = props.active_sheet_id.as_ref() == Some(&tab.id);
                 let tab_id_select = tab.id.clone();
