@@ -3731,7 +3731,8 @@ pub fn app() -> Html {
             if saving_val.is_none() {
                 if let Some(close_id) = psc_val.clone() {
                     psc.set(None);
-                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_save_close.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
+                    let scoped_order = project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc);
+                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), scoped_order, Some(atid.clone()), Some(atref.clone()), Some(tsh_save_close.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
                 }
             }
             || ()
@@ -4654,7 +4655,8 @@ pub fn app() -> Html {
                                     let tp_map_kc2 = tp_map_kc.clone();
                                     Timeout::new(300, move || {
                                         tci2.set(None);
-                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), project_scoped_order(&to2.borrow(), &rs_c2.borrow(), ws_kc2.active(), &sp_map_kc2.borrow(), &tp_map_kc2.borrow(), &ps_kc2), Some(atid2.clone()), Some(atref2.clone()), Some(tsh_close2), Some((ws_kc2.active().to_string(), sp_map_kc2.clone())));
+                                        let scoped_order = project_scoped_order(&to2.borrow(), &rs_c2.borrow(), ws_kc2.active(), &sp_map_kc2.borrow(), &tp_map_kc2.borrow(), &ps_kc2);
+                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), scoped_order, Some(atid2.clone()), Some(atref2.clone()), Some(tsh_close2), Some((ws_kc2.active().to_string(), sp_map_kc2.clone())));
                                     }).forget();
                                 }
                                 return;
@@ -5813,7 +5815,8 @@ pub fn app() -> Html {
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_cc.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
+                let scoped_order = project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc);
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), scoped_order, Some(atid.clone()), Some(atref.clone()), Some(tsh_cc.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
             }
         })
     };
@@ -5846,7 +5849,8 @@ pub fn app() -> Html {
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_ucc.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
+                let scoped_order = project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc);
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), scoped_order, Some(atid.clone()), Some(atref.clone()), Some(tsh_ucc.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
             }
         })
     };
@@ -6722,7 +6726,8 @@ pub fn app() -> Html {
                                 if let Some(did) = drive_id {
                                     spawn_local(async move { let _ = delete_file(&did).await; });
                                 }
-                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_del.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
+                                let scoped_order = project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc);
+                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), scoped_order, Some(atid.clone()), Some(atref.clone()), Some(tsh_del.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
                             }
                         })}
                     /></div>
