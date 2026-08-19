@@ -33,6 +33,11 @@ pub struct ProjectDialogProps {
     /// プロジェクトを開く（シートが 0 件のプロジェクトでは呼ばれない）
     pub on_open: Callback<String>,
     pub on_close: Callback<()>,
+    /// 外部（Alt+P の再押下）から閉じるためのトリガー。
+    /// 値が変わるとダイアログ自身の閉じる処理を実行し、
+    /// Esc と同じアニメーションで閉じる。
+    #[prop_or(0)]
+    pub close_trigger: u32,
 }
 
 /// 入力ダイアログの用途
@@ -230,6 +235,21 @@ pub fn project_dialog(props: &ProjectDialogProps) -> Html {
             gloo::timers::callback::Timeout::new(300, move || cb.emit(())).forget();
         })
     };
+
+    // Alt+P の再押下による外部クローズ（初回マウント時はスキップ）
+    {
+        let handle_close_trigger = handle_close.clone();
+        let close_trigger = props.close_trigger;
+        let is_first_render = use_mut_ref(|| true);
+        use_effect_with(close_trigger, move |_| {
+            if *is_first_render.borrow() {
+                *is_first_render.borrow_mut() = false;
+            } else {
+                handle_close_trigger.emit(());
+            }
+            || ()
+        });
+    }
 
     let selected_project: Option<&Project> =
         selected_id.as_ref().and_then(|id| props.store.find(id));

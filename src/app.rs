@@ -1084,6 +1084,8 @@ pub fn app() -> Html {
     let is_project_switcher_visible = use_state(|| false);
     // Alt+R の再押下でダイアログ自身の閉じる処理（スライドアップ）を走らせるためのトリガー
     let project_switcher_close_trigger = use_state(|| 0u32);
+    // Alt+P の再押下でプロジェクトダイアログを閉じる（アニメーション付き）ためのトリガー
+    let project_dialog_close_trigger = use_state(|| 0u32);
     // Esc でタブバーの固定タブのドロップダウンを閉じるためのトリガー
     let tab_menu_close_trigger = use_state(|| 0u32);
     // タブバーのドロップダウンが開いているか（Esc を最優先で処理するために持つ）
@@ -3668,6 +3670,7 @@ pub fn app() -> Html {
                 let tfs_ref_ev = terminal_font_size_ref.clone();
                 let is_guest_mode_ev = is_guest_mode.clone();
                 let is_project_ev = is_project_dialog_visible.clone();
+                let project_close_ev = project_dialog_close_trigger.clone();
                 let app_folder_ev = (*leaf_data_folder_id).clone();
                 let is_switcher_ev = is_project_switcher_visible.clone();
                 let tab_menu_close_ev = tab_menu_close_trigger.clone();
@@ -3733,6 +3736,7 @@ pub fn app() -> Html {
                     let split_content_opacity_c = split_content_opacity_ev.clone();
                     let is_guest_c = is_guest_mode_ev.clone();
                     let is_project_c = is_project_ev.clone();
+                    let project_close_c = project_close_ev.clone();
                     let is_switcher_c = is_switcher_ev.clone();
                     let tab_menu_close_c = tab_menu_close_ev.clone();
                     let new_term_c = new_term_ev.clone();
@@ -4201,7 +4205,9 @@ pub fn app() -> Html {
                         if modifier_active && is_p_key && (!is_overlay_active || project_open) && !*is_guest_c {
                             e.prevent_default(); e.stop_immediate_propagation();
                             if project_open {
-                                is_project_c.set(false);
+                                // 直接消すとアニメーションが飛ぶため、Esc と同じ
+                                // ダイアログ側の閉じる処理を走らせる
+                                project_close_c.set(*project_close_c + 1);
                             } else if has_app_folder {
                                 is_project_c.set(true);
                             }
@@ -6229,6 +6235,7 @@ pub fn app() -> Html {
                             <crate::components::project_dialog::ProjectDialog
                                 store={(*project_store).clone()}
                                 sheet_previews={project_sheet_previews.clone()}
+                                close_trigger={*project_dialog_close_trigger}
                                 on_create={{
                                     let ps = project_store.clone(); let folder = app_folder.clone();
                                     Callback::from(move |(name, memo): (String, String)| {

@@ -135,9 +135,23 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
     let badge_text_class = if is_desktop { "text-[11px]" } else { "text-[8px]" };
     // タイトルバーの高さもデスクトップ版だけ広げる
     let head_pad_class = if is_desktop { "py-1.5" } else { "py-1" };
-    // カード内のプレビューは重い（marked / highlight.js）ため、
-    // 選択が変わるたびに再計算しないようシートの内容が変わった時だけ作り直す
-    let rendered_docs = use_memo(props.sheets.clone(), |sheets| {
+    // カード内のプレビューの描画は重い（marked / highlight.js）。
+    // 最初の描画で実行するとロールダウンのアニメーションが表示されないまま
+    // 終わってしまう（特にデスクトップ版の WebView で顕著）ため、
+    // アニメーションが終わってから内容を作る。
+    let content_ready = use_state(|| false);
+    {
+        let cr = content_ready.clone();
+        use_effect_with((), move |_| {
+            gloo::timers::callback::Timeout::new(120, move || cr.set(true)).forget();
+            || ()
+        });
+    }
+    // 選択が変わるたびに再計算しないよう、シートの内容が変わった時だけ作り直す
+    let rendered_docs = use_memo((props.sheets.clone(), *content_ready), |(sheets, ready)| {
+        if !*ready {
+            return Vec::new();
+        }
         sheets
             .iter()
             .map(|sheet| {
@@ -354,6 +368,10 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                             if is_sel { vec!["overflow-y-auto", "overscroll-contain", "custom-scrollbar"] }
                                             else { vec!["overflow-hidden"] })}>
                                             {
+                                                if !*content_ready {
+                                                    // 描画準備中は白紙のまま（レイアウトは確定しているのでガタつかない）
+                                                    html! {}
+                                                } else {
                                                 match rendered_docs.get(i).and_then(|d| d.clone()) {
                                                     Some(html_str) => html! {
                                                         <div class="markdown-body leaf-switcher-doc max-w-none">
@@ -363,6 +381,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                                     None => html! {
                                                         <div class="text-[8px] text-gray-600 italic p-2">{ "(empty)" }</div>
                                                     },
+                                                }
                                                 }
                                             }
                                         </div>
