@@ -43,56 +43,6 @@ pub fn sheet_project_keys(guid: Option<&str>, title: &str) -> Vec<String> {
     keys
 }
 
-/// 振り分けの入力となるタブ 1 件
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TabEntry {
-    pub id: String,
-    /// シートの場合のプロジェクト guid 候補（ターミナルでは空）
-    pub keys: Vec<String>,
-}
-
-impl TabEntry {
-    pub fn sheet(id: &str, guid: Option<&str>, title: &str) -> Self {
-        Self { id: id.to_string(), keys: sheet_project_keys(guid, title) }
-    }
-
-    pub fn terminal(id: &str) -> Self {
-        Self { id: id.to_string(), keys: Vec::new() }
-    }
-}
-
-/// 振り分け結果。いずれも入力順を保持する。
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct TabPartition {
-    /// 「ターミナル」タブのドロップダウンに入る
-    pub terminals: Vec<String>,
-    /// 「プロジェクト」タブのドロップダウンに入る
-    pub project: Vec<String>,
-    /// 通常のシートタブとして並ぶ
-    pub normal: Vec<String>,
-}
-
-/// タブを「ターミナル」「プロジェクトのシート」「通常のシート」に振り分ける。
-///
-/// `project_sheets` は開いているプロジェクトの所属 guid。
-/// プロジェクトを開いていない場合は空集合を渡す（全てのシートが通常タブになる）。
-///
-/// 同じシートを 2 箇所に出さないため、プロジェクトに所属していれば
-/// 必ずドロップダウン側にだけ入る。
-pub fn partition_tabs(tabs: &[TabEntry], project_sheets: &HashSet<String>) -> TabPartition {
-    let mut result = TabPartition::default();
-    for tab in tabs {
-        if is_terminal_tab(&tab.id) {
-            result.terminals.push(tab.id.clone());
-        } else if tab.keys.iter().any(|k| project_sheets.contains(k)) {
-            result.project.push(tab.id.clone());
-        } else {
-            result.normal.push(tab.id.clone());
-        }
-    }
-    result
-}
-
 /// 重複タブ整理の入力となるタブ 1 件
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DedupeEntry {
@@ -145,10 +95,6 @@ pub fn duplicate_tab_ids(entries: &[DedupeEntry]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn set(list: &[&str]) -> HashSet<String> {
-        list.iter().map(|s| s.to_string()).collect()
-    }
 
 
     fn dup(id: &str, guid: Option<&str>, title: &str, drive_id: Option<&str>, unsaved: bool) -> DedupeEntry {
@@ -252,78 +198,4 @@ mod tests {
         assert!(sheet_project_keys(None, "").is_empty());
     }
 
-    #[test]
-    fn tabs_without_project_all_become_normal_sheets() {
-        let tabs = vec![
-            TabEntry::sheet("s1", Some("guid-a"), "guid-a.txt"),
-            TabEntry::sheet("s2", Some("guid-b"), "guid-b.md"),
-        ];
-        let p = partition_tabs(&tabs, &set(&[]));
-
-        assert_eq!(p.normal, vec!["s1", "s2"]);
-        assert!(p.project.is_empty());
-        assert!(p.terminals.is_empty());
-    }
-
-    #[test]
-    fn project_sheets_go_to_the_project_dropdown_only() {
-        let tabs = vec![
-            TabEntry::sheet("s1", Some("guid-a"), "guid-a.txt"),
-            TabEntry::sheet("s2", Some("guid-b"), "guid-b.md"),
-            TabEntry::sheet("s3", Some("guid-c"), "guid-c.txt"),
-        ];
-        let p = partition_tabs(&tabs, &set(&["guid-a", "guid-c"]));
-
-        // 同じシートがタブバーとドロップダウンの両方に出ないこと
-        assert_eq!(p.project, vec!["s1", "s3"]);
-        assert_eq!(p.normal, vec!["s2"]);
-    }
-
-    #[test]
-    fn already_open_sheet_moves_into_the_project_dropdown() {
-        // 拡張子付きの guid で開かれていたシートも、プロジェクト側の
-        // 拡張子なし guid と突き合わせて正しく移る
-        let tabs = vec![TabEntry::sheet("s1", Some("guid-a.md"), "guid-a.md")];
-        let p = partition_tabs(&tabs, &set(&["guid-a"]));
-
-        assert_eq!(p.project, vec!["s1"]);
-        assert!(p.normal.is_empty());
-    }
-
-    #[test]
-    fn terminals_are_separated_regardless_of_project() {
-        let tabs = vec![
-            TabEntry::terminal("__TERM__1"),
-            TabEntry::sheet("s1", Some("guid-a"), "guid-a.txt"),
-            TabEntry::terminal("__TERM__2"),
-            TabEntry::sheet("s2", Some("guid-b"), "guid-b.txt"),
-        ];
-        let p = partition_tabs(&tabs, &set(&["guid-a"]));
-
-        assert_eq!(p.terminals, vec!["__TERM__1", "__TERM__2"]);
-        assert_eq!(p.project, vec!["s1"]);
-        assert_eq!(p.normal, vec!["s2"]);
-    }
-
-    #[test]
-    fn input_order_is_preserved_in_each_group() {
-        let tabs = vec![
-            TabEntry::sheet("s3", Some("guid-c"), "guid-c.txt"),
-            TabEntry::sheet("s1", Some("guid-a"), "guid-a.txt"),
-            TabEntry::sheet("s2", Some("guid-b"), "guid-b.txt"),
-        ];
-        let p = partition_tabs(&tabs, &set(&["guid-c", "guid-b"]));
-
-        assert_eq!(p.project, vec!["s3", "s2"], "並べ替え順ではなく入力順を保つ");
-        assert_eq!(p.normal, vec!["s1"]);
-    }
-
-    #[test]
-    fn unsaved_sheets_without_guid_stay_as_normal_tabs() {
-        // guid も drive_id も無い新規シートはプロジェクトに入れられない
-        let tabs = vec![TabEntry::sheet("s1", None, "Untitled.txt")];
-        let p = partition_tabs(&tabs, &set(&["Untitled"]));
-        // ファイル名から拾えてしまわないよう、実際の guid 集合とは一致しない想定
-        assert_eq!(p.project.len() + p.normal.len(), 1);
-    }
 }

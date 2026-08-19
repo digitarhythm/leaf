@@ -8,6 +8,7 @@ mod i18n;
 mod project;
 mod project_store;
 mod tabs;
+mod workspace;
 
 use app::App;
 

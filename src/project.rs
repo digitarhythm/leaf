@@ -12,6 +12,11 @@ use std::collections::{BTreeMap, HashSet};
 /// Drive 上の設定ファイル名。先頭がドットのためシート一覧には現れない。
 pub const PROJECTS_FILE_NAME: &str = ".leaf_projects.json";
 
+/// デフォルトプロジェクトの ID。
+/// 起動時に必ず開かれ、閉じる・削除・改名ができない特別なプロジェクト。
+/// 名前は表示時に i18n で解決するため、設定ファイルには保存しない。
+pub const DEFAULT_PROJECT_ID: &str = "__default__";
+
 const SCHEMA_VERSION: u32 = 1;
 
 fn default_version() -> u32 {
@@ -37,6 +42,11 @@ pub struct Project {
 }
 
 impl Project {
+    /// デフォルトプロジェクトかどうか
+    pub fn is_default(&self) -> bool {
+        self.id == DEFAULT_PROJECT_ID
+    }
+
     /// 所属シートのうち、まだタブとして開かれていない guid を登録順で返す。
     ///
     /// 起動時にプロジェクトを復元する際、既に開いているタブはそのまま活かし、
@@ -52,12 +62,6 @@ impl Project {
             .collect()
     }
 
-    /// 開けるプロジェクトかどうか。
-    /// シートが 1 件も無いプロジェクトを開くと、全タブを閉じた結果として
-    /// 空のシートが 1 枚できるだけで意味がないため開けないようにする。
-    pub fn is_openable(&self) -> bool {
-        !self.sheets.is_empty()
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -179,7 +183,11 @@ impl ProjectStore {
     }
 
     /// プロジェクト名とメモを更新する。存在しない ID の場合は何もせず Ok を返す。
+    /// デフォルトプロジェクトは改名できない（名前は i18n で解決するため）。
     pub fn update(&mut self, id: &str, new_name: &str, memo: &str, now: u64) -> Result<(), NameError> {
+        if id == DEFAULT_PROJECT_ID {
+            return Ok(());
+        }
         let name = self.validate_name(new_name, Some(id))?;
         if let Some(project) = self.find_mut(id) {
             project.name = name;
@@ -189,16 +197,35 @@ impl ProjectStore {
         Ok(())
     }
 
+    /// デフォルトプロジェクトが無ければ作成する。作成した場合のみ true。
+    /// 名前は表示時に i18n で解決するため空のままにしておく。
+    pub fn ensure_default(&mut self, now: u64) -> bool {
+        if self.find(DEFAULT_PROJECT_ID).is_some() {
+            return false;
+        }
+        self.projects.insert(
+            0,
+            Project {
+                id: DEFAULT_PROJECT_ID.to_string(),
+                name: String::new(),
+                memo: String::new(),
+                sheets: Vec::new(),
+                created_at: now,
+                updated_at: now,
+            },
+        );
+        true
+    }
+
     /// プロジェクトを削除する。削除した場合のみ true。シート本体には影響しない。
+    /// デフォルトプロジェクトは削除できない。
     pub fn remove(&mut self, id: &str) -> bool {
+        if id == DEFAULT_PROJECT_ID {
+            return false;
+        }
         let before = self.projects.len();
         self.projects.retain(|p| p.id != id);
         self.projects.len() != before
-    }
-
-    /// 指定プロジェクトが開けるか。存在しない ID の場合も false。
-    pub fn is_openable(&self, project_id: &str) -> bool {
-        self.find(project_id).map(|p| p.is_openable()).unwrap_or(false)
     }
 
     pub fn contains_sheet(&self, project_id: &str, sheet_guid: &str) -> bool {
@@ -319,6 +346,57 @@ mod tests {
         assert!(project.sheets.is_empty());
         assert_eq!(project.created_at, T0);
         assert_eq!(store.projects.len(), 1);
+    }
+
+
+    #[test]
+    fn ensure_default_creates_it_only_once() {
+        let mut store = ProjectStore::new();
+        assert!(store.ensure_default(T0), "無ければ作成する");
+        assert!(store.find(DEFAULT_PROJECT_ID).is_some());
+        assert!(!store.ensure_default(T1), "既にあれば何もしない");
+        assert_eq!(store.projects.len(), 1);
+    }
+
+    #[test]
+    fn default_project_is_first_in_the_list() {
+        let mut store = store_with(&[("id-1", "Alpha")]);
+        store.ensure_default(T0);
+        assert_eq!(store.projects[0].id, DEFAULT_PROJECT_ID);
+    }
+
+    #[test]
+    fn default_project_cannot_be_removed() {
+        let mut store = ProjectStore::new();
+        store.ensure_default(T0);
+        assert!(!store.remove(DEFAULT_PROJECT_ID));
+        assert!(store.find(DEFAULT_PROJECT_ID).is_some());
+    }
+
+    #[test]
+    fn default_project_cannot_be_renamed() {
+        let mut store = ProjectStore::new();
+        store.ensure_default(T0);
+        assert!(store.update(DEFAULT_PROJECT_ID, "勝手な名前", "メモ", T1).is_ok());
+        let project = store.find(DEFAULT_PROJECT_ID).unwrap();
+        assert_eq!(project.name, "", "名前は空のまま（表示時に i18n で解決する）");
+        assert_eq!(project.memo, "", "メモも変わらない");
+    }
+
+    #[test]
+    fn is_default_matches_only_the_default_id() {
+        let mut store = store_with(&[("id-1", "Alpha")]);
+        store.ensure_default(T0);
+        assert!(store.find(DEFAULT_PROJECT_ID).unwrap().is_default());
+        assert!(!store.find("id-1").unwrap().is_default());
+    }
+
+    #[test]
+    fn default_project_can_hold_sheets_like_any_other() {
+        let mut store = ProjectStore::new();
+        store.ensure_default(T0);
+        assert_eq!(store.toggle_sheet(DEFAULT_PROJECT_ID, "guid-a", T1), Some(true));
+        assert!(store.contains_sheet(DEFAULT_PROJECT_ID, "guid-a"));
     }
 
     #[test]
@@ -472,19 +550,6 @@ mod tests {
         assert_eq!(store.find("id-1").unwrap().sheets, vec!["guid-a", "guid-c", "guid-b"]);
     }
 
-    #[test]
-    fn project_without_sheets_cannot_be_opened() {
-        let mut store = store_with(&[("id-1", "Alpha")]);
-        assert!(!store.is_openable("id-1"), "作成直後はシートが無いので開けない");
-
-        store.toggle_sheet("id-1", "guid-a", T1);
-        assert!(store.is_openable("id-1"), "シートを追加すると開ける");
-
-        // 最後の 1 件を外すと再び開けなくなる
-        store.toggle_sheet("id-1", "guid-a", T1);
-        assert!(!store.is_openable("id-1"));
-    }
-
     fn guids(list: &[&str]) -> HashSet<String> {
         list.iter().map(|s| s.to_string()).collect()
     }
@@ -522,23 +587,6 @@ mod tests {
     fn missing_sheets_of_empty_project_is_empty() {
         let store = store_with(&[("id-1", "Alpha")]);
         assert!(store.find("id-1").unwrap().missing_sheets(&guids(&[])).is_empty());
-    }
-
-    #[test]
-    fn unknown_project_is_not_openable() {
-        let store = ProjectStore::new();
-        assert!(!store.is_openable("id-unknown"));
-    }
-
-    #[test]
-    fn pruning_all_sheets_makes_project_not_openable() {
-        let mut store = store_with(&[("id-1", "Alpha")]);
-        store.toggle_sheet("id-1", "guid-gone", T0);
-        assert!(store.is_openable("id-1"));
-
-        // Drive 上からシートが消えた場合も開けなくなる
-        store.prune_missing_sheets(&HashSet::new(), T1);
-        assert!(!store.is_openable("id-1"));
     }
 
     #[test]

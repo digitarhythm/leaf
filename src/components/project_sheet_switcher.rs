@@ -91,15 +91,18 @@ pub fn display_extension(file_name: &str) -> String {
     }
 }
 
-/// グリッドに 1 枚並べるシートの情報
+/// グリッドに 1 枚並べるカードの情報
 #[derive(Clone, PartialEq)]
 pub struct SwitcherSheet {
     pub id: String,
-    /// ファイル名（拡張子の判定と表示に使う）
+    /// ファイル名（拡張子の判定と表示に使う）。ターミナルでは表示名が入る
     pub title: String,
-    /// 本文（書類の中身として冒頭を表示する）
+    /// 本文（書類の中身として冒頭を表示する）。ターミナルでは空
     pub content: String,
     pub tab_color: String,
+    /// ターミナルのカードかどうか（先頭にまとめて並べる）
+    #[allow(dead_code)]
+    pub is_terminal: bool,
 }
 
 #[derive(Properties, PartialEq)]
@@ -155,6 +158,9 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
         sheets
             .iter()
             .map(|sheet| {
+                if sheet.is_terminal {
+                    return None;
+                }
                 let ext = display_extension(&sheet.title);
                 let style = DocStyle::from_extension(&ext);
                 doc_html(sheet, style, &ext)
@@ -342,6 +348,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         )}
                                     >
                                         // 書類の上端（タブ色 + 1行目の見出し + 拡張子）
+                                        // ※ ターミナルはアイコン表示に切り替える
                                         <div class={classes!("flex", "items-center", "gap-1", "px-2", head_pad_class, "bg-gray-800", "border-b", "border-white/10", "flex-shrink-0")}>
                                             <span class="w-2 h-2 rounded-full flex-shrink-0" style={format!("background-color: {};", sheet.tab_color)}></span>
                                             // 1行目を可能な限り表示する（入り切らない分は省略）
@@ -352,6 +359,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                                 { first_line(sheet) }
                                             </span>
                                             <span class={classes!("px-1", "rounded", badge_text_class, "font-black", "uppercase", "tracking-tighter", "flex-shrink-0",
+                                                if sheet.is_terminal { "bg-gray-500/20 text-gray-300" } else { "" },
                                                 match style {
                                                     DocStyle::Markdown => "bg-sky-500/20 text-sky-300",
                                                     DocStyle::Code => "bg-amber-500/20 text-amber-300",
@@ -364,11 +372,19 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         // 選択中のカードだけスクロールできるようにする。
                                         // overscroll-contain で、端まで来てもグリッド側へスクロールが
                                         // 波及しないようにしている。
-                                        <div class={classes!("flex-1", "min-h-0", "bg-[#fdf6e3]",
+                                        <div class={classes!("flex-1", "min-h-0",
+                                            if sheet.is_terminal { "bg-[#1d2021]" } else { "bg-[#fdf6e3]" },
                                             if is_sel { vec!["overflow-y-auto", "overscroll-contain", "custom-scrollbar"] }
                                             else { vec!["overflow-hidden"] })}>
                                             {
-                                                if !*content_ready {
+                                                if sheet.is_terminal {
+                                                    // ターミナルは中身を描画せず、ターミナルらしい見た目にする
+                                                    html! {
+                                                        <div class="w-full h-full flex items-center justify-center text-emerald-500/70">
+                                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M4 5h16a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1z" /></svg>
+                                                        </div>
+                                                    }
+                                                } else if !*content_ready {
                                                     // 描画準備中は白紙のまま（レイアウトは確定しているのでガタつかない）
                                                     html! {}
                                                 } else {
@@ -544,6 +560,7 @@ mod tests {
             title: title.to_string(),
             content: content.to_string(),
             tab_color: "#fff".to_string(),
+            is_terminal: false,
         }
     }
 

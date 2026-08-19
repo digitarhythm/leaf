@@ -33,6 +33,9 @@ pub struct ProjectDialogProps {
     /// プロジェクトを開く（シートが 0 件のプロジェクトでは呼ばれない）
     pub on_open: Callback<String>,
     pub on_close: Callback<()>,
+    /// 現在開いているプロジェクトの ID 一覧（一覧に印を付ける）
+    #[prop_or_default]
+    pub open_project_ids: Vec<String>,
     /// 外部（Alt+P の再押下）から閉じるためのトリガー。
     /// 値が変わるとダイアログ自身の閉じる処理を実行し、
     /// Esc と同じアニメーションで閉じる。
@@ -261,7 +264,8 @@ pub fn project_dialog(props: &ProjectDialogProps) -> Html {
         let sel = selected_id.clone();
         Callback::from(move |_: ()| {
             if let Some(id) = (*sel).clone() {
-                if store.is_openable(&id) {
+                // シートが 0 件でも開ける（開いた後に Alt+M で追加していく使い方をするため）
+                if store.find(&id).is_some() {
                     on_open.emit(id);
                 }
             }
@@ -346,7 +350,7 @@ pub fn project_dialog(props: &ProjectDialogProps) -> Html {
                     } else {
                         { for props.store.projects.iter().map(|p| {
                             let is_sel = sel.as_deref() == Some(p.id.as_str());
-                            let openable = p.is_openable();
+                            let sheet_count = p.sheets.len();
                             let pid = p.id.clone();
                             let pid_dbl = p.id.clone();
                             let sel_click = sel.clone();
@@ -364,13 +368,22 @@ pub fn project_dialog(props: &ProjectDialogProps) -> Html {
                                         "group", "flex", "items-start", "gap-2", "px-3", "py-2", "rounded-md", "cursor-pointer", "transition-colors", "select-none",
                                         if is_sel { "bg-emerald-600 text-white" } else { "text-gray-300 hover:bg-white/5" }
                                     )}
-                                    title={if openable { String::new() } else { i18n::t("project_empty_cannot_open", lang) }}
+                                    title={p.memo.clone()}
                                 >
                                     // プロジェクトを表すアイコン（フォルダーの中にフローチャート）
                                     <svg xmlns="http://www.w3.org/2000/svg" class={classes!("h-4","w-4","flex-shrink-0","mt-0.5", if is_sel { "text-white" } else { "text-emerald-500/70" })} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M10.5 9.9h3v2h-3zM12 11.9v1.6M8.5 13.5h7M8.5 13.5v1.3M15.5 13.5v1.3M7 14.8h3v2H7zM14 14.8h3v2h-3z" /></svg>
-                                    // シートが 0 件のプロジェクトは開けないため淡色表示にする
-                                    <div class={classes!("flex-1","min-w-0", if openable { "" } else { "opacity-40" })}>
-                                        <div class="truncate text-sm font-medium">{ p.name.clone() }</div>
+                                    <div class="flex-1 min-w-0">
+                                        <div class="flex items-center gap-2 min-w-0">
+                                            // デフォルトプロジェクトの名前は保存せず、表示時に i18n で解決する
+                                            <span class="truncate text-sm font-medium">
+                                                { if p.is_default() { i18n::t("default_project", lang) } else { p.name.clone() } }
+                                            </span>
+                                            if props.open_project_ids.iter().any(|id| id == &p.id) {
+                                                <span class="px-1 py-0.5 rounded text-[8px] font-black uppercase tracking-tighter bg-emerald-500/20 text-emerald-300 flex-shrink-0">
+                                                    { i18n::t("project_open_badge", lang) }
+                                                </span>
+                                            }
+                                        </div>
                                         if !p.memo.is_empty() {
                                             // プロジェクト名の下に一回り小さいフォントでメモを表示
                                             <div class={classes!("text-[10px]","leading-snug","line-clamp-2","whitespace-pre-wrap","break-all","mt-0.5", if is_sel { "text-white/70" } else { "text-gray-500" })}>
@@ -379,9 +392,11 @@ pub fn project_dialog(props: &ProjectDialogProps) -> Html {
                                         }
                                     </div>
                                     <span class={classes!("text-[10px]","font-mono","flex-shrink-0","mt-0.5", if is_sel { "text-white/70" } else { "text-gray-500" })}>
-                                        { p.sheets.len() }
+                                        { sheet_count }
                                     </span>
-                                    <div class="flex items-center gap-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <div class={classes!("flex","items-center","gap-0.5","flex-shrink-0","opacity-0","group-hover:opacity-100","transition-opacity",
+                                        // デフォルトプロジェクトは改名・削除できない
+                                        if p.is_default() { "hidden" } else { "" })}>
                                         <button
                                             onclick={
                                                 let ni = ni.clone(); let ne = ne.clone();

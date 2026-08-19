@@ -141,8 +141,10 @@ const TERMINAL_FONT_SIZE_KEY: &str = "leaf_terminal_font_size";
 const GUEST_MODE_KEY: &str = "leaf_guest_mode";
 const LOCAL_AUTO_SAVE_KEY: &str = "leaf_local_auto_save";
 const SEARCH_CASE_KEY: &str = "leaf_search_match_case";
-/// 最後に開いたプロジェクトの ID（起動時に復元する）
+/// アクティブなプロジェクトの ID（起動時に復元する）
 const ACTIVE_PROJECT_KEY: &str = "leaf_active_project";
+/// 開いていたプロジェクトの ID 一覧（カンマ区切り）
+const OPEN_PROJECTS_KEY: &str = "leaf_open_projects";
 /// デスクトップ版でモバイルレイアウトへ切り替えるウィンドウ幅の上限（px）
 const MOBILE_MAX_WIDTH: f64 = 700.0;
 
@@ -418,8 +420,17 @@ fn close_tab_direct(
     atid_handle: Option<UseStateHandle<Option<String>>>,
     atref_handle: Option<Rc<RefCell<Option<String>>>>,
     tsh: Option<TerminalSplitHandles>,
+    // 閉じた結果このプロジェクトのタブが無くなった時、
+    // 新しく作るシートを所属させる先（プロジェクトID, 実行時の対応表）
+    project_ctx: Option<(String, Rc<RefCell<std::collections::HashMap<String, String>>>)>,
 ) {
     let ts_map = tsh.as_ref().map(|h| h.map.clone());
+    // 新規シートを作る時に所属を登録するためのクロージャ
+    let register_project = |sheet_id: &str| {
+        if let Some((pid, map)) = project_ctx.as_ref() {
+            map.borrow_mut().insert(sheet_id.to_string(), pid.clone());
+        }
+    };
     sp.set(true);
     // 閉じるシートのUndo履歴をクリア
     crate::js_interop::clear_undo_state(&close_id);
@@ -443,6 +454,7 @@ fn close_tab_direct(
                 local_path: None,
 
             };
+            register_project(&nid);
             us.push(ns.clone());
             *rs.borrow_mut() = us.clone();
             s_state.set(us);
@@ -512,11 +524,27 @@ fn close_tab_direct(
                         }
                     }
                 }
-                // 上記で見つからなければ us から近い位置を選ぶ（フォールバック）
+                // ここまでで見つからない場合、渡された tab_order は現在のプロジェクトに
+                // 絞られているため「このプロジェクトにタブが残っていない」ことを意味する。
+                // 他プロジェクトのシートを選んでしまわないよう、新しいシートを1枚用意する。
                 if next_id.is_none() {
-                    let new_idx = if pos > 0 { pos - 1 } else { 0 };
-                    next_id = us.get(new_idx).and_then(|s| {
-                        if is_id_valid(&s.id) { Some(s.id.clone()) } else { None }
+                    let cat_id = (*ncid).clone().unwrap_or_default();
+                    let nid = js_sys::Date::now().to_string();
+                    let ns = Sheet {
+                        id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(),
+                        content: "".to_string(), is_modified: false, drive_id: None, temp_content: None,
+                        temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(),
+                        total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false,
+                        editor_state: None, preview_scroll_top: 0.0,
+                        created_at: Some(js_sys::Date::now() as u64), local_path: None,
+                    };
+                    register_project(&nid);
+                    us.push(ns.clone());
+                    next_id = Some(nid);
+                    spawn_local(async move {
+                        let js = ns.to_js();
+                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                        if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
                     });
                 }
 
@@ -633,21 +661,153 @@ fn guid_from_drive_name(name: &str) -> String {
     }
 }
 
-/// 開いているシートが、どのプロジェクト guid に対応するかの候補を返す。
+/// 指定プロジェクトのシートを表示する。
 ///
-/// `Sheet.guid` は開かれた経路によって拡張子が残る場合（`abc.md`）と
-/// 残らない場合（`abc`）があるため、`guid` と `title` の双方から
-/// 拡張子を除いた値も候補に含めて取りこぼしを防ぐ。
-fn sheet_project_keys(sheet: &Sheet) -> Vec<String> {
-    let mut keys = Vec::new();
-    if let Some(guid) = sheet.guid.as_ref() {
-        keys.push(guid.clone());
-        keys.push(guid_from_drive_name(guid));
+/// 前回見ていたシート → そのプロジェクトの先頭シート、の順に探し、
+/// 1 枚も無ければ新しいシートを作ってそのプロジェクトに所属させる。
+/// （前のプロジェクトのシートが表示されたままにならないようにするため）
+#[allow(clippy::too_many_arguments)]
+fn activate_project_sheet(
+    project: &crate::project::Project,
+    rs: &Rc<RefCell<Vec<Sheet>>>,
+    s_state: &UseStateHandle<Vec<Sheet>>,
+    aid: &UseStateHandle<Option<String>>,
+    aid_ref: &Rc<RefCell<Option<String>>>,
+    atid: &UseStateHandle<Option<String>>,
+    atref: &Rc<RefCell<Option<String>>>,
+    sheet_map: &Rc<RefCell<std::collections::HashMap<String, String>>>,
+    last_sheet: &Rc<RefCell<std::collections::HashMap<String, String>>>,
+) {
+    let sheets_now = (*rs.borrow()).clone();
+    let belongs = |sheet: &Sheet| match sheet_map.borrow().get(&sheet.id) {
+        // 実行時の対応表を優先し、無ければ設定ファイルの所属を見る
+        Some(pid) => pid == &project.id,
+        None => sheet_project_keys_of(sheet)
+            .iter()
+            .any(|k| project.sheets.iter().any(|g| g == k)),
+    };
+    let remembered = last_sheet.borrow().get(&project.id).cloned();
+    let target = remembered
+        .and_then(|id| sheets_now.iter().find(|s| s.id == id).filter(|s| belongs(s)).cloned())
+        .or_else(|| sheets_now.iter().find(|s| belongs(s)).cloned());
+
+    atid.set(None);
+    *atref.borrow_mut() = None;
+
+    match target {
+        Some(sheet) => {
+            crate::js_interop::activate_sheet_session(&sheet.id, &sheet.content, &sheet.title);
+            aid.set(Some(sheet.id.clone()));
+            *aid_ref.borrow_mut() = Some(sheet.id);
+            set_gutter_status("none");
+            focus_editor();
+        }
+        None => {
+            let nid = js_sys::Date::now().to_string();
+            let ns = Sheet {
+                id: nid.clone(), guid: None, category: String::new(),
+                title: "Untitled.txt".to_string(), content: String::new(),
+                is_modified: false, drive_id: None, temp_content: None,
+                temp_timestamp: None, last_sync_timestamp: None,
+                tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0,
+                needs_bom: false, is_preview: false, is_split: false,
+                editor_state: None, preview_scroll_top: 0.0,
+                created_at: Some(js_sys::Date::now() as u64), local_path: None,
+            };
+            // 未保存シートは guid が無く設定ファイルに書けないため、実行時の対応表で覚える
+            sheet_map.borrow_mut().insert(nid.clone(), project.id.clone());
+            let mut us = (*rs.borrow()).clone();
+            us.push(ns.clone());
+            *rs.borrow_mut() = us.clone();
+            s_state.set(us);
+            crate::js_interop::activate_sheet_session(&nid, "", &ns.title);
+            aid.set(Some(nid.clone()));
+            *aid_ref.borrow_mut() = Some(nid);
+            set_gutter_status("unsaved");
+            focus_editor();
+            spawn_local(async move {
+                let js = ns.to_js();
+                let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                if let Ok(v) = js.serialize(&ser) { let _ = save_sheet(v).await; }
+            });
+        }
     }
-    if !sheet.title.is_empty() {
-        keys.push(guid_from_drive_name(&sheet.title));
+}
+
+/// タブの並び順を、現在のプロジェクトに属するものだけに絞り込む。
+///
+/// タブを閉じた後に選ぶ「隣のタブ」が別プロジェクトのシートにならないようにする。
+/// 所属は「実行時の対応表」→「設定ファイルの guid」の順に見る。
+fn project_scoped_order(
+    order: &[String],
+    sheets: &[Sheet],
+    project_id: &str,
+    sheet_map: &std::collections::HashMap<String, String>,
+    terminal_map: &std::collections::HashMap<String, String>,
+    store: &crate::project::ProjectStore,
+) -> Vec<String> {
+    order
+        .iter()
+        .filter(|id| {
+            if crate::tabs::is_terminal_tab(id) {
+                return terminal_map.get(*id).map(|p| p == project_id).unwrap_or(false);
+            }
+            match sheet_map.get(*id) {
+                Some(pid) => pid == project_id,
+                None => match sheets.iter().find(|s| &s.id == *id) {
+                    Some(sheet) => sheet_project_keys_of(sheet)
+                        .iter()
+                        .any(|k| store.contains_sheet(project_id, k)),
+                    None => false,
+                },
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+/// 開いたシートを現在のプロジェクトへ所属させ、Drive の設定ファイルへ保存する。
+/// 既に所属している場合は何もしない。
+fn attach_sheet_to_project(
+    handle: &UseStateHandle<crate::project::ProjectStore>,
+    project_id: &str,
+    sheet_guid: &str,
+    content: &str,
+    app_folder_id: Option<String>,
+) {
+    let app_folder = match app_folder_id {
+        Some(f) => f,
+        None => return,
+    };
+    if sheet_guid.is_empty() {
+        return;
     }
-    keys
+    // UseStateHandle の参照なので二重に deref して中身を取り出す
+    let mut next = (**handle).clone();
+    let now = js_sys::Date::now() as u64;
+    let mut changed = false;
+    if !next.contains_sheet(project_id, sheet_guid) {
+        if next.toggle_sheet(project_id, sheet_guid, now) == Some(true) {
+            changed = true;
+        }
+    }
+    if next.set_sheet_preview(sheet_guid, content) {
+        changed = true;
+    }
+    if changed {
+        persist_project_store(handle, next, app_folder);
+    }
+}
+
+/// 開いているプロジェクトの状態を localStorage へ保存する（アカウント単位）
+fn persist_workspace(ws: &crate::workspace::Workspace) {
+    set_account_storage(OPEN_PROJECTS_KEY, &ws.open_ids().join(","));
+    set_account_storage(ACTIVE_PROJECT_KEY, ws.active());
+}
+
+/// [`Sheet`] からプロジェクト guid の候補を取り出す
+fn sheet_project_keys_of(sheet: &Sheet) -> Vec<String> {
+    crate::tabs::sheet_project_keys(sheet.guid.as_deref(), &sheet.title)
 }
 
 /// カテゴリー配下の全ファイルを走査して guid → (drive_id, ファイル名, カテゴリーID) を作る。
@@ -1078,9 +1238,25 @@ pub fn app() -> Html {
     // プロジェクト機能。設定は Drive のアプリケーションフォルダに置くため、
     // Drive へログインしている場合のみ利用できる。
     let is_project_dialog_visible = use_state(|| false);
-    let project_store = use_state(crate::project::ProjectStore::new);
-    // 現在開いているプロジェクト。Alt+R のシート切り替えダイアログの有効判定に使う。
-    let active_project_id = use_state(|| None::<String>);
+    // 開いているプロジェクトの集合と、現在アクティブなプロジェクト。
+    // デフォルトプロジェクトは常に開いており閉じられない。
+    let workspace = use_state(crate::workspace::Workspace::new);
+    // Drive の読み込み前でもデフォルトプロジェクトのタブを出せるよう、
+    // ローカルの状態には最初からデフォルトを入れておく
+    let project_store = use_state(|| {
+        let mut store = crate::project::ProjectStore::new();
+        store.ensure_default(0);
+        store
+    });
+    // ターミナルがどのプロジェクトに属するか（実行時のみの関連付け）
+    let terminal_project_map = use_mut_ref(|| std::collections::HashMap::<String, String>::new());
+    // プロジェクトごとに最後に見ていたシート
+    let project_last_sheet = use_mut_ref(|| std::collections::HashMap::<String, String>::new());
+    // 削除ダイアログのコールバックで使う複製（レンダリング内では move 済みになるため）
+    let tp_map_for_del = terminal_project_map.clone();
+    // シートがどのプロジェクトに属するか（実行時の対応表）。
+    // 未保存のシートは guid を持たず設定ファイルに書けないため、ここで覚えておく。
+    let sheet_project_map = use_mut_ref(|| std::collections::HashMap::<String, String>::new());
     let is_project_switcher_visible = use_state(|| false);
     // Alt+R の再押下でダイアログ自身の閉じる処理（スライドアップ）を走らせるためのトリガー
     let project_switcher_close_trigger = use_state(|| 0u32);
@@ -1942,8 +2118,13 @@ pub fn app() -> Html {
         let ts_new = terminal_split_enabled.clone();
         let ts_ref_new = terminal_split_ref.clone();
         let ssf_new = skip_split_fade.clone();
+        let sp_map_new = sheet_project_map.clone();
+        let ws_new = workspace.clone();
         Callback::from(move |_| {
             if *is_creating { return; } // 作成中の連打を防止
+            // 新しく作るシートは現在のプロジェクトに属させる（未保存でも表示先が決まるように）
+            let new_project_id = ws_new.active().to_string();
+            let sp_map_new = sp_map_new.clone();
 
             let s = s_state.clone(); let aid = aid_state.clone(); let sp = sp_state.clone();
             let rs = r_s.clone();
@@ -1998,6 +2179,8 @@ pub fn app() -> Html {
                 let nid = js_sys::Date::now().to_string();
                 let cat_id = (*ncid_for_new).clone().unwrap_or_else(|| "".to_string());
                 let ns = Sheet { id: nid.clone(), guid: None, category: cat_id, title: "Untitled.txt".to_string(), content: "".to_string(), is_modified: false, drive_id: None, temp_content: None, temp_timestamp: None, last_sync_timestamp: None, tab_color: generate_random_color(), total_size: 0, loaded_bytes: 0, needs_bom: false, is_preview: false, is_split: false, editor_state: None, preview_scroll_top: 0.0, created_at: Some(js_sys::Date::now() as u64), local_path: None };
+                // 未保存のシートは guid が無く設定ファイルに書けないため、実行時の対応表で所属を覚える
+                sp_map_new.borrow_mut().insert(nid.clone(), new_project_id.clone());
 
                 let mut current_sheets = (*rs.borrow()).clone();
                 current_sheets.push(ns.clone());
@@ -2265,6 +2448,9 @@ pub fn app() -> Html {
         let spid_ref_fo = split_pane_sheet_id_ref.clone();
         let ip_sel = is_preview_visible.clone();
         let pop_sel = preview_overlay_opacity.clone();
+        let ws_sel = workspace.clone();
+        let ps_sel = project_store.clone();
+        let folder_sel = (*leaf_data_folder_id).clone();
         Callback::from(move |(did, title, cat_id): (String, String, String)| {
             // アクティブシートに未保存変更があれば、aid 切替前に Drive 保存を発火
             // （on_save_cb は override_id 付きで切替元シートを sheets_ref から読んで保存）
@@ -2284,6 +2470,28 @@ pub fn app() -> Html {
                 let cur_s = (*rs.borrow()).clone();
                 if let Some(existing) = cur_s.iter().find(|s| s.drive_id.as_ref() == Some(&did)) {
                     let existing_id = existing.id.clone();
+                    // 既に別の開いているプロジェクトに属している場合は、
+                    // 二重に持たせず、そのプロジェクトへ切り替える
+                    let keys = sheet_project_keys_of(existing);
+                    let owner = ws_sel.owner_of(&keys, &ps_sel).map(|s| s.to_string());
+                    match owner {
+                        Some(pid) if pid != ws_sel.active() => {
+                            let mut next_ws = (*ws_sel).clone();
+                            if next_ws.switch(&pid) {
+                                persist_workspace(&next_ws);
+                                ws_sel.set(next_ws);
+                            }
+                        }
+                        // どのプロジェクトにも属していなければ現在のプロジェクトへ追加する
+                        None => attach_sheet_to_project(
+                            &ps_sel,
+                            ws_sel.active(),
+                            &crate::tabs::guid_from_drive_name(&existing.title),
+                            &existing.content,
+                            folder_sel.clone(),
+                        ),
+                        _ => {}
+                    }
                     iv.set(false); // ファイル選択ダイアログを閉じる
                     crate::js_interop::activate_sheet_session(&existing_id, &existing.content, &existing.title);
                     let is_same_as_active = (*aid).as_deref() == Some(existing_id.as_str());
@@ -2332,6 +2540,9 @@ pub fn app() -> Html {
             let ssf_sel_inner = ssf_sel.clone();
             let ip_sel_inner = ip_sel.clone();
             let pop_sel_inner = pop_sel.clone();
+            let ws_sel_inner = ws_sel.clone();
+            let ps_sel_inner = ps_sel.clone();
+            let folder_sel_inner = folder_sel.clone();
             spawn_local(async move {
                 if let Ok(cv) = download_file(&did, None, None).await {
                     let bytes = js_sys::Uint8Array::new(&cv).to_vec();
@@ -2368,6 +2579,14 @@ pub fn app() -> Html {
                     // 新シート用のセッションを作成・アクティブ化（aid 切替前に行う事で他シートのセッションを汚染しない）
                     crate::js_interop::activate_sheet_session(&nid, &c, &title);
                     set_gutter_status("none");
+                    // 開いたシートは現在のプロジェクトに所属させる
+                    attach_sheet_to_project(
+                        &ps_sel_inner,
+                        ws_sel_inner.active(),
+                        &crate::tabs::guid_from_drive_name(&title),
+                        &c,
+                        folder_sel_inner.clone(),
+                    );
                     aid_inner.set(Some(nid.clone()));
                     // 開いたシートの表示モード（.md はプレビュー、それ以外は編集）に画面を合わせる
                     apply_preview_visibility(&ip_sel_inner, &pop_sel_inner, is_md_default_preview);
@@ -3493,6 +3712,10 @@ pub fn app() -> Html {
         let to = tab_order_ref.clone();
         let atid = active_terminal_id.clone();
         let atref = active_terminal_ref.clone();
+        let ws_sc = workspace.clone();
+        let ps_sc = project_store.clone();
+        let sp_map_sc = sheet_project_map.clone();
+        let tp_map_sc = terminal_project_map.clone();
         let tsh_save_close = TerminalSplitHandles {
             ts_state: terminal_split_enabled.clone(),
             ts_ref: terminal_split_ref.clone(),
@@ -3508,7 +3731,7 @@ pub fn app() -> Html {
             if saving_val.is_none() {
                 if let Some(close_id) = psc_val.clone() {
                     psc.set(None);
-                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_save_close.clone()));
+                    close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_save_close.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
                 }
             }
             || ()
@@ -3560,12 +3783,16 @@ pub fn app() -> Html {
         let ssf = skip_split_fade.clone();
         let to_ref = tab_order_ref.clone();
         let last_term = last_terminal_ref.clone();
+        let tp_map = terminal_project_map.clone();
+        let ws_term = workspace.clone();
         Callback::from(move |_: ()| {
             let mut c = counter.borrow_mut();
             *c += 1;
             let tid = format!("__TERM__{}", *c);
             tids_ref.borrow_mut().push(tid.clone());
             ttids.set(tids_ref.borrow().clone());
+            // 起動したターミナルは現在のプロジェクトに属する
+            tp_map.borrow_mut().insert(tid.clone(), ws_term.active().to_string());
             // ターミナルは左端固定のドロップダウンに入るため、
             // タブの並び順（tab_order）には末尾へ追加するだけでよい
             to_ref.borrow_mut().push(tid.clone());
@@ -3675,11 +3902,17 @@ pub fn app() -> Html {
                 let is_switcher_ev = is_project_switcher_visible.clone();
                 let tab_menu_close_ev = tab_menu_close_trigger.clone();
                 let new_term_ev = on_new_terminal_cb.clone();
+                let tp_map_ev = terminal_project_map.clone();
+                let active_project_ev = workspace.active().to_string();
+                let ws_key_ev = (*workspace).clone();
+                let ps_key_ev = (*project_store).clone();
+                let sp_map_key_ev = sheet_project_map.clone();
                 let show_term_ev = on_show_terminal_cb.clone();
                 let last_term_ev = last_terminal_ref.clone();
                 let is_tab_menu_open_ev = *is_tab_menu_open;
                 let switcher_close_ev = project_switcher_close_trigger.clone();
-                let has_active_project_ev = (*active_project_id).is_some();
+                // デフォルトプロジェクトが常に開いているため Alt+R は常に有効
+                let has_active_project_ev = true;
                 let is_char_code_ev = is_char_code_visible.clone();
                 let char_code_char_ev = char_code_char.clone();
                 let is_sheet_info_ev = is_sheet_info_visible.clone();
@@ -3740,6 +3973,12 @@ pub fn app() -> Html {
                     let is_switcher_c = is_switcher_ev.clone();
                     let tab_menu_close_c = tab_menu_close_ev.clone();
                     let new_term_c = new_term_ev.clone();
+                    let tp_map_c = tp_map_ev.clone();
+                    let active_project_c = active_project_ev.clone();
+                    let ws_kc = ws_key_ev.clone();
+                    let ps_kc = ps_key_ev.clone();
+                    let sp_map_kc = sp_map_key_ev.clone();
+                    let tp_map_kc = tp_map_ev.clone();
                     let show_term_c = show_term_ev.clone();
                     let last_term_c = last_term_ev.clone();
                     let switcher_close_c = switcher_close_ev.clone();
@@ -3913,7 +4152,15 @@ pub fn app() -> Html {
                             e.prevent_default(); e.stop_immediate_propagation();
                             let is_bracket_left = code == "BracketLeft";
                             let current_sheets = (*rs_c.borrow()).clone();
-                            let all_tab_ids: Vec<String> = tab_order_ref_c.borrow().clone();
+                            // 切り替え対象は現在のプロジェクトのタブだけに絞る
+                            let all_tab_ids: Vec<String> = project_scoped_order(
+                                &tab_order_ref_c.borrow(),
+                                &rs_c.borrow(),
+                                ws_kc.active(),
+                                &sp_map_kc.borrow(),
+                                &tp_map_kc.borrow(),
+                                &ps_kc,
+                            );
                             if all_tab_ids.len() <= 1 { return; }
                             let current_id = if let Some(ref tid) = *atref_c.borrow() {
                                 tid.clone()
@@ -4150,12 +4397,29 @@ pub fn app() -> Html {
                             }
                         }
 
+                        // Alt + Shift + T: 新規ターミナルを起動する
+                        if modifier_active && code == "KeyT" && ke.shift_key() && !is_overlay_active {
+                            if crate::js_interop::is_tauri() {
+                                e.prevent_default(); e.stop_immediate_propagation();
+                                new_term_c.emit(());
+                                return;
+                            }
+                        }
+
                         // Alt + T: ターミナルが1つも起動していなければ起動して表示、
                         // 既に起動していれば最後に使っていたターミナルを表示する
                         if modifier_active && code == "KeyT" && !is_overlay_active {
                             if crate::js_interop::is_tauri() {
                                 e.prevent_default(); e.stop_immediate_propagation();
-                                let existing = term_ids_ref_c.borrow().clone();
+                                let existing: Vec<String> = {
+                                    let map = tp_map_c.borrow();
+                                    term_ids_ref_c
+                                        .borrow()
+                                        .iter()
+                                        .filter(|tid| map.get(*tid).map(|p| p == &active_project_c).unwrap_or(false))
+                                        .cloned()
+                                        .collect()
+                                };
                                 if existing.is_empty() {
                                     new_term_c.emit(());
                                 } else {
@@ -4382,9 +4646,15 @@ pub fn app() -> Html {
                                         skip_fade: ssf_c.clone(),
                                         map: ts_map_c.clone(),
                                     };
+                                    let rs_c2 = rs_c.clone();
+                                    // Timeout のクロージャへ移動するため、ここで複製しておく
+                                    let ws_kc2 = ws_kc.clone();
+                                    let ps_kc2 = ps_kc.clone();
+                                    let sp_map_kc2 = sp_map_kc.clone();
+                                    let tp_map_kc2 = tp_map_kc.clone();
                                     Timeout::new(300, move || {
                                         tci2.set(None);
-                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), to2.borrow().clone(), Some(atid2.clone()), Some(atref2.clone()), Some(tsh_close2));
+                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), project_scoped_order(&to2.borrow(), &rs_c2.borrow(), ws_kc2.active(), &sp_map_kc2.borrow(), &tp_map_kc2.borrow(), &ps_kc2), Some(atid2.clone()), Some(atref2.clone()), Some(tsh_close2), Some((ws_kc2.active().to_string(), sp_map_kc2.clone())));
                                     }).forget();
                                 }
                                 return;
@@ -4475,7 +4745,11 @@ pub fn app() -> Html {
                 if let Some(app_folder) = folder.clone() {
                     let ps = ps.clone();
                     spawn_local(async move {
-                        let loaded = crate::project_store::load(&app_folder).await;
+                        let mut loaded = crate::project_store::load(&app_folder).await;
+                        // デフォルトプロジェクトは常に存在させる
+                        if loaded.ensure_default(js_sys::Date::now() as u64) {
+                            let _ = crate::project_store::save(&app_folder, &loaded).await;
+                        }
                         ps.set(loaded);
                     });
                 }
@@ -4483,6 +4757,142 @@ pub fn app() -> Html {
             || ()
         });
     }
+
+    // プロジェクトを切り替える（開いているもの同士）
+    let on_switch_project_cb = {
+        let ws = workspace.clone();
+        let ps = project_store.clone();
+        let rs = sheets_ref.clone();
+        let s_state = sheets.clone();
+        let sp_map = sheet_project_map.clone();
+        let aid = active_sheet_id.clone();
+        let aid_ref = active_id_ref.clone();
+        let atid = active_terminal_id.clone();
+        let atref = active_terminal_ref.clone();
+        let last_sheet = project_last_sheet.clone();
+        Callback::from(move |project_id: String| {
+            // 切り替える前に、今見ていたシートを覚えておく
+            if let Some(current) = (*aid_ref.borrow()).clone() {
+                last_sheet.borrow_mut().insert(ws.active().to_string(), current);
+            }
+            let mut next_ws = (*ws).clone();
+            if !next_ws.switch(&project_id) {
+                return;
+            }
+            persist_workspace(&next_ws);
+            ws.set(next_ws);
+
+            // 切り替え先で前回見ていたシート（無ければ先頭）を表示する
+            let project = match ps.find(&project_id) {
+                Some(p) => p.clone(),
+                None => return,
+            };
+            activate_project_sheet(
+                &project, &rs, &s_state, &aid, &aid_ref, &atid, &atref, &sp_map, &last_sheet,
+            );
+        })
+    };
+
+    // プロジェクトを閉じる: 所属シートを保存して閉じ、ターミナルも終了する
+    let on_close_project_cb = {
+        let ws = workspace.clone();
+        let ps = project_store.clone();
+        let rs = sheets_ref.clone();
+        let s_state = sheets.clone();
+        let aid = active_sheet_id.clone();
+        let aid_ref = active_id_ref.clone();
+        let atid = active_terminal_id.clone();
+        let atref = active_terminal_ref.clone();
+        let tids_ref = terminal_ids_ref.clone();
+        let ttids = terminal_tab_ids.clone();
+        let tp_map = terminal_project_map.clone();
+        let last_sheet = project_last_sheet.clone();
+        let os = on_save_cb.clone();
+        let switch_cb = on_switch_project_cb.clone();
+        Callback::from(move |project_id: String| {
+            let project = match ps.find(&project_id) {
+                // デフォルトプロジェクトは閉じられない
+                Some(p) if !p.is_default() => p.clone(),
+                _ => return,
+            };
+
+            // 所属シートのうち未保存のものを保存する
+            let current = (*rs.borrow()).clone();
+            let belongs = |sheet: &Sheet| {
+                sheet_project_keys_of(sheet)
+                    .iter()
+                    .any(|k| project.sheets.iter().any(|g| g == k))
+            };
+            let editor_content = get_editor_content().as_string();
+            let active_id = (*aid_ref.borrow()).clone();
+            for sheet in current.iter().filter(|s| belongs(s)) {
+                let is_active = active_id.as_deref() == Some(sheet.id.as_str());
+                let changed = if is_active {
+                    editor_content
+                        .as_ref()
+                        .map(|c| !c.trim().is_empty() && (sheet.is_modified || &sheet.content != c))
+                        .unwrap_or(sheet.is_modified)
+                } else {
+                    sheet.is_modified
+                };
+                if changed {
+                    os.emit((false, Some(sheet.id.clone())));
+                }
+            }
+
+            // 所属シートのタブを閉じる（他のプロジェクトにも属している場合は残す）
+            let mut kept: Vec<Sheet> = Vec::new();
+            for sheet in current.iter() {
+                let keys = sheet_project_keys_of(sheet);
+                let in_this = keys.iter().any(|k| project.sheets.iter().any(|g| g == k));
+                let in_other_open = ws
+                    .open_ids()
+                    .iter()
+                    .filter(|pid| *pid != &project_id)
+                    .any(|pid| keys.iter().any(|k| ps.contains_sheet(pid, k)));
+                if in_this && !in_other_open {
+                    crate::js_interop::clear_undo_state(&sheet.id);
+                    crate::js_interop::destroy_sheet_session(&sheet.id);
+                } else {
+                    kept.push(sheet.clone());
+                }
+            }
+            *rs.borrow_mut() = kept.clone();
+            s_state.set(kept);
+
+            // このプロジェクトのターミナルを終了する
+            let closing_terminals: Vec<String> = tp_map
+                .borrow()
+                .iter()
+                .filter(|(_, pid)| *pid == &project_id)
+                .map(|(tid, _)| tid.clone())
+                .collect();
+            for tid in closing_terminals.iter() {
+                crate::js_interop::terminal_close(tid);
+                tids_ref.borrow_mut().retain(|x| x != tid);
+                tp_map.borrow_mut().remove(tid);
+                if (*atref.borrow()).as_deref() == Some(tid.as_str()) {
+                    atid.set(None);
+                    *atref.borrow_mut() = None;
+                }
+            }
+            ttids.set(tids_ref.borrow().clone());
+            last_sheet.borrow_mut().remove(&project_id);
+
+            // ワークスペースから外し、隣のプロジェクトへ移る
+            let mut next_ws = (*ws).clone();
+            if !next_ws.close(&project_id) {
+                return;
+            }
+            let next_active = next_ws.active().to_string();
+            persist_workspace(&next_ws);
+            ws.set(next_ws);
+            // 表示するシートを切り替え処理に任せる
+            aid.set(None);
+            *aid_ref.borrow_mut() = None;
+            switch_cb.emit(next_active);
+        })
+    };
 
     // 起動時に重複タブを整理する。
     //
@@ -4559,13 +4969,14 @@ pub fn app() -> Html {
         });
     }
 
-    // 起動時に前回開いていたプロジェクトを復元する。
+    // 起動時に、開いていたプロジェクトの一覧とアクティブなプロジェクトを復元する。
     //
     // タブ自体は IndexedDB から復元済みなので開き直さない（Drive 通信を避けて起動を速く保つ）。
-    // ここでは 1) プロジェクト ID を復元して Alt+R を使えるようにし、
-    // 2) 他の端末でプロジェクトへ追加されたシートだけを後から追加で開く。
+    // デフォルトプロジェクトは必ず存在させ、常に開いた状態にする。
+    // 他の端末で追加された所属シートだけを後から追加で開く。
     {
-        let apid = active_project_id.clone();
+        let ws_restore = workspace.clone();
+        let sp_map = sheet_project_map.clone();
         let ps = project_store.clone();
         let cats = categories.clone();
         let rs = sheets_ref.clone();
@@ -4582,19 +4993,18 @@ pub fn app() -> Html {
             if *restored_ref.borrow() {
                 return;
             }
-            let saved_id = match get_account_storage(ACTIVE_PROJECT_KEY) {
-                Some(id) if !id.is_empty() => id,
-                _ => return,
-            };
             *restored_ref.borrow_mut() = true;
-            // まず ID だけ復元して Alt+R を有効にする
-            apid.set(Some(saved_id.clone()));
+
+            let saved_open: Vec<String> = get_account_storage(OPEN_PROJECTS_KEY)
+                .map(|v| v.split(',').filter(|x| !x.is_empty()).map(|x| x.to_string()).collect())
+                .unwrap_or_default();
+            let saved_active = get_account_storage(ACTIVE_PROJECT_KEY).filter(|v| !v.is_empty());
 
             let ps = ps.clone();
             let cats = cats.clone();
             let rs = rs.clone();
             let s_state = s_state.clone();
-            let apid_async = apid.clone();
+            let ws_async = ws_restore.clone();
             spawn_local(async move {
                 // IndexedDB からのタブ復元が終わるのを待ってから差分を見る。
                 // 復元前に判定するとタブが二重に開かれるため、実際にシートが
@@ -4607,21 +5017,55 @@ pub fn app() -> Html {
                 }
                 sleep_ms(500).await;
 
-                let store = crate::project_store::load(&app_folder).await;
-                let project = match store.find(&saved_id) {
-                    Some(p) => p.clone(),
-                    None => {
-                        // プロジェクトが削除されていた場合は記録も消す
-                        apid_async.set(None);
-                        set_account_storage(ACTIVE_PROJECT_KEY, "");
-                        return;
-                    }
-                };
-                ps.set(store);
+                let mut store = crate::project_store::load(&app_folder).await;
+                // デフォルトプロジェクトが無ければ作って保存する
+                if store.ensure_default(js_sys::Date::now() as u64) {
+                    let _ = crate::project_store::save(&app_folder, &store).await;
+                }
 
+                // 復元したシートのうち、どのプロジェクトにも属さないものは
+                // デフォルトプロジェクトの所属として扱う（表示先が無くならないようにする）
+                {
+                    let sheets_now = (*rs.borrow()).clone();
+                    let mut map = sp_map.borrow_mut();
+                    for sheet in sheets_now.iter() {
+                        if map.contains_key(&sheet.id) {
+                            continue;
+                        }
+                        let keys = sheet_project_keys_of(sheet);
+                        let owned = store
+                            .projects
+                            .iter()
+                            .any(|p| keys.iter().any(|k| p.sheets.iter().any(|g| g == k)));
+                        if !owned {
+                            map.insert(sheet.id.clone(), crate::project::DEFAULT_PROJECT_ID.to_string());
+                        }
+                    }
+                }
+
+                let restored = crate::workspace::Workspace::restore(
+                    &saved_open,
+                    saved_active.as_deref(),
+                    &store,
+                );
+                persist_workspace(&restored);
+                let open_ids: Vec<String> = restored.open_ids().to_vec();
+                ws_async.set(restored);
+                ps.set(store.clone());
+
+                // 開いている各プロジェクトのうち、まだタブになっていないシートを開く
                 let open_guids: std::collections::HashSet<String> =
-                    rs.borrow().iter().flat_map(sheet_project_keys).collect();
-                let missing = project.missing_sheets(&open_guids);
+                    rs.borrow().iter().flat_map(sheet_project_keys_of).collect();
+                let mut missing: Vec<String> = Vec::new();
+                for pid in open_ids.iter() {
+                    if let Some(project) = store.find(pid) {
+                        for guid in project.missing_sheets(&open_guids) {
+                            if !missing.contains(&guid) {
+                                missing.push(guid);
+                            }
+                        }
+                    }
+                }
                 if missing.is_empty() {
                     return;
                 }
@@ -4643,12 +5087,12 @@ pub fn app() -> Html {
                 // guid だけでなく drive_id でも突き合わせる。
                 let mut current = (*rs.borrow()).clone();
                 let already: std::collections::HashSet<String> =
-                    current.iter().flat_map(sheet_project_keys).collect();
+                    current.iter().flat_map(sheet_project_keys_of).collect();
                 let open_drive_ids: std::collections::HashSet<String> =
                     current.iter().filter_map(|s| s.drive_id.clone()).collect();
                 added.retain(|s| {
                     let dup_drive = s.drive_id.as_ref().map(|d| open_drive_ids.contains(d)).unwrap_or(false);
-                    let dup_key = sheet_project_keys(s).iter().any(|k| already.contains(k));
+                    let dup_key = sheet_project_keys_of(s).iter().any(|k| already.contains(k));
                     !dup_drive && !dup_key
                 });
                 if added.is_empty() {
@@ -4669,7 +5113,11 @@ pub fn app() -> Html {
         });
     }
 
-    // プロジェクトを開く: ターミナル以外の全タブを保存して閉じ、プロジェクトのシートを開く
+    // プロジェクトを開く／切り替える。
+    //
+    // 既に開いていれば切り替えるだけ。未オープンならワークスペースへ追加し、
+    // まだ開いていない所属シートを Drive から読み込んでタブに加える。
+    // 他のプロジェクトのシートは閉じない（表示から外れるだけ）。
     let on_open_project_cb = {
         let ps = project_store.clone();
         let cats = categories.clone();
@@ -4683,38 +5131,46 @@ pub fn app() -> Html {
         let ifo = is_fading_out.clone();
         let lmk = loading_message_key.clone();
         let sp = is_suppressing_changes.clone();
-        let os = on_save_cb.clone();
         let pv = is_project_dialog_visible.clone();
-        let apid = active_project_id.clone();
+        let ws = workspace.clone();
+        let last_sheet = project_last_sheet.clone();
+        let sp_map_open = sheet_project_map.clone();
         let folder = (*leaf_data_folder_id).clone();
         Callback::from(move |project_id: String| {
             let store = (*ps).clone();
             let target = match store.find(&project_id) {
-                Some(p) if p.is_openable() => p.clone(),
-                // シートが 1 件も無いプロジェクトは開かない
-                _ => return,
+                Some(p) => p.clone(),
+                None => return,
             };
 
-            // 開いているシートのうち未保存のものを保存してから閉じる
-            let current = (*rs.borrow()).clone();
-            let editor_content = get_editor_content().as_string();
-            let active_id = (*aid_ref.borrow()).clone();
-            for sheet in current.iter() {
-                let is_active = active_id.as_deref() == Some(sheet.id.as_str());
-                let changed = if is_active {
-                    editor_content
-                        .as_ref()
-                        .map(|c| !c.trim().is_empty() && (sheet.is_modified || &sheet.content != c))
-                        .unwrap_or(sheet.is_modified)
-                } else {
-                    sheet.is_modified
-                };
-                if changed {
-                    os.emit((false, Some(sheet.id.clone())));
-                }
+            // ワークスペースへ追加してアクティブにする
+            let mut next_ws = (*ws).clone();
+            let was_open = next_ws.is_open(&project_id);
+            next_ws.open_project(&project_id);
+            persist_workspace(&next_ws);
+            ws.set(next_ws);
+            pv.set(false);
+
+            // 既に開いていたプロジェクトなら、読み込みは不要で切り替えるだけ
+            if was_open {
+                activate_project_sheet(
+                    &target, &rs, &s_state, &aid, &aid_ref, &atid, &atref, &sp_map_open, &last_sheet,
+                );
+                return;
             }
 
-            pv.set(false);
+            // 未オープン: まだ開いていない所属シートを Drive から読み込む
+            let open_guids: std::collections::HashSet<String> =
+                rs.borrow().iter().flat_map(sheet_project_keys_of).collect();
+            let missing = target.missing_sheets(&open_guids);
+            if missing.is_empty() {
+                // 読み込むものが無い（空のプロジェクト等）場合もここで表示を切り替える
+                activate_project_sheet(
+                    &target, &rs, &s_state, &aid, &aid_ref, &atid, &atref, &sp_map_open, &last_sheet,
+                );
+                return;
+            }
+
             lmk.set("synchronizing");
             il.set(true);
             ifo.set(false);
@@ -4732,87 +5188,58 @@ pub fn app() -> Html {
             let ifo_inner = ifo.clone();
             let sp_inner = sp.clone();
             let folder_inner = folder.clone();
-            let apid_inner = apid.clone();
-            let prev_project_id = (*apid).clone();
+            let target_inner = target.clone();
+            let sp_map_inner = sp_map_open.clone();
+            let last_sheet_inner = last_sheet.clone();
             spawn_local(async move {
-                // 保存処理の発火を待ってから閉じる
-                sleep_ms(200).await;
-
                 let by_guid = collect_drive_sheets_by_guid(&cats_inner).await;
                 let mut opened: Vec<Sheet> = Vec::new();
-                let mut missing: Vec<String> = Vec::new();
-                for guid in target.sheets.iter() {
+                let mut not_found: Vec<String> = Vec::new();
+                for guid in missing.iter() {
                     match by_guid.get(guid) {
                         Some((drive_id, title, cat_id)) => {
-                            if let Some(sheet) = load_sheet_from_drive(drive_id, title, cat_id).await {
-                                opened.push(sheet);
-                            } else {
-                                missing.push(guid.clone());
+                            match load_sheet_from_drive(drive_id, title, cat_id).await {
+                                Some(sheet) => opened.push(sheet),
+                                None => not_found.push(guid.clone()),
                             }
                         }
-                        // Drive 上に存在しないシートはスキップし、設定からも取り除く
-                        None => missing.push(guid.clone()),
+                        None => not_found.push(guid.clone()),
                     }
                 }
 
-                if opened.is_empty() {
-                    il_inner.set(false);
-                    sp_inner.set(false);
-                    return;
-                }
-
-                // 前のプロジェクトのシートだけを閉じ、手動で開いたタブは残す。
-                // プロジェクトのシートはタブバーではなくドロップダウンに入るため、
-                // 通常のタブまで閉じる必要がない。
-                let prev_project_guids: std::collections::HashSet<String> = prev_project_id
-                    .as_ref()
-                    .and_then(|id| store.find(id))
-                    .map(|p| p.sheets.iter().cloned().collect())
-                    .unwrap_or_default();
-                let mut kept: Vec<Sheet> = Vec::new();
-                for sheet in (*rs_inner.borrow()).iter() {
-                    let belonged = crate::tabs::sheet_project_keys(sheet.guid.as_deref(), &sheet.title)
-                        .iter()
-                        .any(|k| prev_project_guids.contains(k));
-                    // 新しく開くプロジェクトのシートは、この後 opened で置き換わるので除く
-                    let is_new_project_sheet = crate::tabs::sheet_project_keys(sheet.guid.as_deref(), &sheet.title)
-                        .iter()
-                        .any(|k| target.sheets.iter().any(|g| g == k));
-                    if belonged || is_new_project_sheet {
-                        crate::js_interop::clear_undo_state(&sheet.id);
-                        crate::js_interop::destroy_sheet_session(&sheet.id);
-                    } else {
-                        kept.push(sheet.clone());
+                if !opened.is_empty() {
+                    // 取得中に開かれた場合に備えて重複を除いてから追加する
+                    let mut current = (*rs_inner.borrow()).clone();
+                    let already: std::collections::HashSet<String> =
+                        current.iter().flat_map(sheet_project_keys_of).collect();
+                    let open_drive_ids: std::collections::HashSet<String> =
+                        current.iter().filter_map(|s| s.drive_id.clone()).collect();
+                    opened.retain(|s| {
+                        let dup_drive = s.drive_id.as_ref().map(|d| open_drive_ids.contains(d)).unwrap_or(false);
+                        let dup_key = sheet_project_keys_of(s).iter().any(|k| already.contains(k));
+                        !dup_drive && !dup_key
+                    });
+                    if !opened.is_empty() {
+                        current.extend(opened.iter().cloned());
+                        *rs_inner.borrow_mut() = current.clone();
+                        s_inner.set(current);
+                        for sheet in opened.iter() {
+                            let js = sheet.to_js();
+                            let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                            if let Ok(v) = js.serialize(&ser) {
+                                let _ = save_sheet(v).await;
+                            }
+                        }
                     }
                 }
+                // 読み込めたかどうかに関わらず、開いたプロジェクトの表示へ切り替える
+                activate_project_sheet(
+                    &target_inner, &rs_inner, &s_inner, &aid_inner, &aid_ref_inner,
+                    &atid_inner, &atref_inner, &sp_map_inner, &last_sheet_inner,
+                );
 
-                let first = opened[0].clone();
-                let mut merged = kept;
-                merged.extend(opened.iter().cloned());
-                let opened = merged;
-                *rs_inner.borrow_mut() = opened.clone();
-                s_inner.set(opened.clone());
-                // 開いたプロジェクトを記録（Alt+R のシート切り替えと、次回起動時の復元に使う）
-                apid_inner.set(Some(target.id.clone()));
-                set_account_storage(ACTIVE_PROJECT_KEY, &target.id);
-                // ターミナルからプロジェクトを開いた場合はシート側へ戻す
-                atid_inner.set(None);
-                *atref_inner.borrow_mut() = None;
-                crate::js_interop::activate_sheet_session(&first.id, &first.content, &first.title);
-                aid_inner.set(Some(first.id.clone()));
-                *aid_ref_inner.borrow_mut() = Some(first.id.clone());
-                set_gutter_status("none");
-
-                for sheet in opened.iter() {
-                    let js = sheet.to_js();
-                    let ser = serde_wasm_bindgen::Serializer::json_compatible();
-                    if let Ok(v) = js.serialize(&ser) {
-                        let _ = save_sheet(v).await;
-                    }
-                }
-
-                // 見つからなかったシートを設定ファイルから取り除く
-                if !missing.is_empty() {
+                // Drive 上に存在しなかったシートを設定ファイルから取り除く
+                if !not_found.is_empty() {
                     if let Some(app_folder) = folder_inner {
                         let existing: std::collections::HashSet<String> = by_guid.keys().cloned().collect();
                         let mut store = (*ps_inner).clone();
@@ -4937,39 +5364,62 @@ pub fn app() -> Html {
 
     // タブを「ターミナル」「プロジェクトのシート」「通常のシート」に振り分ける。
     // 同じシートを 2 箇所に出さないため、プロジェクト所属ならドロップダウン側にだけ入れる。
-    let active_project = (*active_project_id)
-        .as_ref()
-        .and_then(|id| project_store.find(id))
-        .cloned();
+    let active_project = project_store.find(workspace.active()).cloned();
     let project_sheet_guids: std::collections::HashSet<String> = active_project
         .as_ref()
         .map(|p| p.sheets.iter().cloned().collect())
         .unwrap_or_default();
-    let tab_partition = {
+    // 現在のプロジェクトに属するタブだけを取り出す。
+    // 所属は「実行時の対応表」→「設定ファイルの guid」の順に見る。
+    let active_project_id_now = workspace.active().to_string();
+    let (terminal_tabs, normal_tabs) = {
         let rs = sheets_ref.borrow();
-        let entries: Vec<crate::tabs::TabEntry> = tab_infos
-            .iter()
-            .map(|t| {
-                if crate::tabs::is_terminal_tab(&t.id) {
-                    crate::tabs::TabEntry::terminal(&t.id)
-                } else {
-                    match rs.iter().find(|s| s.id == t.id) {
-                        Some(sheet) => crate::tabs::TabEntry::sheet(&sheet.id, sheet.guid.as_deref(), &sheet.title),
-                        None => crate::tabs::TabEntry::sheet(&t.id, None, ""),
-                    }
+        let sp_map = sheet_project_map.borrow();
+        let tp_map = terminal_project_map.borrow();
+        let mut terminals: Vec<TabInfo> = Vec::new();
+        let mut normals: Vec<TabInfo> = Vec::new();
+        for tab in tab_infos.iter() {
+            if crate::tabs::is_terminal_tab(&tab.id) {
+                if tp_map.get(&tab.id).map(|p| p == &active_project_id_now).unwrap_or(false) {
+                    // 表示名はプロジェクト内での連番にする
+                    terminals.push(TabInfo {
+                        title: format!("{} {}", i18n::t("terminal", lang), terminals.len() + 1),
+                        ..tab.clone()
+                    });
                 }
+                continue;
+            }
+            let belongs = match sp_map.get(&tab.id) {
+                Some(pid) => pid == &active_project_id_now,
+                None => match rs.iter().find(|s| s.id == tab.id) {
+                    Some(sheet) => sheet_project_keys_of(sheet)
+                        .iter()
+                        .any(|k| project_sheet_guids.contains(k)),
+                    None => false,
+                },
+            };
+            if belongs {
+                normals.push(tab.clone());
+            }
+        }
+        (terminals, normals)
+    };
+    let project_tab_ids: Vec<String> = normal_tabs.iter().map(|t| t.id.clone()).collect();
+
+    // プロジェクトタブのドロップダウンに出す「開いているプロジェクト」一覧
+    let open_project_infos: Vec<crate::components::tab_bar::ProjectTabInfo> = workspace
+        .open_ids()
+        .iter()
+        .filter_map(|id| {
+            project_store.find(id).map(|p| crate::components::tab_bar::ProjectTabInfo {
+                id: p.id.clone(),
+                // デフォルトプロジェクトの名前は保存せず、表示時に i18n で解決する
+                name: if p.is_default() { i18n::t("default_project", lang) } else { p.name.clone() },
+                is_default: p.is_default(),
             })
-            .collect();
-        crate::tabs::partition_tabs(&entries, &project_sheet_guids)
-    };
-    let pick_tabs = |ids: &[String]| -> Vec<TabInfo> {
-        ids.iter()
-            .filter_map(|id| tab_infos.iter().find(|t| &t.id == id).cloned())
-            .collect()
-    };
-    let terminal_tabs = pick_tabs(&tab_partition.terminals);
-    let project_tabs = pick_tabs(&tab_partition.project);
-    let normal_tabs = pick_tabs(&tab_partition.normal);
+        })
+        .collect();
+
 
     let on_tab_select_cb = {
         let aid = active_sheet_id.clone();
@@ -5119,6 +5569,11 @@ pub fn app() -> Html {
     };
 
     let on_tab_close_cb = {
+        let tp_map_for_close = terminal_project_map.clone();
+        let sp_map_close = sheet_project_map.clone();
+        let ws_close = workspace.clone();
+        let ps_close = project_store.clone();
+        let folder_close = (*leaf_data_folder_id).clone();
         let rs = sheets_ref.clone();
         let pending = pending_close_tab.clone();
         let pending_unsynced = pending_close_unsynced_tab.clone();
@@ -5145,6 +5600,24 @@ pub fn app() -> Html {
             map: terminal_split_map.clone(),
         };
         Callback::from(move |close_id: String| {
+            // シートを閉じたら、現在のプロジェクトからも外す
+            // （所属したままだと次にそのプロジェクトを開いた時に復活してしまう）
+            if !close_id.starts_with("__TERM__") {
+                if let Some(app_folder) = folder_close.clone() {
+                    let sheet = rs.borrow().iter().find(|s| s.id == close_id).cloned();
+                    if let Some(sheet) = sheet {
+                        let mut next = (*ps_close).clone();
+                        let now = js_sys::Date::now() as u64;
+                        let pid = ws_close.active().to_string();
+                        let removed = sheet_project_keys_of(&sheet)
+                            .iter()
+                            .any(|k| next.remove_sheet(&pid, k, now));
+                        if removed {
+                            persist_project_store(&ps_close, next, app_folder);
+                        }
+                    }
+                }
+            }
             // ターミナルタブの閉じ処理
             if close_id.starts_with("__TERM__") {
                 let was_active = atref_close.borrow().as_ref() == Some(&close_id);
@@ -5161,6 +5634,7 @@ pub fn app() -> Html {
                 let tci2 = tci_close.clone();
                 let close_id2 = close_id.clone();
                 let tids2 = tids_ref_close.clone();
+                let tp_map_close = tp_map_for_close.clone();
                 let ttids2 = ttids_close.clone();
                 let atid2 = atid_close.clone();
                 let atref2 = atref_close.clone();
@@ -5169,6 +5643,7 @@ pub fn app() -> Html {
                 Timeout::new(300, move || {
                 tci2.set(None);
                 crate::js_interop::terminal_close(&close_id2);
+                    tp_map_close.borrow_mut().remove(&close_id2);
                     tids2.borrow_mut().retain(|x| x != &close_id2);
                     ttids2.set(tids2.borrow().clone());
                     if was_active {
@@ -5218,7 +5693,18 @@ pub fn app() -> Html {
                 }
             }
             // 未保存でなければ直接閉じる
-            close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to_ref_close.borrow().clone(), Some(atid_close.clone()), Some(atref_close.clone()), Some(tsh_close.clone()));
+            // 閉じた後に選ぶ隣のタブが別プロジェクトのシートにならないよう、
+            // 並び順を現在のプロジェクトのものだけに絞る
+            let project_id_now = ws_close.active().to_string();
+            let scoped_order = project_scoped_order(
+                &to_ref_close.borrow(),
+                &rs.borrow(),
+                &project_id_now,
+                &sp_map_close.borrow(),
+                &tp_map_for_close.borrow(),
+                &ps_close,
+            );
+            close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), scoped_order, Some(atid_close.clone()), Some(atref_close.clone()), Some(tsh_close.clone()), Some((project_id_now.clone(), sp_map_close.clone())));
         })
     };
 
@@ -5310,6 +5796,10 @@ pub fn app() -> Html {
         let to = tab_order_ref.clone();
         let atid = active_terminal_id.clone();
         let atref = active_terminal_ref.clone();
+        let ws_sc = workspace.clone();
+        let ps_sc = project_store.clone();
+        let sp_map_sc = sheet_project_map.clone();
+        let tp_map_sc = terminal_project_map.clone();
         let tsh_cc = TerminalSplitHandles {
             ts_state: terminal_split_enabled.clone(),
             ts_ref: terminal_split_ref.clone(),
@@ -5323,7 +5813,7 @@ pub fn app() -> Html {
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_cc.clone()));
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_cc.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
             }
         })
     };
@@ -5339,6 +5829,10 @@ pub fn app() -> Html {
         let to = tab_order_ref.clone();
         let atid = active_terminal_id.clone();
         let atref = active_terminal_ref.clone();
+        let ws_sc = workspace.clone();
+        let ps_sc = project_store.clone();
+        let sp_map_sc = sheet_project_map.clone();
+        let tp_map_sc = terminal_project_map.clone();
         let tsh_ucc = TerminalSplitHandles {
             ts_state: terminal_split_enabled.clone(),
             ts_ref: terminal_split_ref.clone(),
@@ -5352,7 +5846,7 @@ pub fn app() -> Html {
         Callback::from(move |_: ()| {
             if let Some(close_id) = (*pending).clone() {
                 pending.set(None);
-                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_ucc.clone()));
+                close_tab_direct(close_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_ucc.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
             }
         })
     };
@@ -5459,6 +5953,7 @@ pub fn app() -> Html {
         let ts_map_exit = terminal_split_map.clone();
         use_effect_with((), move |_| {
             let window = web_sys::window().unwrap();
+            let tp_map_exit = terminal_project_map.clone();
             let listener = EventListener::new(&window, "terminal-exit", move |e| {
                 let ce = e.unchecked_ref::<web_sys::CustomEvent>();
                 let detail = ce.detail();
@@ -5474,6 +5969,7 @@ pub fn app() -> Html {
                         })
                     } else { None };
                     crate::js_interop::terminal_close(&id);
+                    tp_map_exit.borrow_mut().remove(&id);
                     tids_ref_exit.borrow_mut().retain(|x| x != &id);
                     ttids_exit.set(tids_ref_exit.borrow().clone());
                     // 終了したターミナルのスプリット状態エントリを削除
@@ -5956,8 +6452,10 @@ pub fn app() -> Html {
                 <TabBar
                     sheets={normal_tabs.clone()}
                     terminals={terminal_tabs.clone()}
-                    project_sheets={project_tabs.clone()}
-                    project_name={active_project.as_ref().map(|p| p.name.clone())}
+                    open_projects={open_project_infos.clone()}
+                    active_project_id={workspace.active().to_string()}
+                    on_switch_project={on_switch_project_cb.clone()}
+                    on_close_project={on_close_project_cb.clone()}
                     close_menu_trigger={*tab_menu_close_trigger}
                     on_menu_open_change={let h = is_tab_menu_open.clone(); Callback::from(move |v: bool| h.set(v))}
                     on_new_terminal={if crate::js_interop::is_tauri() { Some({ let cb = on_new_terminal_cb.clone(); Callback::from(move |_| cb.emit(())) }) } else { None }}
@@ -6216,7 +6714,7 @@ pub fn app() -> Html {
                                 }
                             })
                         }}
-                        on_delete={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); let tsh_del = TerminalSplitHandles { ts_state: terminal_split_enabled.clone(), ts_ref: terminal_split_ref.clone(), tse_state: terminal_split_edit_mode.clone(), tse_ref: terminal_split_edit_ref.clone(), sps_state: split_pane_sheet_id.clone(), sps_ref: split_pane_sheet_id_ref.clone(), skip_fade: skip_split_fade.clone(), map: terminal_split_map.clone() }; Callback::from(move |_| {
+                        on_delete={let ped = pending_empty_delete.clone(); let rs = sheets_ref.clone(); let s_state = sheets.clone(); let aid = active_sheet_id.clone(); let aid_ref = active_id_ref.clone(); let sp = is_suppressing_changes.clone(); let ncid = no_category_folder_id.clone(); let to = tab_order_ref.clone(); let atid = active_terminal_id.clone(); let atref = active_terminal_ref.clone(); let ws_sc = workspace.clone(); let ps_sc = project_store.clone(); let sp_map_sc = sheet_project_map.clone(); let tp_map_sc = tp_map_for_del.clone(); let tsh_del = TerminalSplitHandles { ts_state: terminal_split_enabled.clone(), ts_ref: terminal_split_ref.clone(), tse_state: terminal_split_edit_mode.clone(), tse_ref: terminal_split_edit_ref.clone(), sps_state: split_pane_sheet_id.clone(), sps_ref: split_pane_sheet_id_ref.clone(), skip_fade: skip_split_fade.clone(), map: terminal_split_map.clone() }; Callback::from(move |_| {
                             if let Some(sheet_id) = (*ped).clone() {
                                 ped.set(None);
                                 // Driveにファイルが存在する場合はDriveからも削除する
@@ -6224,7 +6722,7 @@ pub fn app() -> Html {
                                 if let Some(did) = drive_id {
                                     spawn_local(async move { let _ = delete_file(&did).await; });
                                 }
-                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), to.borrow().clone(), Some(atid.clone()), Some(atref.clone()), Some(tsh_del.clone()));
+                                close_tab_direct(sheet_id, rs.clone(), s_state.clone(), aid.clone(), sp.clone(), ncid.clone(), Some(aid_ref.clone()), project_scoped_order(&to.borrow(), &rs.borrow(), ws_sc.active(), &sp_map_sc.borrow(), &tp_map_sc.borrow(), &ps_sc), Some(atid.clone()), Some(atref.clone()), Some(tsh_del.clone()), Some((ws_sc.active().to_string(), sp_map_sc.clone())));
                             }
                         })}
                     /></div>
@@ -6235,6 +6733,7 @@ pub fn app() -> Html {
                             <crate::components::project_dialog::ProjectDialog
                                 store={(*project_store).clone()}
                                 sheet_previews={project_sheet_previews.clone()}
+                                open_project_ids={workspace.open_ids().to_vec()}
                                 close_trigger={*project_dialog_close_trigger}
                                 on_create={{
                                     let ps = project_store.clone(); let folder = app_folder.clone();
@@ -6292,13 +6791,27 @@ pub fn app() -> Html {
                 if *is_project_switcher_visible {
                     <div class="pointer-events-auto">
                         <crate::components::project_sheet_switcher::ProjectSheetSwitcher
-                            // 対象は開いているプロジェクトのシートのみ
-                            sheets={sheets.iter().filter(|s| tab_partition.project.contains(&s.id)).map(|s| crate::components::project_sheet_switcher::SwitcherSheet {
-                                id: s.id.clone(),
-                                title: s.title.clone(),
-                                content: s.content.clone(),
-                                tab_color: s.tab_color.clone(),
-                            }).collect::<Vec<_>>()}
+                            // 左上にターミナル、続けて現在のプロジェクトのシートを並べる
+                            sheets={
+                                terminal_tabs.iter()
+                                    .map(|t| crate::components::project_sheet_switcher::SwitcherSheet {
+                                        id: t.id.clone(),
+                                        title: t.title.clone(),
+                                        content: String::new(),
+                                        tab_color: String::new(),
+                                        is_terminal: true,
+                                    })
+                                    .chain(sheets.iter()
+                                        .filter(|s| project_tab_ids.contains(&s.id))
+                                        .map(|s| crate::components::project_sheet_switcher::SwitcherSheet {
+                                            id: s.id.clone(),
+                                            title: s.title.clone(),
+                                            content: s.content.clone(),
+                                            tab_color: s.tab_color.clone(),
+                                            is_terminal: false,
+                                        }))
+                                    .collect::<Vec<_>>()
+                            }
                             active_sheet_id={(*active_sheet_id).clone()}
                             close_trigger={*project_switcher_close_trigger}
                             on_select={{
