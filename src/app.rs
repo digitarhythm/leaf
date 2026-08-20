@@ -661,6 +661,12 @@ fn guid_from_drive_name(name: &str) -> String {
     }
 }
 
+/// ローカルファイルのシートかどうか。
+/// プロジェクトには属さず、どのプロジェクトを開いていても常に表示する。
+fn is_local_sheet(sheet: &Sheet) -> bool {
+    sheet.category == "__LOCAL__" || sheet.local_path.is_some()
+}
+
 /// 指定プロジェクトのシートを表示する。
 ///
 /// 前回見ていたシート → そのプロジェクトの先頭シート、の順に探し、
@@ -689,7 +695,9 @@ fn activate_project_sheet(
     let remembered = last_sheet.borrow().get(&project.id).cloned();
     let target = remembered
         .and_then(|id| sheets_now.iter().find(|s| s.id == id).filter(|s| belongs(s)).cloned())
-        .or_else(|| sheets_now.iter().find(|s| belongs(s)).cloned());
+        .or_else(|| sheets_now.iter().find(|s| belongs(s)).cloned())
+        // プロジェクトのシートが無くても、常に表示されるローカルシートがあればそれを使う
+        .or_else(|| sheets_now.iter().find(|s| is_local_sheet(s)).cloned());
 
     atid.set(None);
     *atref.borrow_mut() = None;
@@ -751,6 +759,10 @@ fn project_scoped_order(
         .filter(|id| {
             if crate::tabs::is_terminal_tab(id) {
                 return terminal_map.get(*id).map(|p| p == project_id).unwrap_or(false);
+            }
+            // ローカルシートはプロジェクトに属さないが常に表示されるので対象に含める
+            if sheets.iter().find(|s| &s.id == *id).map(is_local_sheet).unwrap_or(false) {
+                return true;
             }
             match sheet_map.get(*id) {
                 Some(pid) => pid == project_id,
@@ -5334,6 +5346,7 @@ pub fn app() -> Html {
                     title: format!("{} {}", i18n::t("terminal", lang), term_counter),
                     is_modified: false,
                     tab_color: "".to_string(),
+                    is_local: false,
                 })
             } else {
                 rs.iter().find(|s| s.id == *id).map(|s| {
@@ -5357,6 +5370,7 @@ pub fn app() -> Html {
                         title: display,
                         is_modified: s.is_modified,
                         tab_color: s.tab_color.clone(),
+                        is_local: is_local_file,
                     }
                 })
             }
@@ -5380,6 +5394,7 @@ pub fn app() -> Html {
         let tp_map = terminal_project_map.borrow();
         let mut terminals: Vec<TabInfo> = Vec::new();
         let mut normals: Vec<TabInfo> = Vec::new();
+        let mut locals: Vec<TabInfo> = Vec::new();
         for tab in tab_infos.iter() {
             if crate::tabs::is_terminal_tab(&tab.id) {
                 if tp_map.get(&tab.id).map(|p| p == &active_project_id_now).unwrap_or(false) {
@@ -5391,9 +5406,15 @@ pub fn app() -> Html {
                 }
                 continue;
             }
+            let sheet = rs.iter().find(|s| s.id == tab.id);
+            // ローカルファイルのシートはプロジェクトに属さず、常に表示する
+            if sheet.map(is_local_sheet).unwrap_or(false) {
+                locals.push(tab.clone());
+                continue;
+            }
             let belongs = match sp_map.get(&tab.id) {
                 Some(pid) => pid == &active_project_id_now,
-                None => match rs.iter().find(|s| s.id == tab.id) {
+                None => match sheet {
                     Some(sheet) => sheet_project_keys_of(sheet)
                         .iter()
                         .any(|k| project_sheet_guids.contains(k)),
@@ -5404,6 +5425,8 @@ pub fn app() -> Html {
                 normals.push(tab.clone());
             }
         }
+        // プロジェクトのシートの右側にローカルシートを並べる
+        normals.extend(locals);
         (terminals, normals)
     };
     let project_tab_ids: Vec<String> = normal_tabs.iter().map(|t| t.id.clone()).collect();
@@ -5607,7 +5630,8 @@ pub fn app() -> Html {
             if !close_id.starts_with("__TERM__") {
                 if let Some(app_folder) = folder_close.clone() {
                     let sheet = rs.borrow().iter().find(|s| s.id == close_id).cloned();
-                    if let Some(sheet) = sheet {
+                    // ローカルシートはプロジェクトに属さないので対象外
+                    if let Some(sheet) = sheet.filter(|s| !is_local_sheet(s)) {
                         let mut next = (*ps_close).clone();
                         let now = js_sys::Date::now() as u64;
                         let pid = ws_close.active().to_string();
@@ -6807,6 +6831,7 @@ pub fn app() -> Html {
                                         is_terminal: true,
                                     })
                                     .chain(sheets.iter()
+                                        // タブに出ているもの（プロジェクトのシート＋ローカルシート）
                                         .filter(|s| project_tab_ids.contains(&s.id))
                                         .map(|s| crate::components::project_sheet_switcher::SwitcherSheet {
                                             id: s.id.clone(),

@@ -18,6 +18,9 @@ pub struct TabInfo {
     pub title: String,
     pub is_modified: bool,
     pub tab_color: String,
+    /// ローカルファイルのシート（プロジェクトに属さない）かどうか
+    #[allow(dead_code)]
+    pub is_local: bool,
 }
 
 // --- Desktop Tab Bar ---
@@ -252,7 +255,7 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
                             if can_close {
                                 // デフォルトプロジェクトは閉じられないので ✕ を出さない
                                 <button
-                                    class="ml-1 text-gray-500 hover:text-red-400 hover:bg-[#504945] rounded px-0.5 text-[10px] leading-none transition-colors"
+                                    class="ml-1 text-gray-500 hover:text-red-400 hover:bg-[#504945] rounded px-1 py-0.5 text-[5px] leading-none transition-colors"
                                     title={i18n::t("close_project", lang)}
                                     onclick={move |e: MouseEvent| { e.stop_propagation(); on_close.emit(close_id.clone()); }}
                                 >{ "\u{2715}" }</button>
@@ -389,7 +392,12 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
                             "flex", "items-center", "gap-1", "px-3", "py-1", "cursor-grab",
                             "text-xs", "whitespace-nowrap", "select-none", "transition-all", "duration-100",
                             "border-r", "border-[#3c3836]", "shrink-0",
-                            if is_active { "bg-[#3c3836] text-[#ebdbb2] border-b-2 border-b-emerald-500" } else { "bg-[#282828] text-gray-400 hover:bg-[#3c3836] hover:text-gray-300 border-b-2 border-b-transparent" },
+                                // ローカルファイルのシートはプロジェクト外なので淡い赤で区別する
+                            if tab.is_local {
+                                if is_active { "bg-[#4a2e2e] text-[#f5b0b0] border-b-2 border-b-red-400" }
+                                else { "bg-[#3a2424] text-[#d59090] hover:bg-[#4a2e2e] hover:text-[#f5b0b0] border-b-2 border-b-transparent" }
+                            } else if is_active { "bg-[#3c3836] text-[#ebdbb2] border-b-2 border-b-emerald-500" }
+                            else { "bg-[#282828] text-gray-400 hover:bg-[#3c3836] hover:text-gray-300 border-b-2 border-b-transparent" },
                             if is_dragging { "opacity-40" } else { "" }
                         )}
                         onclick={Callback::from(move |_| on_select.emit(tab_id_select.clone()))}
@@ -404,7 +412,7 @@ pub fn tab_bar(props: &TabBarProps) -> Html {
                             </span>
                         }
                         <button
-                            class="ml-1 text-gray-500 hover:text-red-400 hover:bg-[#504945] rounded px-0.5 text-[10px] leading-none transition-colors"
+                            class="ml-1 text-gray-500 hover:text-red-400 hover:bg-[#504945] rounded px-1 py-0.5 text-[5px] leading-none transition-colors"
                             title={i18n::t("close_tab", lang)}
                             onclick={Callback::from(move |e: MouseEvent| {
                                 e.stop_propagation();
