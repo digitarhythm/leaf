@@ -563,6 +563,24 @@ fn close_tab_direct(
                         }
                         if let Some(ref h) = atid_handle { h.set(Some(next.clone())); }
                         if let Some(ref h) = atref_handle { *h.borrow_mut() = Some(next.clone()); }
+                        // ターミナルへ移る場合でも、閉じたシートがアクティブだったなら
+                        // 裏側のアクティブシートを有効なものへ移す。
+                        // 削除済みの ID を残すと、ターミナルを抜けた時にそのシートが
+                        // 表示され続け、閉じることもできなくなる。
+                        if was_active {
+                            let fallback = tab_order
+                                .iter()
+                                .find(|id| !id.starts_with("__TERM__") && us.iter().any(|s| &s.id == *id))
+                                .cloned()
+                                .or_else(|| us.first().map(|s| s.id.clone()));
+                            if let Some(sheet_id) = fallback {
+                                if let Some(sheet) = us.iter().find(|s| s.id == sheet_id) {
+                                    crate::js_interop::activate_sheet_session(&sheet.id, &sheet.content, &sheet.title);
+                                }
+                                aid.set(Some(sheet_id.clone()));
+                                if let Some(ref r) = aid_ref { *r.borrow_mut() = Some(sheet_id); }
+                            }
+                        }
                         Some(next.clone())
                     } else {
                         // シートをアクティブに: ターミナルスプリット関連の state をリセット
@@ -2708,6 +2726,7 @@ pub fn app() -> Html {
         let spid_ref_imp = split_pane_sheet_id_ref.clone();
         let ip_imp = is_preview_visible.clone();
         let pop_imp = preview_overlay_opacity.clone();
+        let r_aid_imp = active_id_ref.clone();
         Callback::from(move |_| {
             let tsh_imp = TerminalSplitHandles {
                 ts_state: ts_imp.clone(), ts_ref: ts_ref_imp.clone(),
@@ -2715,7 +2734,11 @@ pub fn app() -> Html {
                 sps_state: spid_imp.clone(), sps_ref: spid_ref_imp.clone(),
                 skip_fade: ssf_imp.clone(), map: ts_map_imp.clone(),
             };
-            let aid_val = (*aid_state).clone();
+            // このコールバックはキーハンドラに保持されるため、UseStateHandle の値は
+            // 古い可能性がある。アクティブなシートは常に RefCell から最新を読む。
+            // （古い ID を使うと、既に閉じたシートを対象に表示モードを復元しようとして
+            //   プレビュー状態が解除されてしまう）
+            let aid_val = (*r_aid_imp.borrow()).clone();
             // ターミナルがアクティブな場合、スプリット状態をts_mapに保存してターミナルコンテキストを抜け、
             // 直前のシート本来の表示モード（編集／プレビュー／スプリット）へ戻す。
             // （ファイルダイアログをキャンセルしてもスプリット表示に化けないようにする）
@@ -4589,8 +4612,12 @@ pub fn app() -> Html {
                             if is_n && !ke.shift_key() {
                                 e.prevent_default(); e.stop_immediate_propagation();
                                 // 現在のシートに変更があれば保存
-                                if let Some(aid) = (*aid_c).clone() {
-                                    if let Some(sheet) = sheets_c.iter().find(|s| s.id == aid) {
+                                // （キーハンドラが保持する UseStateHandle は古い可能性があるため
+                                //   RefCell から最新のアクティブIDとシート一覧を読む）
+                                let current_aid = (*aid_ref_c.borrow()).clone();
+                                let current_sheets = (*rs_c.borrow()).clone();
+                                if let Some(aid) = current_aid {
+                                    if let Some(sheet) = current_sheets.iter().find(|s| s.id == aid) {
                                         if sheet.is_modified {
                                             gloo::console::log!("[Leaf-SYSTEM] Current sheet is modified. Saving before creating new sheet...");
                                             os_c.emit((false, Some(aid.clone()))); // 切替元シートを明示指定して保存
@@ -4997,6 +5024,10 @@ pub fn app() -> Html {
         let s_state = sheets.clone();
         let is_auth = *is_authenticated;
         let folder = (*leaf_data_folder_id).clone();
+        let il_restore = is_loading.clone();
+        let ifo_restore = is_fading_out.clone();
+        let lmk_restore = loading_message_key.clone();
+        let sp_restore = is_suppressing_changes.clone();
         let restored_ref = use_mut_ref(|| false);
         use_effect_with((is_auth, folder.clone()), move |(is_auth, folder)| {
             let app_folder = match (is_auth, folder.clone()) {
@@ -5019,6 +5050,10 @@ pub fn app() -> Html {
             let rs = rs.clone();
             let s_state = s_state.clone();
             let ws_async = ws_restore.clone();
+            let il = il_restore.clone();
+            let ifo = ifo_restore.clone();
+            let lmk = lmk_restore.clone();
+            let sp = sp_restore.clone();
             spawn_local(async move {
                 // IndexedDB からのタブ復元が終わるのを待ってから差分を見る。
                 // 復元前に判定するとタブが二重に開かれるため、実際にシートが
@@ -5084,6 +5119,32 @@ pub fn app() -> Html {
                     return;
                 }
 
+                // Drive から取得する間は、プロジェクトを開いた時と同じ
+                // ローディング表示にして、復元中であることを示す
+                lmk.set("restoring_project");
+                ifo.set(false);
+                il.set(true);
+                sp.set(true);
+                // 途中で終了しても必ずローディングを閉じられるようにまとめておく
+                let finish_loading = {
+                    let il = il.clone();
+                    let ifo = ifo.clone();
+                    let sp = sp.clone();
+                    move || {
+                        Timeout::new(50, move || {
+                            ifo.set(true);
+                            let ifo_final = ifo.clone();
+                            Timeout::new(300, move || {
+                                il.set(false);
+                                sp.set(false);
+                                ifo_final.set(false);
+                            })
+                            .forget();
+                        })
+                        .forget();
+                    }
+                };
+
                 let by_guid = collect_drive_sheets_by_guid(&cats).await;
                 let mut added: Vec<Sheet> = Vec::new();
                 for guid in missing.iter() {
@@ -5094,6 +5155,7 @@ pub fn app() -> Html {
                     }
                 }
                 if added.is_empty() {
+                    finish_loading();
                     return;
                 }
 
@@ -5110,6 +5172,7 @@ pub fn app() -> Html {
                     !dup_drive && !dup_key
                 });
                 if added.is_empty() {
+                    finish_loading();
                     return;
                 }
                 // アクティブタブは変えずに末尾へ追加するだけに留める
@@ -5123,6 +5186,7 @@ pub fn app() -> Html {
                         let _ = save_sheet(v).await;
                     }
                 }
+                finish_loading();
             });
         });
     }

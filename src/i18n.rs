@@ -775,6 +775,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Bestand openen",
             _ => "Open File",
         }.to_string(),
+        "restoring_project" => match lang {
+            Language::Ja => "プロジェクト復元中",
+            Language::Zh => "正在恢复项目",
+            Language::Ko => "프로젝트 복원 중",
+            Language::Es => "Restaurando el proyecto",
+            Language::De => "Projekt wird wiederhergestellt",
+            Language::Fr => "Restauration du projet",
+            Language::It => "Ripristino del progetto",
+            Language::Nl => "Project wordt hersteld",
+            _ => "Restoring project",
+        }.to_string(),
         "default_project" => match lang {
             Language::Ja => "デフォルト",
             Language::Zh => "默认",
