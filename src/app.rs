@@ -842,24 +842,33 @@ fn sheet_project_keys_of(sheet: &Sheet) -> Vec<String> {
 
 /// カテゴリー配下の全ファイルを走査して guid → (drive_id, ファイル名, カテゴリーID) を作る。
 /// プロジェクトはシートを guid で保持しているため、開く際にこの対応表が必要になる。
+/// Drive への同時リクエスト数の上限。
+/// 全部まとめて投げるとレート制限に触れるため、この本数ずつ並列で取得する。
+const DRIVE_FETCH_CONCURRENCY: usize = 5;
+
 async fn collect_drive_sheets_by_guid(
     categories: &[crate::db_interop::JSCategory],
 ) -> std::collections::HashMap<String, (String, String, String)> {
     let mut map = std::collections::HashMap::new();
-    for cat in categories {
-        let listed = match list_files(&cat.id, None).await {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let files = match js_sys::Reflect::get(&listed, &JsValue::from_str("files")) {
-            Ok(f) => js_sys::Array::from(&f),
-            Err(_) => continue,
-        };
-        for file in files.iter() {
-            let id = js_sys::Reflect::get(&file, &JsValue::from_str("id")).ok().and_then(|v| v.as_string());
-            let name = js_sys::Reflect::get(&file, &JsValue::from_str("name")).ok().and_then(|v| v.as_string());
-            if let (Some(id), Some(name)) = (id, name) {
-                map.insert(guid_from_drive_name(&name), (id, name, cat.id.clone()));
+    // カテゴリごとの一覧取得は互いに独立なので、逐次ではなく並列で投げる
+    // （カテゴリ数ぶんの往復を直列に待つと起動時の復元が目に見えて遅くなる）
+    for chunk in categories.chunks(DRIVE_FETCH_CONCURRENCY) {
+        let listed_all = futures::future::join_all(chunk.iter().map(|cat| {
+            let cat_id = cat.id.clone();
+            async move { list_files(&cat_id, None).await.ok().map(|v| (cat_id, v)) }
+        }))
+        .await;
+        for (cat_id, listed) in listed_all.into_iter().flatten() {
+            let files = match js_sys::Reflect::get(&listed, &JsValue::from_str("files")) {
+                Ok(f) => js_sys::Array::from(&f),
+                Err(_) => continue,
+            };
+            for file in files.iter() {
+                let id = js_sys::Reflect::get(&file, &JsValue::from_str("id")).ok().and_then(|v| v.as_string());
+                let name = js_sys::Reflect::get(&file, &JsValue::from_str("name")).ok().and_then(|v| v.as_string());
+                if let (Some(id), Some(name)) = (id, name) {
+                    map.insert(guid_from_drive_name(&name), (id, name, cat_id.clone()));
+                }
             }
         }
     }
@@ -1148,6 +1157,16 @@ pub fn app() -> Html {
     let leaf_data_folder_id = use_state(|| None::<String>);
     let auto_save_timer = use_state(|| None::<Timeout>);
     let is_loading = use_state(|| true);
+    // 非同期処理の途中からローディング表示の現在値を読むための ref
+    // （UseStateHandle は捕捉時点の値で固定されるため）
+    let is_loading_ref = use_mut_ref(|| true);
+    {
+        let ilr = is_loading_ref.clone();
+        use_effect_with(*is_loading, move |v| {
+            *ilr.borrow_mut() = *v;
+            || ()
+        });
+    }
     let saving_sheet_id = use_state(|| None::<String>);
     let is_creating_new = use_state(|| false); // 新規作成連打防止用
     let is_import_lock = use_state(|| false);
@@ -1271,6 +1290,23 @@ pub fn app() -> Html {
     // 開いているプロジェクトの集合と、現在アクティブなプロジェクト。
     // デフォルトプロジェクトは常に開いており閉じられない。
     let workspace = use_state(crate::workspace::Workspace::new);
+    // キーハンドラなど長命なクロージャは捕捉時点の UseStateHandle を握り続けるため、
+    // そこから workspace.active() を読むとプロジェクトを切り替えても古い値のままになる。
+    // 最新のアクティブプロジェクトは常にこの ref から読む。
+    let active_project_ref = use_mut_ref(|| crate::project::DEFAULT_PROJECT_ID.to_string());
+    // 新規シートを初めて保存して guid が確定した時に、プロジェクトへの登録を
+    // effect 側へ引き渡すための受け皿。(プロジェクトID, guid, 本文)
+    // 保存コールバックは長命な effect に捕捉されるため project_store のハンドルが
+    // 古くなりうる。ここを経由して、常に最新のストアに対して登録する。
+    let pending_project_attach = use_state(|| None::<(String, String, String)>);
+    {
+        let apr = active_project_ref.clone();
+        let current = workspace.active().to_string();
+        use_effect_with(current, move |v| {
+            *apr.borrow_mut() = v.clone();
+            || ()
+        });
+    }
     // Drive の読み込み前でもデフォルトプロジェクトのタブを出せるよう、
     // ローカルの状態には最初からデフォルトを入れておく
     let project_store = use_state(|| {
@@ -1278,6 +1314,25 @@ pub fn app() -> Html {
         store.ensure_default(0);
         store
     });
+    // 初回保存で guid が確定したシートを、その時点の最新ストアでプロジェクトへ登録する
+    {
+        let ps_attach = project_store.clone();
+        let folder_attach = leaf_data_folder_id.clone();
+        let ppa = pending_project_attach.clone();
+        use_effect_with((*pending_project_attach).clone(), move |pending| {
+            if let Some((project_id, guid, content)) = pending.clone() {
+                ppa.set(None);
+                attach_sheet_to_project(
+                    &ps_attach,
+                    &project_id,
+                    &guid,
+                    &content,
+                    (*folder_attach).clone(),
+                );
+            }
+            || ()
+        });
+    }
     // ターミナルがどのプロジェクトに属するか（実行時のみの関連付け）
     let terminal_project_map = use_mut_ref(|| std::collections::HashMap::<String, String>::new());
     // プロジェクトごとに最後に見ていたシート
@@ -1651,6 +1706,9 @@ pub fn app() -> Html {
         let osh_cb = os_handle.clone();
         let cq_save = conflict_queue.clone();
         let ifo_save = is_fading_out.clone();
+        let sp_map_save = sheet_project_map.clone();
+        let apr_save = active_project_ref.clone();
+        let ppa_save = pending_project_attach.clone();
         Callback::from(move |(is_manual, override_id): (bool, Option<String>)| {
             // override_id があればそれを使う（タブ切替時など、aid と異なるシートを保存する場合）
             // None の場合は現在の aid を使う
@@ -1702,6 +1760,9 @@ pub fn app() -> Html {
             let osh_async = osh_cb.clone();
             let cq_async = cq_save.clone();
             let ifo_async = ifo_save.clone();
+            let sp_map_async = sp_map_save.clone();
+            let apr_async = apr_save.clone();
+            let ppa_async = ppa_save.clone();
 
             Timeout::new(0, move || {
                 let ncid_val = (*r_ncid.borrow()).clone();
@@ -1800,6 +1861,16 @@ pub fn app() -> Html {
                             
                             sheet.guid = Some(new_guid.clone());
                             sheet.title = format!("{}.{}", new_guid, final_ext);
+                            // 初回保存で guid が確定したので、実行時の対応表で持っていた
+                            // 所属をプロジェクト設定ファイルへ昇格させる。
+                            // これで Alt+M で開いたシートと同じ扱いになり、再起動しても
+                            // 同じプロジェクトのタブに出る。
+                            let attach_pid = sp_map_async
+                                .borrow()
+                                .get(&id)
+                                .cloned()
+                                .unwrap_or_else(|| (*apr_async.borrow()).clone());
+                            ppa_async.set(Some((attach_pid, new_guid.clone(), cur_c.clone())));
                         }
                         
                         if sheet.category == "__LOCAL__" {
@@ -2149,11 +2220,13 @@ pub fn app() -> Html {
         let ts_ref_new = terminal_split_ref.clone();
         let ssf_new = skip_split_fade.clone();
         let sp_map_new = sheet_project_map.clone();
-        let ws_new = workspace.clone();
+        let apr_new = active_project_ref.clone();
         Callback::from(move |_| {
             if *is_creating { return; } // 作成中の連打を防止
             // 新しく作るシートは現在のプロジェクトに属させる（未保存でも表示先が決まるように）
-            let new_project_id = ws_new.active().to_string();
+            // このコールバックは認証完了時の effect に捕捉され続けるため、
+            // UseStateHandle ではなく ref から最新のプロジェクトを読む
+            let new_project_id = (*apr_new.borrow()).clone();
             let sp_map_new = sp_map_new.clone();
 
             let s = s_state.clone(); let aid = aid_state.clone(); let sp = sp_state.clone();
@@ -3820,7 +3893,7 @@ pub fn app() -> Html {
         let to_ref = tab_order_ref.clone();
         let last_term = last_terminal_ref.clone();
         let tp_map = terminal_project_map.clone();
-        let ws_term = workspace.clone();
+        let apr_term = active_project_ref.clone();
         Callback::from(move |_: ()| {
             let mut c = counter.borrow_mut();
             *c += 1;
@@ -3828,7 +3901,7 @@ pub fn app() -> Html {
             tids_ref.borrow_mut().push(tid.clone());
             ttids.set(tids_ref.borrow().clone());
             // 起動したターミナルは現在のプロジェクトに属する
-            tp_map.borrow_mut().insert(tid.clone(), ws_term.active().to_string());
+            tp_map.borrow_mut().insert(tid.clone(), (*apr_term.borrow()).clone());
             // ターミナルは左端固定のドロップダウンに入るため、
             // タブの並び順（tab_order）には末尾へ追加するだけでよい
             to_ref.borrow_mut().push(tid.clone());
@@ -3939,8 +4012,7 @@ pub fn app() -> Html {
                 let tab_menu_close_ev = tab_menu_close_trigger.clone();
                 let new_term_ev = on_new_terminal_cb.clone();
                 let tp_map_ev = terminal_project_map.clone();
-                let active_project_ev = workspace.active().to_string();
-                let ws_key_ev = (*workspace).clone();
+                let active_project_ev = active_project_ref.clone();
                 let ps_key_ev = (*project_store).clone();
                 let sp_map_key_ev = sheet_project_map.clone();
                 let show_term_ev = on_show_terminal_cb.clone();
@@ -4011,7 +4083,8 @@ pub fn app() -> Html {
                     let new_term_c = new_term_ev.clone();
                     let tp_map_c = tp_map_ev.clone();
                     let active_project_c = active_project_ev.clone();
-                    let ws_kc = ws_key_ev.clone();
+                    // キーハンドラは長命なので、プロジェクトIDは都度 ref から読む
+                    let apr_kc = active_project_c.clone();
                     let ps_kc = ps_key_ev.clone();
                     let sp_map_kc = sp_map_key_ev.clone();
                     let tp_map_kc = tp_map_ev.clone();
@@ -4192,7 +4265,7 @@ pub fn app() -> Html {
                             let all_tab_ids: Vec<String> = project_scoped_order(
                                 &tab_order_ref_c.borrow(),
                                 &rs_c.borrow(),
-                                ws_kc.active(),
+                                &apr_kc.borrow(),
                                 &sp_map_kc.borrow(),
                                 &tp_map_kc.borrow(),
                                 &ps_kc,
@@ -4452,7 +4525,7 @@ pub fn app() -> Html {
                                     term_ids_ref_c
                                         .borrow()
                                         .iter()
-                                        .filter(|tid| map.get(*tid).map(|p| p == &active_project_c).unwrap_or(false))
+                                        .filter(|tid| map.get(*tid).map(|p| p == &*active_project_c.borrow()).unwrap_or(false))
                                         .cloned()
                                         .collect()
                                 };
@@ -4688,14 +4761,15 @@ pub fn app() -> Html {
                                     };
                                     let rs_c2 = rs_c.clone();
                                     // Timeout のクロージャへ移動するため、ここで複製しておく
-                                    let ws_kc2 = ws_kc.clone();
+                                    let apr_kc2 = apr_kc.clone();
                                     let ps_kc2 = ps_kc.clone();
                                     let sp_map_kc2 = sp_map_kc.clone();
                                     let tp_map_kc2 = tp_map_kc.clone();
                                     Timeout::new(300, move || {
                                         tci2.set(None);
-                                        let scoped_order = project_scoped_order(&to2.borrow(), &rs_c2.borrow(), ws_kc2.active(), &sp_map_kc2.borrow(), &tp_map_kc2.borrow(), &ps_kc2);
-                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), scoped_order, Some(atid2.clone()), Some(atref2.clone()), Some(tsh_close2), Some((ws_kc2.active().to_string(), sp_map_kc2.clone())));
+                                        let project_id_now = (*apr_kc2.borrow()).clone();
+                                        let scoped_order = project_scoped_order(&to2.borrow(), &rs_c2.borrow(), &project_id_now, &sp_map_kc2.borrow(), &tp_map_kc2.borrow(), &ps_kc2);
+                                        close_tab_direct(close_id, rs2, sc2, ac2, sp2, nc2, Some(ar2), scoped_order, Some(atid2.clone()), Some(atref2.clone()), Some(tsh_close2), Some((project_id_now, sp_map_kc2.clone())));
                                     }).forget();
                                 }
                                 return;
@@ -5028,6 +5102,7 @@ pub fn app() -> Html {
         let ifo_restore = is_fading_out.clone();
         let lmk_restore = loading_message_key.clone();
         let sp_restore = is_suppressing_changes.clone();
+        let ilr_restore = is_loading_ref.clone();
         let restored_ref = use_mut_ref(|| false);
         use_effect_with((is_auth, folder.clone()), move |(is_auth, folder)| {
             let app_folder = match (is_auth, folder.clone()) {
@@ -5045,6 +5120,14 @@ pub fn app() -> Html {
                 .unwrap_or_default();
             let saved_active = get_account_storage(ACTIVE_PROJECT_KEY).filter(|v| !v.is_empty());
 
+            // 「同期中」の表示が消えてから復元が始まるまでの隙間で操作できてしまうのを
+            // 防ぐため、待機・取得を始める前からローディングを出しておく。
+            // 終了は下の finish_loading() に集約する。
+            lmk_restore.set("restoring_project");
+            ifo_restore.set(false);
+            il_restore.set(true);
+            sp_restore.set(true);
+
             let ps = ps.clone();
             let cats = cats.clone();
             let rs = rs.clone();
@@ -5054,19 +5137,64 @@ pub fn app() -> Html {
             let ifo = ifo_restore.clone();
             let lmk = lmk_restore.clone();
             let sp = sp_restore.clone();
+            let ilr = ilr_restore.clone();
             spawn_local(async move {
+                // 起動時の同期処理がローディングを閉じることがあるため、
+                // 復元が終わるまで監視して、閉じられていたら出し直す。
+                // これで「同期中」から「プロジェクト復元中」の間に操作できる隙間が無くなる。
+                let restore_done = std::rc::Rc::new(std::cell::RefCell::new(false));
+                {
+                    let restore_done = restore_done.clone();
+                    let il = il.clone();
+                    let ifo = ifo.clone();
+                    let lmk = lmk.clone();
+                    let sp = sp.clone();
+                    let ilr = ilr.clone();
+                    spawn_local(async move {
+                        // Drive が応答しない等で復元が終わらない場合に操作不能のまま
+                        // 固まらないよう、監視には上限（30秒）を設ける
+                        let mut ticks = 0;
+                        while !*restore_done.borrow() {
+                            if ticks >= 300 {
+                                gloo::console::warn!("[Leaf-SYSTEM] Project restore watchdog timed out.");
+                                ifo.set(true);
+                                let il = il.clone();
+                                let ifo = ifo.clone();
+                                let sp = sp.clone();
+                                Timeout::new(300, move || {
+                                    il.set(false);
+                                    sp.set(false);
+                                    ifo.set(false);
+                                })
+                                .forget();
+                                return;
+                            }
+                            if !*ilr.borrow() {
+                                lmk.set("restoring_project");
+                                ifo.set(false);
+                                il.set(true);
+                                sp.set(true);
+                            }
+                            ticks += 1;
+                            sleep_ms(100).await;
+                        }
+                    });
+                }
                 // IndexedDB からのタブ復元が終わるのを待ってから差分を見る。
                 // 復元前に判定するとタブが二重に開かれるため、実際にシートが
                 // 載るまで待つ（載らない場合も一定時間で打ち切る）。
-                for _ in 0..30 {
-                    if !rs.borrow().is_empty() {
-                        break;
+                // 設定ファイルの取得は IndexedDB の復元とは独立なので、待つ間に並行して走らせる。
+                let wait_sheets = async {
+                    for _ in 0..30 {
+                        if !rs.borrow().is_empty() {
+                            break;
+                        }
+                        sleep_ms(300).await;
                     }
-                    sleep_ms(300).await;
-                }
-                sleep_ms(500).await;
-
-                let mut store = crate::project_store::load(&app_folder).await;
+                };
+                let (_, loaded_store) =
+                    futures::future::join(wait_sheets, crate::project_store::load(&app_folder)).await;
+                let mut store = loaded_store;
                 // デフォルトプロジェクトが無ければ作って保存する
                 if store.ensure_default(js_sys::Date::now() as u64) {
                     let _ = crate::project_store::save(&app_folder, &store).await;
@@ -5115,22 +5243,14 @@ pub fn app() -> Html {
                         }
                     }
                 }
-                if missing.is_empty() {
-                    return;
-                }
-
-                // Drive から取得する間は、プロジェクトを開いた時と同じ
-                // ローディング表示にして、復元中であることを示す
-                lmk.set("restoring_project");
-                ifo.set(false);
-                il.set(true);
-                sp.set(true);
                 // 途中で終了しても必ずローディングを閉じられるようにまとめておく
                 let finish_loading = {
                     let il = il.clone();
                     let ifo = ifo.clone();
                     let sp = sp.clone();
+                    let restore_done = restore_done.clone();
                     move || {
+                        *restore_done.borrow_mut() = true;
                         Timeout::new(50, move || {
                             ifo.set(true);
                             let ifo_final = ifo.clone();
@@ -5145,14 +5265,33 @@ pub fn app() -> Html {
                     }
                 };
 
+                if missing.is_empty() {
+                    finish_loading();
+                    return;
+                }
+
+                // 起動時の同期処理がローディングを閉じている場合があるため、
+                // Drive から取得する前にもう一度出し直す
+                lmk.set("restoring_project");
+                ifo.set(false);
+                il.set(true);
+                sp.set(true);
+
                 let by_guid = collect_drive_sheets_by_guid(&cats).await;
+                // シートの取得も互いに独立なので、逐次ではなく並列で投げる
+                let targets: Vec<(String, String, String)> = missing
+                    .iter()
+                    .filter_map(|guid| by_guid.get(guid).cloned())
+                    .collect();
                 let mut added: Vec<Sheet> = Vec::new();
-                for guid in missing.iter() {
-                    if let Some((drive_id, title, cat_id)) = by_guid.get(guid) {
-                        if let Some(sheet) = load_sheet_from_drive(drive_id, title, cat_id).await {
-                            added.push(sheet);
-                        }
-                    }
+                for chunk in targets.chunks(DRIVE_FETCH_CONCURRENCY) {
+                    let fetched = futures::future::join_all(
+                        chunk
+                            .iter()
+                            .map(|(drive_id, title, cat_id)| load_sheet_from_drive(drive_id, title, cat_id)),
+                    )
+                    .await;
+                    added.extend(fetched.into_iter().flatten());
                 }
                 if added.is_empty() {
                     finish_loading();

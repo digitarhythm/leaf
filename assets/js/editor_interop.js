@@ -1081,6 +1081,8 @@ function setupIme(terminal, wrapper) {
         + 'caret-color:transparent;text-decoration:underline;';
     wrapper.appendChild(ta);
 
+    let composing = false;
+
     // ghostty-web は wrapper の beforeinput を preventDefault しており、
     // そのままだと IME 用 textarea への文字挿入まで止まってしまう
     const onBeforeInput = (event) => { event.stopPropagation(); };
@@ -1098,7 +1100,7 @@ function setupIme(terminal, wrapper) {
 
     const place = () => {
         const m = metrics();
-        if (!m) return;
+        if (!m) return false;
         const buf = terminal.buffer && terminal.buffer.active;
         const left = Math.round((buf ? buf.cursorX : 0) * m.w);
         const top = Math.round((buf ? buf.cursorY : 0) * m.h);
@@ -1110,35 +1112,72 @@ function setupIme(terminal, wrapper) {
         ta.style.width = `${Math.max(Math.ceil(m.w * 2), Math.ceil(m.width - left))}px`;
         ta.style.fontFamily = TERM_FONT_FAMILY;
         ta.style.fontSize = `${terminal.options.fontSize}px`;
+        return true;
     };
 
-    const onCompositionStart = () => { place(); ta.style.opacity = '1'; };
+    const onCompositionStart = () => {
+        composing = true;
+        // 配置できない（非表示など）時に opacity だけ上げると 1px のまま見えなくなる
+        if (place()) ta.style.opacity = '1';
+    };
+    const onCompositionUpdate = () => { place(); };
     const onCompositionEnd = () => {
+        composing = false;
         ta.style.opacity = '0';
-        // 確定文字は ghostty-web 側が compositionend で PTY へ送るため、
-        // ここでは入力欄を空へ戻すだけ（ブラウザの処理完了後に実行）
-        setTimeout(() => { ta.value = ''; ta.style.width = '1px'; ta.style.height = '1px'; }, 0);
+        setTimeout(() => {
+            // 連続入力では確定直後に次の変換が始まる。後始末が割り込んで
+            // 変換中の入力欄を空にしたり潰したりしないよう、変換中なら何もしない
+            if (composing) return;
+            ta.value = '';
+            ta.style.width = '1px';
+            ta.style.height = '1px';
+        }, 0);
     };
     ta.addEventListener('compositionstart', onCompositionStart);
+    ta.addEventListener('compositionupdate', onCompositionUpdate);
     ta.addEventListener('compositionend', onCompositionEnd);
 
-    // ghostty-web は canvas クリックなどで自前の textarea へフォーカスを移すため、
-    // IME 用の textarea へ引き戻す。
-    // ただし ghostty-web はクリップボードのフォールバック処理でも自前の textarea を
-    // 一時利用する（value に本文を入れる）ので、その間は割り込まない。
-    const onFocusIn = (event) => {
-        if (event.target === ta) return;
-        if (event.target === terminal.textarea && terminal.textarea.value) return;
+    // IME が自動確定して次の変換へ移ると、確定文字は PTY へ送られるが
+    // 端末のカーソルが進むのはエコーが返った後（非同期）。変換中は PTY へ
+    // 何も送らないので、カーソルが動いた＝エコーが届いた合図として追従する。
+    // これをしないと変換中の文字が確定済みの文字に重なる。
+    const cursorSub = terminal.onCursorMove(() => { if (composing) place(); });
+
+    // フォーカスを IME 用 textarea へ取り戻す。
+    // ghostty-web は canvas クリックなどで自前の textarea へフォーカスを移すほか、
+    // 他アプリから戻った時にブラウザが wrapper（contenteditable）へ復帰させることも
+    // ある。その状態だと変換が contenteditable 上で起きてインライン表示が効かない。
+    const ensureFocus = () => {
+        if (!wrapper.isConnected) return;
+        const active = document.activeElement;
+        if (active === ta) return;
+        // フォーカスが端末の外にある時は奪わない
+        if (!active || !wrapper.contains(active)) return;
+        // ghostty-web はクリップボードのフォールバックで自前の textarea を
+        // 一時利用する（value に本文を入れる）ので、その間は割り込まない
+        if (terminal.textarea && active === terminal.textarea && terminal.textarea.value) return;
         ta.focus({ preventScroll: true });
     };
+
+    // focusin だけでは、既にフォーカスされている要素への focus() や
+    // アプリ復帰時のフォーカス復元を拾えないため、複数の契機で取り戻す
+    const onFocusIn = () => { ensureFocus(); };
+    const onMouseUp = () => { ensureFocus(); };
+    const onWindowFocus = () => { setTimeout(ensureFocus, 0); };
     wrapper.addEventListener('focusin', onFocusIn);
+    wrapper.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('focus', onWindowFocus);
 
     return {
         focus() { ta.focus({ preventScroll: true }); },
         dispose() {
+            if (cursorSub && cursorSub.dispose) cursorSub.dispose();
+            window.removeEventListener('focus', onWindowFocus);
             wrapper.removeEventListener('focusin', onFocusIn);
+            wrapper.removeEventListener('mouseup', onMouseUp);
             ta.removeEventListener('beforeinput', onBeforeInput);
             ta.removeEventListener('compositionstart', onCompositionStart);
+            ta.removeEventListener('compositionupdate', onCompositionUpdate);
             ta.removeEventListener('compositionend', onCompositionEnd);
             if (ta.parentNode) ta.parentNode.removeChild(ta);
         },
