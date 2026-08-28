@@ -962,39 +962,36 @@ export function sync_split_editor_to_main() {
     }
 }
 
-// --- Terminal (ghostty-web) - 複数インスタンス対応 ---
-// Ghostty 本体と同じ VT 実装（libghostty-vt）を WASM 化したもの。
-// xterm.js 互換 API のため Terminal / FitAddon の使い方は従来どおりだが、
-//   - CDN ではなく assets/js/ghostty/ へベンダリング済み（外部通信ゼロ）
-//   - VT 解釈が Ghostty 本体と同一（tmux などの SGR / 複雑なシーケンスに強い）
-const _terminals = new Map(); // id -> { terminal, fitAddon, wrapper, spinner, ... }
+// --- Terminal (xterm.js) - 複数インスタンス対応 ---
+const _terminals = new Map(); // id -> { terminal, fitAddon, unlisten, exitUnlisten }
 let _ptyOutputUnlisten = null;
 let _ptyExitUnlisten = null;
-let _ghosttyMod = null;  // ghostty-web モジュール
-let _ghostty = null;     // ロード済み WASM インスタンス（全ターミナルで共有）
-let _termFontSize = 14;
 
-const TERM_FONT_FAMILY = "'JetBrains Mono', 'Menlo', 'Monaco', 'Noto Sans Mono CJK JP', 'Noto Sans CJK JP', 'Courier New', monospace";
-const TERM_THEME = {
-    background: '#1d2021', foreground: '#ebdbb2', cursor: '#ebdbb2', selectionBackground: '#504945',
-    black: '#282828', red: '#cc241d', green: '#98971a', yellow: '#d79921',
-    blue: '#458588', magenta: '#b16286', cyan: '#689d6a', white: '#a89984',
-    brightBlack: '#928374', brightRed: '#fb4934', brightGreen: '#b8bb26',
-    brightYellow: '#fabd2f', brightBlue: '#83a598', brightMagenta: '#d3869b',
-    brightCyan: '#8ec07c', brightWhite: '#ebdbb2',
-};
-
-function ghosttyAsset(path) {
-    // wasm-bindgen のスニペットとして配置されるため、document.baseURI 基準で解決する
+// xterm.js は assets/js/xterm/ へベンダリング済み（外部通信なし）。
+// wasm-bindgen のスニペットとして配置されるため、document.baseURI 基準で解決する。
+function xtermAsset(path) {
     return new URL(path, document.baseURI).href;
 }
 
-async function ensureGhosttyLoaded() {
-    if (_ghostty) return;
-    const mod = await import(ghosttyAsset('assets/js/ghostty/ghostty-web.js'));
-    // 引数を省略すると 550KB の data: URL 経由になるため、.wasm を明示的に指定する
-    _ghostty = await mod.Ghostty.load(ghosttyAsset('assets/js/ghostty/ghostty-vt.wasm'));
-    _ghosttyMod = mod;
+async function ensureXtermLoaded() {
+    if (window.Terminal) return;
+    await new Promise((resolve, reject) => {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = xtermAsset('assets/js/xterm/xterm.css');
+        document.head.appendChild(link);
+        const script = document.createElement('script');
+        script.src = xtermAsset('assets/js/xterm/xterm.js');
+        script.onload = () => {
+            const fitScript = document.createElement('script');
+            fitScript.src = xtermAsset('assets/js/xterm/addon-fit.js');
+            fitScript.onload = resolve;
+            fitScript.onerror = reject;
+            document.head.appendChild(fitScript);
+        };
+        script.onerror = reject;
+        document.head.appendChild(script);
+    });
 }
 
 function ensureGlobalListeners() {
@@ -1036,178 +1033,9 @@ function ensureGlobalListeners() {
 
 let _activeTermId = null;
 
-// コンテナが表示されレイアウトが確定してから fit + pty_resize を行う
-function fitWhenVisible(id, container) {
-    let tries = 0;
-    const attempt = () => {
-        const inst = _terminals.get(id);
-        if (!inst || !inst.fitAddon) return;
-        const rect = (container || inst.wrapper).getBoundingClientRect();
-        if (rect.width > 20 && rect.height > 20) {
-            inst.fitAddon.fit();
-            window.__TAURI__?.core?.invoke('pty_resize', {
-                id,
-                cols: inst.terminal.cols,
-                rows: inst.terminal.rows,
-            });
-        } else if (tries++ < 40) {
-            // まだ非表示なので少し待って再試行
-            setTimeout(attempt, 30);
-        }
-    };
-    setTimeout(attempt, 50);
-}
-
-// --- IME インライン入力 ---
-// ghostty-web の IME まわりには日本語入力に不足がある。
-//   - terminal.focus() は canvas の親要素（contenteditable な wrapper）を
-//     フォーカスするため、変換は contenteditable 上で行われる
-//   - handleCompositionUpdate が空実装で、変換中の文字がどこにも描画されない
-//   - 入力用の hidden textarea は端末左上に固定なので変換候補ウィンドウも左上に出る
-// そこで Leaf 側で IME 専用の textarea をカーソル位置に置き、そこを
-// フォーカス対象にする。keydown / compositionend / paste は wrapper へ
-// バブルするので ghostty-web の処理はそのまま働く。
-// （ベンダリングした ghostty-web 自体には手を入れず、再ベンダリング可能な状態を保つ）
-function setupIme(terminal, wrapper) {
-    const ta = document.createElement('textarea');
-    ta.setAttribute('autocorrect', 'off');
-    ta.setAttribute('autocapitalize', 'off');
-    ta.setAttribute('spellcheck', 'false');
-    ta.setAttribute('aria-label', 'Terminal IME input');
-    // 変換中のみ opacity:1 にして、端末と同じ配色でその場に表示する
-    ta.style.cssText = 'position:absolute;z-index:6;left:0;top:0;width:1px;height:1px;'
-        + 'padding:0;margin:0;border:none;outline:none;resize:none;overflow:hidden;'
-        + 'white-space:pre;opacity:0;background:#1d2021;color:#ebdbb2;'
-        + 'caret-color:transparent;text-decoration:underline;';
-    wrapper.appendChild(ta);
-
-    let composing = false;
-
-    // ghostty-web は wrapper の beforeinput を preventDefault しており、
-    // そのままだと IME 用 textarea への文字挿入まで止まってしまう
-    const onBeforeInput = (event) => { event.stopPropagation(); };
-    ta.addEventListener('beforeinput', onBeforeInput);
-
-    // セルサイズは canvas の実表示サイズと cols/rows から求める
-    // （ghostty-web はフォントメトリクスを公開していないため）
-    const metrics = () => {
-        const canvas = wrapper.querySelector('canvas');
-        if (!canvas || !terminal.cols || !terminal.rows) return null;
-        const rect = canvas.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return null;
-        return { w: rect.width / terminal.cols, h: rect.height / terminal.rows, width: rect.width };
-    };
-
-    const place = () => {
-        const m = metrics();
-        if (!m) return false;
-        const buf = terminal.buffer && terminal.buffer.active;
-        const left = Math.round((buf ? buf.cursorX : 0) * m.w);
-        const top = Math.round((buf ? buf.cursorY : 0) * m.h);
-        const lineHeight = Math.ceil(m.h);
-        ta.style.left = `${left}px`;
-        ta.style.top = `${top}px`;
-        ta.style.height = `${lineHeight}px`;
-        ta.style.lineHeight = `${lineHeight}px`;
-        ta.style.width = `${Math.max(Math.ceil(m.w * 2), Math.ceil(m.width - left))}px`;
-        ta.style.fontFamily = TERM_FONT_FAMILY;
-        ta.style.fontSize = `${terminal.options.fontSize}px`;
-        return true;
-    };
-
-    const onCompositionStart = () => {
-        composing = true;
-        // 配置できない（非表示など）時に opacity だけ上げると 1px のまま見えなくなる
-        if (place()) ta.style.opacity = '1';
-    };
-    const onCompositionUpdate = () => { place(); };
-    const onCompositionEnd = () => {
-        composing = false;
-        ta.style.opacity = '0';
-        setTimeout(() => {
-            // 連続入力では確定直後に次の変換が始まる。後始末が割り込んで
-            // 変換中の入力欄を空にしたり潰したりしないよう、変換中なら何もしない
-            if (composing) return;
-            ta.value = '';
-            ta.style.width = '1px';
-            ta.style.height = '1px';
-        }, 0);
-    };
-    ta.addEventListener('compositionstart', onCompositionStart);
-    ta.addEventListener('compositionupdate', onCompositionUpdate);
-    ta.addEventListener('compositionend', onCompositionEnd);
-
-    // IME が自動確定して次の変換へ移ると、確定文字は PTY へ送られるが
-    // 端末のカーソルが進むのはエコーが返った後（非同期）。変換中は PTY へ
-    // 何も送らないので、カーソルが動いた＝エコーが届いた合図として追従する。
-    // これをしないと変換中の文字が確定済みの文字に重なる。
-    const cursorSub = terminal.onCursorMove(() => { if (composing) place(); });
-
-    // フォーカスを IME 用 textarea へ取り戻す。
-    // ghostty-web は canvas クリックなどで自前の textarea へフォーカスを移すほか、
-    // 他アプリから戻った時にブラウザが wrapper（contenteditable）へ復帰させることも
-    // ある。その状態だと変換が contenteditable 上で起きてインライン表示が効かない。
-    const ensureFocus = () => {
-        if (!wrapper.isConnected) return;
-        const active = document.activeElement;
-        if (active === ta) return;
-        // フォーカスが端末の外にある時は奪わない
-        if (!active || !wrapper.contains(active)) return;
-        // ghostty-web はクリップボードのフォールバックで自前の textarea を
-        // 一時利用する（value に本文を入れる）ので、その間は割り込まない
-        if (terminal.textarea && active === terminal.textarea && terminal.textarea.value) return;
-        ta.focus({ preventScroll: true });
-    };
-
-    // focusin だけでは、既にフォーカスされている要素への focus() や
-    // アプリ復帰時のフォーカス復元を拾えないため、複数の契機で取り戻す
-    const onFocusIn = () => { ensureFocus(); };
-    const onMouseUp = () => { ensureFocus(); };
-    const onWindowFocus = () => { setTimeout(ensureFocus, 0); };
-    wrapper.addEventListener('focusin', onFocusIn);
-    wrapper.addEventListener('mouseup', onMouseUp);
-    window.addEventListener('focus', onWindowFocus);
-
-    return {
-        focus() { ta.focus({ preventScroll: true }); },
-        dispose() {
-            if (cursorSub && cursorSub.dispose) cursorSub.dispose();
-            window.removeEventListener('focus', onWindowFocus);
-            wrapper.removeEventListener('focusin', onFocusIn);
-            wrapper.removeEventListener('mouseup', onMouseUp);
-            ta.removeEventListener('beforeinput', onBeforeInput);
-            ta.removeEventListener('compositionstart', onCompositionStart);
-            ta.removeEventListener('compositionupdate', onCompositionUpdate);
-            ta.removeEventListener('compositionend', onCompositionEnd);
-            if (ta.parentNode) ta.parentNode.removeChild(ta);
-        },
-    };
-}
-
-// Cmd（macOS）修飾のキーはアプリ／OS のショートカット。
-// ghostty-web は修飾付きキーを一律 preventDefault するため Cmd+Q が効かなくなる。
-// wrapper のキャプチャ段で止めてターミナルへ渡さない。
-// Leaf 本体のキーハンドラは window のキャプチャ段で先に走るので影響しない。
-// Cmd+C / Cmd+V は ghostty-web 側が素通しでネイティブのコピー＆ペーストに
-// 任せているため、ここでも通す。
-function blockAppShortcuts(wrapper) {
-    const onKeyDown = (event) => {
-        if (event.metaKey && event.code !== 'KeyC' && event.code !== 'KeyV') {
-            event.stopPropagation();
-        }
-    };
-    wrapper.addEventListener('keydown', onKeyDown, true);
-    return () => wrapper.removeEventListener('keydown', onKeyDown, true);
-}
-
-function focusTerminal(inst) {
-    if (inst.ime) inst.ime.focus();
-    else if (inst.terminal) inst.terminal.focus();
-}
-
 export async function terminal_open(id, containerId, cols, rows) {
     if (!is_tauri()) return false;
-    await ensureGhosttyLoaded();
+    await ensureXtermLoaded();
     ensureGlobalListeners();
 
     const container = document.getElementById(containerId);
@@ -1226,16 +1054,31 @@ export async function terminal_open(id, containerId, cols, rows) {
         const inst = _terminals.get(id);
         container.appendChild(inst.wrapper);
         _activeTermId = id;
-        fitWhenVisible(id, container);
-        focusTerminal(inst);
+        if (inst.fitAddon) {
+            const fitAndResize = () => {
+                const rect = container.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    inst.fitAddon.fit();
+                    window.__TAURI__?.core?.invoke('pty_resize', {
+                        id,
+                        cols: inst.terminal.cols,
+                        rows: inst.terminal.rows,
+                    });
+                } else {
+                    setTimeout(fitAndResize, 30);
+                }
+            };
+            setTimeout(fitAndResize, 50);
+        }
+        inst.terminal.focus();
         return true;
     }
 
     // 新規作成
     const wrapper = document.createElement('div');
-    // overflow:hidden は Windows WebView2 の IME 入力時にターミナルの hidden textarea が
+    // overflow:hidden は Windows WebView2 の IME 入力時に xterm.js の hidden textarea が
     // 祖先コンテナをスクロールさせ、Ace エディタが左にずれる問題を防ぐために必要
-    wrapper.style.cssText = 'width:100%;height:100%;position:relative;overflow:hidden;background:#1d2021;';
+    wrapper.style.cssText = 'width:100%;height:100%;position:relative;overflow:hidden;';
     container.appendChild(wrapper);
 
     // Windows WebView2 IME workaround: IME 変換中に WebView2 がスクロール位置を変更しても
@@ -1255,25 +1098,31 @@ export async function terminal_open(id, containerId, cols, rows) {
     `;
     wrapper.appendChild(spinner);
 
-    const terminal = new _ghosttyMod.Terminal({
-        cols: cols || 80,
-        rows: rows || 24,
-        cursorBlink: true,
-        fontSize: _termFontSize,
-        fontFamily: TERM_FONT_FAMILY,
-        scrollback: 5000,
-        theme: TERM_THEME,
-        // 共有済みの WASM インスタンスを渡す（未指定だと毎回ロードされる）
-        ghostty: _ghostty,
+    const terminal = new window.Terminal({
+        cursorBlink: true, fontSize: 14,
+        // xterm.js は行の高さをフォントリスト先頭の欧文フォントのメトリクスから算出する。
+        // CJK フォントは ascent/descent が大きく既定の lineHeight(1.0) では収まらず
+        // 日本語などの上下が切れるため余裕を持たせる。
+        lineHeight: 1.2,
+        fontFamily: "'JetBrains Mono', 'Menlo', 'Monaco', 'Noto Sans Mono CJK JP', 'Noto Sans CJK JP', 'Courier New', monospace",
+        theme: {
+            background: '#1d2021', foreground: '#ebdbb2', cursor: '#ebdbb2', selectionBackground: '#504945',
+            black: '#282828', red: '#cc241d', green: '#98971a', yellow: '#d79921',
+            blue: '#458588', magenta: '#b16286', cyan: '#689d6a', white: '#a89984',
+            brightBlack: '#928374', brightRed: '#fb4934', brightGreen: '#b8bb26',
+            brightYellow: '#fabd2f', brightBlue: '#83a598', brightMagenta: '#d3869b',
+            brightCyan: '#8ec07c', brightWhite: '#ebdbb2',
+        },
+        allowProposedApi: true,
     });
 
-    const fitAddon = new _ghosttyMod.FitAddon();
-    terminal.loadAddon(fitAddon);
+    let fitAddon = null;
+    if (window.FitAddon) {
+        fitAddon = new window.FitAddon.FitAddon();
+        terminal.loadAddon(fitAddon);
+    }
     terminal.open(wrapper);
-    setTimeout(() => fitAddon.fit(), 100);
-
-    const ime = setupIme(terminal, wrapper);
-    const unblockShortcuts = blockAppShortcuts(wrapper);
+    if (fitAddon) setTimeout(() => fitAddon.fit(), 100);
 
     const fitCols = terminal.cols || cols || 80;
     const fitRows = terminal.rows || rows || 24;
@@ -1283,16 +1132,20 @@ export async function terminal_open(id, containerId, cols, rows) {
         window.__TAURI__.core.invoke('pty_write', { id, data });
     });
 
-    new ResizeObserver(() => {
-        // コンテナが表示されている時のみリサイズ（非表示時は幅0になるため無視）
-        const rect = wrapper.getBoundingClientRect();
-        if (rect.width > 20 && rect.height > 20) {
-            fitAddon.fit();
-            window.__TAURI__.core.invoke('pty_resize', { id, cols: terminal.cols, rows: terminal.rows });
-        }
-    }).observe(wrapper);
+    if (fitAddon) {
+        new ResizeObserver(() => {
+            if (fitAddon && terminal) {
+                // コンテナが表示されている時のみリサイズ（非表示時は幅0になるため無視）
+                const rect = wrapper.getBoundingClientRect();
+                if (rect.width > 20 && rect.height > 20) {
+                    fitAddon.fit();
+                    window.__TAURI__.core.invoke('pty_resize', { id, cols: terminal.cols, rows: terminal.rows });
+                }
+            }
+        }).observe(wrapper);
+    }
 
-    _terminals.set(id, { terminal, fitAddon, wrapper, spinner, ime, unblockShortcuts, resetScroll, resetContainerScroll, container });
+    _terminals.set(id, { terminal, fitAddon, wrapper, spinner, resetScroll, resetContainerScroll, container });
     _activeTermId = id;
     return true;
 }
@@ -1302,8 +1155,6 @@ export function terminal_close(id) {
     if (inst) {
         if (inst.resetScroll && inst.wrapper) inst.wrapper.removeEventListener('scroll', inst.resetScroll);
         if (inst.resetContainerScroll && inst.container) inst.container.removeEventListener('scroll', inst.resetContainerScroll);
-        if (inst.unblockShortcuts) inst.unblockShortcuts();
-        if (inst.ime) inst.ime.dispose();
         if (inst.wrapper && inst.wrapper.parentNode) inst.wrapper.parentNode.removeChild(inst.wrapper);
         if (inst.terminal) inst.terminal.dispose();
         _terminals.delete(id);
@@ -1320,7 +1171,6 @@ export function terminal_is_open(id) {
 
 export function terminal_set_font_size(size) {
     const clamped = Math.max(8, Math.min(32, size));
-    _termFontSize = clamped;
     for (const [id, inst] of _terminals.entries()) {
         if (inst.terminal) {
             inst.terminal.options.fontSize = clamped;
@@ -1353,8 +1203,24 @@ export function terminal_focus(id) {
             container.appendChild(inst.wrapper);
         }
         // terminal-areaが表示されレイアウト確定後にfit+resizeを実行
-        fitWhenVisible(id, container);
-        focusTerminal(inst);
+        if (inst.fitAddon) {
+            const fitAndResize = () => {
+                const rect = container.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0) {
+                    inst.fitAddon.fit();
+                    window.__TAURI__?.core?.invoke('pty_resize', {
+                        id,
+                        cols: inst.terminal.cols,
+                        rows: inst.terminal.rows,
+                    });
+                } else {
+                    // まだ非表示なので少し待って再試行
+                    setTimeout(fitAndResize, 30);
+                }
+            };
+            setTimeout(fitAndResize, 50);
+        }
+        inst.terminal.focus();
         _activeTermId = id;
     }
 }

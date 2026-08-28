@@ -1,48 +1,13 @@
-# ターミナル描画エンジン置き換え仕様（xterm.js → ghostty-web）
+# ターミナル描画エンジン仕様（xterm.js ベンダリング）
 
-- 対象バージョン: v0.29.3 以降（ブランチ `feature/wterm-renderer`）
 - 対象: デスクトップ版（Tauri）のターミナルタブのみ。Web 版は PTY を持たないため対象外。
+- 現行: **xterm.js（`assets/js/xterm/` へベンダリング）**
 
-## 1. 背景と目的
+## 1. 現状
 
-従来のターミナルは xterm.js を jsDelivr の CDN から実行時に読み込んでいた。
-
-| 課題 | 内容 |
-|---|---|
-| 外部依存 | 起動のたびに `cdn.jsdelivr.net` から CSS/JS を取得。オフラインや CDN 障害で無効化 |
-| VT 互換性 | 手書き JavaScript の VT 実装。複雑なシーケンスの解釈に限界がある |
-| CJK 行高 | 欧文フォント基準で行高を算出するため日本語の上下が切れる（`lineHeight: 1.2` で暫定回避） |
-
-[ghostty-web](https://github.com/coder/ghostty-web)（MIT）は、ターミナルエミュレータ
-**Ghostty 本体と同じ VT エンジン `libghostty-vt`** を WASM 化したもの。
-xterm.js 互換 API を持つため、既存コードの構造をほぼ維持したまま差し替えられる。
-
-## 2. 検討の経緯（wterm を採用しなかった理由）
-
-当初は [wterm](https://github.com/vercel-labs/wterm)（Zig→WASM コア + DOM 描画、WASM 約 24KB）で
-実装したが、実機検証で以下の不具合が出たため不採用とした。
-
-| 症状 | 影響 |
-|---|---|
-| tmux 上で画面全体が黄色く描画される | SGR（文字色・背景色）の解釈が破綻。TUI が実用にならない |
-| 日本語が入力できない | IME（composition）の取り込みに問題 |
-
-DOM 描画によるネイティブな範囲選択という利点はあったが、
-**VT 互換性と日本語入力という基本機能を満たせないため見送った。**
-ghostty-web は canvas 描画のため OS ネイティブの範囲選択は使えないが、
-独自の SelectionManager（`getSelection` / `selectAll` など xterm.js 互換 API）を備える。
-
-| | xterm.js（従来） | wterm（不採用） | ghostty-web（採用） |
-|---|---|---|---|
-| VT 実装 | 手書き JS | 独自 Zig 実装 | **libghostty-vt（Ghostty 本体と同一）** |
-| 描画 | canvas | DOM | canvas |
-| WASM サイズ | — | 約 24KB | 約 413KB |
-| API | — | 独自 | **xterm.js 互換** |
-| 配信 | CDN | 同梱 | 同梱 |
-| tmux | 可 | **不可（色崩れ）** | 可 |
-| 日本語入力 | 可 | **不可** | 可（Leaf 側で IME 補完） |
-
-## 3. アーキテクチャ
+ターミナルの描画は xterm.js を使う。以前は jsDelivr の CDN から実行時に
+読み込んでいたが、オフラインや CDN 障害でターミナルが使えなくなるため、
+**同梱配信へ切り替えた**。読み込み方以外の実装は従来どおり。
 
 ```mermaid
 graph LR
@@ -52,9 +17,10 @@ graph LR
   subgraph JS["assets/js/editor_interop.js"]
     JSI --> TO["terminal_open / close / focus / is_open / set_font_size"]
   end
-  subgraph Vendored["assets/js/ghostty/（ベンダリング済み）"]
-    TO --> GW["ghostty-web.js<br/>Terminal / FitAddon / Ghostty"]
-    GW --> WASM["ghostty-vt.wasm<br/>(libghostty-vt)"]
+  subgraph Vendored["assets/js/xterm/（ベンダリング済み）"]
+    TO --> XT["xterm.js<br/>window.Terminal"]
+    TO --> FIT["addon-fit.js<br/>window.FitAddon"]
+    TO --> CSS["xterm.css"]
   end
   subgraph Tauri["src-tauri (portable-pty)"]
     PTY["pty_spawn / pty_write / pty_resize / pty_kill"]
@@ -63,152 +29,103 @@ graph LR
   PTY -- "pty-output / pty-exit イベント" --> TO
 ```
 
-Rust 側（`js_interop.rs`、`pty_*` コマンド、`terminal-exit` イベント）は**一切変更しない**。
-JS の公開関数シグネチャを維持したまま、内部の描画エンジンだけを差し替える。
-
-## 4. ベンダリング
+## 2. ベンダリング
 
 Leaf は JS バンドラを使わず `assets/` をそのまま配信するため、npm パッケージを
-実行時に解決できない。`scripts/vendor-ghostty.mjs` が以下を行う。
+実行時に解決できない。`scripts/vendor-xterm.mjs` が必要なファイルだけを取り込む。
 
-1. `node_modules/ghostty-web/dist/*.js` を `assets/js/ghostty/` へコピー
-2. `sourceMappingURL` コメントを除去（`.map` は配信しないため 404 警告を防ぐ）
-3. `ghostty-vt.wasm` と `LICENSE`、`VERSION` を出力
-
-生成物はリポジトリにコミットするため、ビルド時に npm パッケージは不要。
-更新時は `npm run vendor:ghostty` を実行する。
-
-### WASM の読み込み
-
-`Ghostty.load()` は引数を省略すると、`ghostty-web.js` 内に埋め込まれた
-約 550KB の `data:application/wasm;base64,...` を経由する。
-起動時の復号コストを避けるため、`.wasm` を別ファイルで配置して
-**明示的な URL を渡す**。
-
-```js
-_ghostty = await mod.Ghostty.load(ghosttyAsset('assets/js/ghostty/ghostty-vt.wasm'));
-```
-
-WASM インスタンスは全ターミナルタブで共有し、`new Terminal({ ghostty: _ghostty })` で渡す。
-
-## 5. 実装対応表
-
-| 項目 | xterm.js | ghostty-web |
-|---|---|---|
-| 読み込み | CDN `<script>` | `import()`（`document.baseURI` 基準で解決） |
-| 生成 | `new window.Terminal(opts)` | `new Terminal({ ...opts, ghostty })` |
-| フィット | `new window.FitAddon.FitAddon()` | `new FitAddon()`（同梱） |
-| テーマ | `theme` オブジェクト | 同じ（`ITheme` 互換） |
-| フォントサイズ | `terminal.options.fontSize` | 同じ |
-| 行高 | `lineHeight: 1.2` を明示 | オプションなし（Ghostty のフォントメトリクスに委譲） |
-| 破棄 | `terminal.dispose()` | 同じ（addon も内部で破棄されるため個別 dispose 不要） |
-
-`allowProposedApi` と `lineHeight` は ghostty-web に存在しないため削除した。
-
-## 6. IME（日本語入力）対応
-
-ghostty-web は日本語入力に以下の不足があり、Leaf 側で補っている
-（`setupIme()`。ベンダリングした ghostty-web 自体には手を入れていない）。
-
-| ghostty-web の実装 | 結果 |
+| 取り込むもの | 出力先 |
 |---|---|
-| `terminal.focus()` が `canvas.parentElement`（`contenteditable` の wrapper）をフォーカス | 変換が contenteditable 上で行われる |
-| `handleCompositionUpdate` が空実装 | 変換中の文字がどこにも描画されない |
-| 入力用の hidden textarea が端末左上（`left:0; top:0`）に固定 | 変換候補ウィンドウがカーソル位置に出ない |
+| `@xterm/xterm/lib/xterm.js` | `assets/js/xterm/xterm.js` |
+| `@xterm/xterm/css/xterm.css` | `assets/js/xterm/xterm.css` |
+| `@xterm/addon-fit/lib/addon-fit.js` | `assets/js/xterm/addon-fit.js` |
+| `@xterm/xterm/LICENSE`、`VERSION` | 同上 |
 
-### 対処
+UMD ビルドなので `<script>` で読み込めば従来どおり `window.Terminal` /
+`window.FitAddon` が生える。生成物はリポジトリにコミットするため、
+ビルド時に npm パッケージは不要。更新時は `npm run vendor:xterm` を実行する。
 
-IME 専用の `<textarea>` をカーソル位置に置き、そこをフォーカス対象にする。
+パスは wasm-bindgen のスニペットとして配置される事情から、`document.baseURI`
+基準で解決する（`xtermAsset()`）。
 
-```mermaid
-sequenceDiagram
-  participant IME as IME
-  participant TA as IME用 textarea (Leaf)
-  participant WR as wrapper (ghostty-web)
-  participant P as PTY
+## 3. CJK の行高
 
-  IME->>TA: compositionstart
-  TA->>TA: カーソル位置へ配置し opacity:1（下線付きで表示）
-  IME->>TA: 変換中の文字を入力
-  Note over TA: beforeinput は stopPropagation<br/>（wrapper 側の preventDefault を遮断）
-  IME->>TA: compositionend
-  TA->>TA: opacity:0 に戻し value をクリア
-  TA-->>WR: compositionend がバブル
-  WR->>P: 確定文字を送出
-```
+xterm.js は行の高さをフォントリスト先頭の欧文フォントのメトリクスから算出する。
+CJK フォントは ascent/descent が大きく既定の `lineHeight: 1.0` では収まらず、
+日本語などの上下が切れるため `lineHeight: 1.2` を明示する。
 
-- 変換中のみ `opacity:1` にし、端末と同じフォント・配色・下線でその場に描画する
-- `keydown` / `compositionend` / `paste` は wrapper へバブルするため、ghostty-web の
-  キーエンコード・確定文字送出・ペースト処理はそのまま働く
-- ghostty-web は wrapper の `beforeinput` を `preventDefault` しているため、
-  そのままだと IME 用 textarea への文字挿入まで止まる。`stopPropagation` で遮断する
-- canvas クリック時に ghostty-web が自前の textarea へフォーカスを移すので `focusin` で
-  引き戻す。ただし ghostty-web はクリップボードのフォールバック処理でも自前 textarea を
-  一時利用する（`value` に本文を入れる）ため、その間は割り込まない
-- セルサイズは canvas の実表示サイズ ÷ `cols`/`rows`、カーソル位置は xterm.js 互換の
-  `terminal.buffer.active.cursorX / cursorY` から求める
+フォントは `'JetBrains Mono', 'Menlo', 'Monaco', 'Noto Sans Mono CJK JP',
+'Noto Sans CJK JP', 'Courier New', monospace` を指定する。
 
-## 7. Cmd 修飾キーの扱い
+## 4. 検討の経緯（他エンジンを採用しなかった理由）
 
-`handleKeyDown` の最終分岐は、修飾キー付きのキーを一律 `preventDefault()` +
-`stopPropagation()` する。このため **Cmd+Q でアプリが終了しなくなる**。
+描画方式の改善を狙って 2 つの代替を試したが、いずれも**日本語入力で実用に
+ならず差し戻した**。同じ検討を繰り返さないため経緯を残す。
 
-wrapper のキャプチャ段で Cmd 修飾のキーを `stopPropagation()` し、ターミナルへ
-渡さないようにする（`blockAppShortcuts()`）。
+### 4-1. wterm（vercel-labs、Zig→WASM + DOM 描画、WASM 約 24KB）
 
-- Cmd+C / Cmd+V は ghostty-web 側が元々素通ししてネイティブのコピー＆ペーストに
-  任せているため、ここでも通す
-- Leaf 本体のキーハンドラは `window` の**キャプチャ段**に登録されている
-  （`src/app.rs`）ため wrapper より先に走る。Alt+O などの既存ショートカットには影響しない
-
-## 8. サイズ同期フロー
-
-```mermaid
-sequenceDiagram
-  participant U as ユーザー操作
-  participant JS as editor_interop.js
-  participant T as Terminal + FitAddon
-  participant P as PTY (Rust)
-
-  U->>JS: terminal_open / terminal_focus
-  JS->>JS: fitWhenVisible(id, container)
-  loop 幅・高さが 20px 未満なら 30ms 間隔で最大 40 回再試行
-    JS->>JS: getBoundingClientRect
-  end
-  JS->>T: fitAddon.fit()
-  JS->>P: pty_resize(id, cols, rows)
-  Note over JS,T: ペインのリサイズは wrapper の<br/>ResizeObserver で検出（幅20px超のときのみ）
-```
-
-タブ切り替え直後はコンテナが非表示（幅 0）のことがあるため、
-表示されるまで再試行してから PTY へサイズを通知する。
-
-## 9. 影響範囲
-
-| ファイル | 変更内容 |
+| 症状 | 影響 |
 |---|---|
-| `assets/js/editor_interop.js` | ターミナル節を全面置換（公開関数のシグネチャは維持） |
-| `assets/js/ghostty/**` | 新規。ベンダリングされた ghostty-web + WASM |
-| `scripts/vendor-ghostty.mjs` | 新規。ベンダリングスクリプト |
-| `package.json` | `ghostty-web` 依存と `vendor:ghostty` スクリプトを追加 |
+| tmux 上で画面全体が黄色く描画される | SGR（文字色・背景色）の解釈が破綻。TUI が実用にならない |
+| 日本語が入力できない | IME（composition）の取り込みに問題 |
 
-Rust ソース・`index.html`・`sw.js` は変更なし。
+DOM 描画によるネイティブな範囲選択という利点はあったが、
+VT 互換性と日本語入力という基本機能を満たせず見送った。
 
-## 10. 動作確認項目
+### 4-2. ghostty-web（coder、libghostty-vt を WASM 化、canvas 描画、WASM 約 413KB）
 
-macOS (Apple Silicon) で確認済み:
+tmux の描画は正しく、VT 互換性は本家品質だったが、以下が解決できなかった。
 
-- [x] ターミナルタブを開くとシェルが起動する（スピナーが消える）
-- [x] **tmux が正しく描画される**（色崩れがない）← wterm で失敗した項目
-- [x] **日本語を IME でインライン入力できる** ← wterm で失敗した項目
-- [x] **Cmd+Q でアプリが終了する**
+| 症状 | 原因 |
+|---|---|
+| 日本語のインライン入力が出ない | `handleCompositionUpdate` が空実装。変換中の文字を描画する処理が無い |
+| 変換候補ウィンドウが端末の左上に出る | 入力用の hidden textarea が `left:0; top:0` に固定 |
+| 他アプリから戻ると IME が効かなくなる | `terminal.focus()` が `contenteditable` の wrapper をフォーカスするため |
+| Cmd+Q でアプリが終了しない | `handleKeyDown` が修飾キー付きのキーを一律 `preventDefault` |
+| **Windows でテキストの見栄えが悪い** | canvas 描画のフォントメトリクス由来 |
+| **IME インライン入力時に文字の上部が欠ける** | 同上 |
 
-未確認（要検証）:
+IME 用の textarea を Leaf 側で用意して前 4 件は回避できたが、
+Windows での描画品質（下 2 件）は canvas 描画に起因し、
+Leaf 側で詰められる問題ではないため差し戻した。
 
-- [ ] Windows / Linux での日本語 IME 入力
+xterm.js は `CompositionHelper` を内蔵していて IME のインライン表示を
+自前で持ち、meta 修飾キーも素通しする。**日本語環境ではこれらが決定的**。
+
+### 4-3. まとめ
+
+| | xterm.js（現行） | wterm | ghostty-web |
+|---|---|---|---|
+| VT 実装 | 手書き JS | 独自 Zig 実装 | libghostty-vt |
+| 描画 | DOM | DOM | canvas |
+| tmux | 可 | **不可（色崩れ）** | 可 |
+| 日本語 IME | **標準で可** | **不可** | 要自前実装・Windows で欠け |
+| Cmd+Q | 可 | — | 要回避策 |
+| 配信 | 同梱 | 同梱 | 同梱 |
+
+**エンジンを替える動機だった「CDN 依存の解消」は、xterm.js を
+そのままベンダリングすれば達成できた。** 描画エンジンごと差し替える必要は
+無かった、というのが結論。
+
+## 5. 影響範囲
+
+| ファイル | 内容 |
+|---|---|
+| `assets/js/editor_interop.js` | ターミナルの実装（公開関数のシグネチャは不変） |
+| `assets/js/xterm/**` | ベンダリングされた xterm.js |
+| `scripts/vendor-xterm.mjs` | ベンダリングスクリプト |
+| `package.json` | `@xterm/xterm` / `@xterm/addon-fit` 依存と `vendor:xterm` |
+
+Rust 側（`js_interop.rs`、`pty_*` コマンド、`terminal-exit` イベント）は不変。
+
+## 6. 動作確認項目
+
+- [ ] ターミナルタブを開くとシェルが起動する（スピナーが消える）
+- [ ] tmux / vim など TUI が正しく描画される
+- [ ] 日本語を IME でインライン入力できる（macOS / Windows）
 - [ ] 日本語の出力が上下に切れない
-- [ ] vim など TUI が正しく描画される
-- [ ] マウスでの範囲選択とコピー（Cmd+C / Cmd+V）
+- [ ] Cmd+Q でアプリが終了する
+- [ ] マウスでの範囲選択とコピー
 - [ ] ペイン分割・ウィンドウリサイズで cols/rows が追随する
 - [ ] フォントサイズ変更が反映される
 - [ ] 複数ターミナルタブの切り替えで表示が壊れない
