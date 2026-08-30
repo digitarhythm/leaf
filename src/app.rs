@@ -7050,10 +7050,26 @@ pub fn app() -> Html {
                             on_select={{
                                 let sv = is_project_switcher_visible.clone();
                                 let ots = on_tab_select_cb.clone();
+                                let atref_sel = active_terminal_ref.clone();
                                 Callback::from(move |id: String| {
                                     sv.set(false);
                                     // 表示状態の復元は既存のタブ切り替え処理に任せる
                                     ots.emit(id);
+                                    // 選択したシート／ターミナルへ必ずフォーカスを移す。
+                                    // 既にアクティブなものを選んだ場合、タブ切り替え処理は
+                                    // 早期 return してフォーカス処理まで到達しないため、
+                                    // ダイアログを閉じた後にフォーカスが浮いてしまう。
+                                    // 対象は要求した id ではなく切り替え後の実際の状態から決める
+                                    // （ターミナルにロックされたシートなど選択が無効な場合に備える）。
+                                    // タブ切り替え側のフォーカス(100ms)より後に実行する。
+                                    let atref_inner = atref_sel.clone();
+                                    Timeout::new(150, move || {
+                                        if let Some(ref tid) = *atref_inner.borrow() {
+                                            crate::js_interop::terminal_focus(tid);
+                                        } else {
+                                            focus_editor();
+                                        }
+                                    }).forget();
                                 })
                             }}
                             on_close={{

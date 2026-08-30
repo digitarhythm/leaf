@@ -7,6 +7,7 @@
 //! 純粋関数として切り出して単体テストの対象にしている。
 
 use crate::i18n::{self, Language};
+use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
 /// グリッド 1 行あたりのカード数
@@ -130,6 +131,9 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
     let lang = Language::detect();
     let root_ref = use_node_ref();
     let is_closing = use_state(|| false);
+    // 閉じ始めたかどうかを、下のフォーカス監視リスナーから読むための ref
+    // （UseStateHandle はリスナー登録時の値で固定されてしまうため）
+    let closing_ref = use_mut_ref(|| false);
     // Tauri(デスクトップ)版は同じ指定でも文字が小さく見えるため一回り大きくする
     // （シート選択ダイアログのファイル名ラベルと同じ調整）
     let is_desktop = crate::js_interop::is_tauri();
@@ -193,10 +197,44 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
         });
     }
 
+    // 開いている間はダイアログにフォーカスを保つ。
+    //
+    // タブ切り替えやシート選択の処理は 50〜150ms 後にエディタへフォーカスを戻す。
+    // ダイアログを開く直前にそれらが走っていると、上の初回フォーカス(10ms)より
+    // 後にタイマーが発火してエディタへフォーカスを奪われる。
+    // ダイアログ外へ移ったフォーカスは引き戻す（閉じ始めてからは何もしない）。
+    {
+        let root = root_ref.clone();
+        let closing_ref = closing_ref.clone();
+        use_effect_with((), move |_| {
+            let doc = web_sys::window().unwrap().document().unwrap();
+            let listener = gloo::events::EventListener::new(&doc, "focusin", move |e| {
+                if *closing_ref.borrow() {
+                    return;
+                }
+                let el = match root.cast::<web_sys::HtmlElement>() {
+                    Some(el) => el,
+                    None => return,
+                };
+                let inside = e
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                    .map(|n| el.contains(Some(&n)))
+                    .unwrap_or(false);
+                if !inside {
+                    let _ = el.focus();
+                }
+            });
+            move || drop(listener)
+        });
+    }
+
     let handle_close = {
         let on_close = props.on_close.clone();
         let is_closing = is_closing.clone();
+        let closing_ref = closing_ref.clone();
         Callback::from(move |_: ()| {
+            *closing_ref.borrow_mut() = true;
             is_closing.set(true);
             let cb = on_close.clone();
             gloo::timers::callback::Timeout::new(100, move || cb.emit(())).forget();
