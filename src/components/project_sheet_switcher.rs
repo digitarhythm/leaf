@@ -221,9 +221,18 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                     .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
                     .map(|n| el.contains(Some(&n)))
                     .unwrap_or(false);
-                if !inside {
-                    let _ = el.focus();
+                if inside {
+                    return;
                 }
+                // focusin ハンドラの中から直接 focus() を呼ぶと、同期的に次の
+                // focusin が発火してこのクロージャへ再入する。wasm-bindgen は
+                // クロージャの再入を許さず
+                // 「closure invoked recursively or after being dropped」で
+                // パニックしアプリがハングするため、次のタスクへ逃がす。
+                gloo::timers::callback::Timeout::new(0, move || {
+                    let _ = el.focus();
+                })
+                .forget();
             });
             move || drop(listener)
         });
