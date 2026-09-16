@@ -7,6 +7,7 @@
 //! 純粋関数として切り出して単体テストの対象にしている。
 
 use crate::i18n::{self, Language};
+use std::collections::{BTreeMap, HashSet};
 use wasm_bindgen::JsCast;
 use yew::prelude::*;
 
@@ -92,26 +93,158 @@ pub fn display_extension(file_name: &str) -> String {
     }
 }
 
-/// グリッドに 1 枚並べるカードの情報
-#[derive(Clone, PartialEq)]
-pub struct SwitcherSheet {
+// ---------------------------------------------------------------------------
+// 一覧の組み立て（純粋関数・単体テスト対象）
+//
+// プロジェクトを開いても所属シートは開かず、Alt+R で選んだものだけを開く
+// 仕様（docs/PROJECT_SHEET_ON_DEMAND_SPEC.md）のための型と関数。
+// 表示（yew）とは切り離し、入力から一覧の並びを決めるだけにしている。
+// ---------------------------------------------------------------------------
+
+/// Alt+R に並べる 1 件の種類
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SwitcherItemKind {
+    /// 起動中のターミナル
+    Terminal,
+    /// タブとして開いているシート
+    OpenSheet,
+    /// プロジェクトに属するが、まだタブとして開いていないシート
+    ClosedSheet,
+}
+
+/// Alt+R に並べる 1 件
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SwitcherItem {
+    pub kind: SwitcherItemKind,
+    /// Terminal / OpenSheet はタブ ID、ClosedSheet はプロジェクト上の guid
     pub id: String,
-    /// ファイル名（拡張子の判定と表示に使う）。ターミナルでは表示名が入る
     pub title: String,
-    /// 本文（書類の中身として冒頭を表示する）。ターミナルでは空
+    /// OpenSheet は本文、ClosedSheet は設定ファイルのプレビュー（先頭 5 行）、Terminal は空
     pub content: String,
     pub tab_color: String,
-    /// ターミナルのカードかどうか（先頭にまとめて並べる）
-    #[allow(dead_code)]
-    pub is_terminal: bool,
+}
+
+/// 選択結果
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SwitcherSelection {
+    /// 既に開いているタブ（シートまたはターミナル）へ切り替える
+    Tab(String),
+    /// まだ開いていないプロジェクトのシートを Drive から読み込んで開く
+    Load { guid: String },
+}
+
+/// 一覧を組み立てる入力: 現在のプロジェクトのタブとして表示中のシート
+/// （所属シートのほか、未保存の新規シートやローカルシートも含む）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenSheetInput {
+    pub id: String,
+    pub guid: Option<String>,
+    pub title: String,
+    pub content: String,
+    pub tab_color: String,
+}
+
+impl SwitcherItem {
+    /// この項目を選んだ時に行う動作
+    pub fn selection(&self) -> SwitcherSelection {
+        match self.kind {
+            SwitcherItemKind::ClosedSheet => SwitcherSelection::Load { guid: self.id.clone() },
+            SwitcherItemKind::Terminal | SwitcherItemKind::OpenSheet => {
+                SwitcherSelection::Tab(self.id.clone())
+            }
+        }
+    }
+
+    fn from_open_sheet(sheet: &OpenSheetInput) -> Self {
+        Self {
+            kind: SwitcherItemKind::OpenSheet,
+            id: sheet.id.clone(),
+            title: sheet.title.clone(),
+            content: sheet.content.clone(),
+            tab_color: sheet.tab_color.clone(),
+        }
+    }
+}
+
+/// Alt+R の一覧を組み立てる。
+///
+/// * `terminals`: 現在のプロジェクトのターミナル（タブ ID, 表示名）。渡された順で先頭に置く
+/// * `project_sheet_guids`: `Project.sheets`（登録順）
+/// * `previews`: `ProjectStore.previews`（guid → 先頭 5 行）
+/// * `open_sheets`: 現在のプロジェクトのタブとして表示中のシート
+///
+/// 並び順と突き合わせの規則は仕様書 §4 を参照。
+pub fn build_switcher_items(
+    terminals: &[(String, String)],
+    project_sheet_guids: &[String],
+    previews: &BTreeMap<String, String>,
+    open_sheets: &[OpenSheetInput],
+) -> Vec<SwitcherItem> {
+    let mut items: Vec<SwitcherItem> = terminals
+        .iter()
+        .map(|(id, title)| SwitcherItem {
+            kind: SwitcherItemKind::Terminal,
+            id: id.clone(),
+            title: title.clone(),
+            content: String::new(),
+            tab_color: String::new(),
+        })
+        .collect();
+
+    // 開いている各シートが対応しうる guid の候補（`abc` / `abc.md` の表記揺れを吸収）
+    let keys: Vec<Vec<String>> = open_sheets
+        .iter()
+        .map(|s| crate::tabs::sheet_project_keys(s.guid.as_deref(), &s.title))
+        .collect();
+    // 所属シートに一致した開いているシートは末尾の非所属グループに重ねて出さない
+    let mut matched = vec![false; open_sheets.len()];
+    let mut seen_guids: HashSet<&String> = HashSet::new();
+    let mut opened: Vec<SwitcherItem> = Vec::new();
+    let mut closed: Vec<SwitcherItem> = Vec::new();
+
+    for guid in project_sheet_guids {
+        // 同じ guid が二重に登録されていても 1 回だけ出す
+        if !seen_guids.insert(guid) {
+            continue;
+        }
+        let found = (0..open_sheets.len()).find(|&i| !matched[i] && keys[i].iter().any(|k| k == guid));
+        match found {
+            Some(i) => {
+                matched[i] = true;
+                opened.push(SwitcherItem::from_open_sheet(&open_sheets[i]));
+            }
+            None => closed.push(SwitcherItem {
+                kind: SwitcherItemKind::ClosedSheet,
+                id: guid.clone(),
+                // ファイル名（拡張子）は設定ファイルに無いため guid をそのまま使う
+                title: guid.clone(),
+                content: previews.get(guid).cloned().unwrap_or_default(),
+                tab_color: String::new(),
+            }),
+        }
+    }
+
+    // オープン済みを先にまとめ、次に未オープン（それぞれ登録順）
+    items.extend(opened);
+    items.extend(closed);
+    // 所属シートに一致しない開いているシート（未保存の新規・ローカル）は末尾に渡された順で
+    items.extend(
+        open_sheets
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !matched[*i])
+            .map(|(_, s)| SwitcherItem::from_open_sheet(s)),
+    );
+    items
 }
 
 #[derive(Properties, PartialEq)]
 pub struct ProjectSheetSwitcherProps {
-    pub sheets: Vec<SwitcherSheet>,
+    /// 並べるカード。`build_switcher_items` で組み立てたもの
+    pub sheets: Vec<SwitcherItem>,
     pub active_sheet_id: Option<String>,
-    /// 選択確定。シート ID を渡す。
-    pub on_select: Callback<String>,
+    /// 選択確定。開いているタブへの切り替えか、未オープンのシートの読み込みかを渡す。
+    pub on_select: Callback<SwitcherSelection>,
     pub on_close: Callback<()>,
     /// 外部（Alt+R の再押下）から閉じるためのトリガー。
     /// 値が変わるとダイアログ自身の閉じる処理を実行し、
@@ -162,7 +295,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
         sheets
             .iter()
             .map(|sheet| {
-                if sheet.is_terminal {
+                if sheet.kind == SwitcherItemKind::Terminal {
                     return None;
                 }
                 let ext = display_extension(&sheet.title);
@@ -272,10 +405,10 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
         let is_closing = is_closing.clone();
         Callback::from(move |_: ()| {
             if let Some(sheet) = sheets.get(*selected) {
-                let id = sheet.id.clone();
+                let selection = sheet.selection();
                 is_closing.set(true);
                 let cb = on_select.clone();
-                gloo::timers::callback::Timeout::new(100, move || cb.emit(id.clone())).forget();
+                gloo::timers::callback::Timeout::new(100, move || cb.emit(selection.clone())).forget();
             }
         })
     };
@@ -372,6 +505,8 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                             { for props.sheets.iter().enumerate().map(|(i, sheet)| {
                                 let is_sel = i == *selected;
                                 let is_active = props.active_sheet_id.as_deref() == Some(sheet.id.as_str());
+                                // 未オープン（まだタブになっていない所属シート）はタイトルの文字をグレーにする
+                                let is_closed = sheet.kind == SwitcherItemKind::ClosedSheet;
                                 let ext = display_extension(&sheet.title);
                                 let style = DocStyle::from_extension(&ext);
                                 let sel_click = selected.clone();
@@ -400,13 +535,13 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                             <span class="w-2 h-2 rounded-full flex-shrink-0" style={format!("background-color: {};", sheet.tab_color)}></span>
                                             // 1行目を可能な限り表示する（入り切らない分は省略）
                                             <span class={classes!("flex-1", "min-w-0", "truncate", head_text_class, "font-bold",
-                                                if is_sel { "text-white" } else { "text-gray-300" })}
+                                                if is_closed { "text-gray-500" } else if is_sel { "text-white" } else { "text-gray-300" })}
                                                 title={first_line(sheet)}
                                             >
                                                 { first_line(sheet) }
                                             </span>
                                             <span class={classes!("px-1", "rounded", badge_text_class, "font-black", "uppercase", "tracking-tighter", "flex-shrink-0",
-                                                if sheet.is_terminal { "bg-gray-500/20 text-gray-300" } else { "" },
+                                                if sheet.kind == SwitcherItemKind::Terminal { "bg-gray-500/20 text-gray-300" } else { "" },
                                                 match style {
                                                     DocStyle::Markdown => "bg-sky-500/20 text-sky-300",
                                                     DocStyle::Code => "bg-amber-500/20 text-amber-300",
@@ -420,11 +555,11 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         // overscroll-contain で、端まで来てもグリッド側へスクロールが
                                         // 波及しないようにしている。
                                         <div class={classes!("flex-1", "min-h-0",
-                                            if sheet.is_terminal { "bg-[#1d2021]" } else { "bg-[#fdf6e3]" },
+                                            if sheet.kind == SwitcherItemKind::Terminal { "bg-[#1d2021]" } else { "bg-[#fdf6e3]" },
                                             if is_sel { vec!["overflow-y-auto", "overscroll-contain", "custom-scrollbar"] }
                                             else { vec!["overflow-hidden"] })}>
                                             {
-                                                if sheet.is_terminal {
+                                                if sheet.kind == SwitcherItemKind::Terminal {
                                                     // ターミナルは中身を描画せず、ターミナルらしい見た目にする
                                                     html! {
                                                         <div class="w-full h-full flex items-center justify-center text-emerald-500/70">
@@ -468,7 +603,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
 /// カードのヘッダーに出す見出し。本文の 1 行目（空行はスキップ）を使い、
 /// 本文が空ならファイル名で代替する。
 /// Markdown の見出し記号は邪魔になるので落とす。
-fn first_line(sheet: &SwitcherSheet) -> String {
+fn first_line(sheet: &SwitcherItem) -> String {
     sheet
         .content
         .lines()
@@ -486,7 +621,7 @@ fn first_line(sheet: &SwitcherSheet) -> String {
 /// カードが小さいため、冒頭の一定行数だけを対象にする（重い描画を避ける）。
 ///
 /// 本文が空の場合は None。
-fn doc_html(sheet: &SwitcherSheet, style: DocStyle, ext: &str) -> Option<String> {
+fn doc_html(sheet: &SwitcherItem, style: DocStyle, ext: &str) -> Option<String> {
     let head: String = sheet
         .content
         .lines()
@@ -601,13 +736,13 @@ mod tests {
         assert_eq!(DocStyle::from_extension("js"), DocStyle::Code);
     }
 
-    fn sheet(title: &str, content: &str) -> SwitcherSheet {
-        SwitcherSheet {
+    fn sheet(title: &str, content: &str) -> SwitcherItem {
+        SwitcherItem {
+            kind: SwitcherItemKind::OpenSheet,
             id: "id".to_string(),
             title: title.to_string(),
             content: content.to_string(),
             tab_color: "#fff".to_string(),
-            is_terminal: false,
         }
     }
 
@@ -641,5 +776,200 @@ mod tests {
         assert_eq!(display_extension("Makefile"), "");
         assert_eq!(display_extension("noext."), "");
         assert_eq!(display_extension(".hidden"), "");
+    }
+
+    // -----------------------------------------------------------------------
+    // Alt+R の一覧の組み立て（docs/PROJECT_SHEET_ON_DEMAND_SPEC.md §4）
+    // -----------------------------------------------------------------------
+
+    fn term(id: &str, title: &str) -> (String, String) {
+        (id.to_string(), title.to_string())
+    }
+
+    fn open(id: &str, guid: Option<&str>, title: &str, content: &str) -> OpenSheetInput {
+        OpenSheetInput {
+            id: id.to_string(),
+            guid: guid.map(|g| g.to_string()),
+            title: title.to_string(),
+            content: content.to_string(),
+            tab_color: "#123456".to_string(),
+        }
+    }
+
+    fn guids(list: &[&str]) -> Vec<String> {
+        list.iter().map(|g| g.to_string()).collect()
+    }
+
+    fn previews(list: &[(&str, &str)]) -> BTreeMap<String, String> {
+        list.iter().map(|(g, p)| (g.to_string(), p.to_string())).collect()
+    }
+
+    fn kinds(items: &[SwitcherItem]) -> Vec<SwitcherItemKind> {
+        items.iter().map(|i| i.kind.clone()).collect()
+    }
+
+    fn ids(items: &[SwitcherItem]) -> Vec<&str> {
+        items.iter().map(|i| i.id.as_str()).collect()
+    }
+
+    // 規則 1
+    #[test]
+    fn terminals_come_first_in_given_order() {
+        let items = build_switcher_items(
+            &[term("__TERM__2", "Terminal 1"), term("__TERM__5", "Terminal 2")],
+            &guids(&["abc"]),
+            &previews(&[]),
+            &[open("s1", Some("abc"), "abc.md", "# body")],
+        );
+        assert_eq!(ids(&items), vec!["__TERM__2", "__TERM__5", "s1"]);
+        assert_eq!(items[0].kind, SwitcherItemKind::Terminal);
+        assert_eq!(items[0].title, "Terminal 1");
+        assert_eq!(items[0].content, "");
+        assert_eq!(items[1].kind, SwitcherItemKind::Terminal);
+    }
+
+    // 規則 2（オープン済み）
+    #[test]
+    fn open_project_sheet_uses_tab_id_and_full_content() {
+        let items = build_switcher_items(
+            &[],
+            &guids(&["abc"]),
+            &previews(&[("abc", "古いプレビュー")]),
+            &[open("s1", Some("abc"), "abc.md", "# 最新の本文\n2行目")],
+        );
+        assert_eq!(items.len(), 1);
+        let item = &items[0];
+        assert_eq!(item.kind, SwitcherItemKind::OpenSheet);
+        assert_eq!(item.id, "s1");
+        assert_eq!(item.title, "abc.md");
+        // 開いているシートはプレビューではなく本文をそのまま使う
+        assert_eq!(item.content, "# 最新の本文\n2行目");
+        assert_eq!(item.tab_color, "#123456");
+    }
+
+    // 規則 2（未オープン）
+    #[test]
+    fn closed_project_sheet_uses_guid_and_preview() {
+        let items = build_switcher_items(
+            &[],
+            &guids(&["abc"]),
+            &previews(&[("abc", "会議メモ\n2行目")]),
+            &[],
+        );
+        assert_eq!(items.len(), 1);
+        let item = &items[0];
+        assert_eq!(item.kind, SwitcherItemKind::ClosedSheet);
+        assert_eq!(item.id, "abc");
+        assert_eq!(item.title, "abc");
+        assert_eq!(item.content, "会議メモ\n2行目");
+    }
+
+    // 規則 7
+    #[test]
+    fn closed_sheet_without_preview_has_empty_content() {
+        let items = build_switcher_items(&[], &guids(&["abc"]), &previews(&[]), &[]);
+        assert_eq!(items[0].kind, SwitcherItemKind::ClosedSheet);
+        assert_eq!(items[0].content, "");
+    }
+
+    // 規則 2（順序）: オープン済みを先にまとめ、その中と未オープンの中はそれぞれ登録順
+    #[test]
+    fn open_sheets_come_first_then_closed_each_in_registration_order() {
+        let items = build_switcher_items(
+            &[],
+            &guids(&["g1", "g2", "g3", "g4"]),
+            &previews(&[("g2", "p2"), ("g4", "p4")]),
+            // g3 → g1 の順で開いていても、オープン済みは登録順 g1 → g3
+            &[open("s3", Some("g3"), "g3.txt", "c3"), open("s1", Some("g1"), "g1.txt", "c1")],
+        );
+        assert_eq!(ids(&items), vec!["s1", "s3", "g2", "g4"]);
+        assert_eq!(
+            kinds(&items),
+            vec![
+                SwitcherItemKind::OpenSheet,
+                SwitcherItemKind::OpenSheet,
+                SwitcherItemKind::ClosedSheet,
+                SwitcherItemKind::ClosedSheet,
+            ]
+        );
+    }
+
+    // 規則 3
+    #[test]
+    fn guid_with_extension_matches_open_sheet() {
+        // Sheet.guid に拡張子が残る経路（abc.md）と、guid が無く title だけの経路
+        let items = build_switcher_items(
+            &[],
+            &guids(&["abc", "xyz"]),
+            &previews(&[]),
+            &[
+                open("s1", Some("abc.md"), "abc.md", "c1"),
+                open("s2", None, "xyz.txt", "c2"),
+            ],
+        );
+        assert_eq!(ids(&items), vec!["s1", "s2"]);
+        assert!(items.iter().all(|i| i.kind == SwitcherItemKind::OpenSheet));
+    }
+
+    // 規則 4
+    #[test]
+    fn duplicate_guid_registration_appears_once() {
+        let items = build_switcher_items(
+            &[],
+            &guids(&["abc", "abc", "def", "abc"]),
+            &previews(&[]),
+            &[],
+        );
+        assert_eq!(ids(&items), vec!["abc", "def"]);
+    }
+
+    // 規則 5
+    #[test]
+    fn matched_open_sheet_is_not_repeated_at_the_end() {
+        let items = build_switcher_items(
+            &[],
+            &guids(&["abc"]),
+            &previews(&[]),
+            &[open("s1", Some("abc"), "abc.md", "c1")],
+        );
+        // 所属シートとして 1 回出るだけで、末尾の非所属グループには出ない
+        assert_eq!(ids(&items), vec!["s1"]);
+    }
+
+    // 規則 6
+    #[test]
+    fn open_sheets_not_in_project_come_after_project_sheets() {
+        let items = build_switcher_items(
+            &[term("__TERM__1", "Terminal 1")],
+            &guids(&["abc"]),
+            &previews(&[]),
+            &[
+                // 未保存の新規シート（guid 無し）
+                open("new1", None, "Untitled.txt", ""),
+                // ローカルファイルのシート
+                open("local1", None, "notes.txt", "local"),
+                // 所属シート
+                open("s1", Some("abc"), "abc.md", "c1"),
+            ],
+        );
+        // ターミナル → 所属シート → 非所属（渡された順）
+        assert_eq!(ids(&items), vec!["__TERM__1", "s1", "new1", "local1"]);
+        assert_eq!(items[2].kind, SwitcherItemKind::OpenSheet);
+        assert_eq!(items[3].kind, SwitcherItemKind::OpenSheet);
+        assert_eq!(items[3].title, "notes.txt");
+    }
+
+    // 規則 8
+    #[test]
+    fn selection_maps_each_kind_to_an_action() {
+        let items = build_switcher_items(
+            &[term("__TERM__1", "Terminal 1")],
+            &guids(&["abc", "closed"]),
+            &previews(&[]),
+            &[open("s1", Some("abc"), "abc.md", "c1")],
+        );
+        assert_eq!(items[0].selection(), SwitcherSelection::Tab("__TERM__1".to_string()));
+        assert_eq!(items[1].selection(), SwitcherSelection::Tab("s1".to_string()));
+        assert_eq!(items[2].selection(), SwitcherSelection::Load { guid: "closed".to_string() });
     }
 }

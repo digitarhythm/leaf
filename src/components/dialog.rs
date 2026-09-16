@@ -1,6 +1,52 @@
 use yew::prelude::*;
 use gloo::timers::callback::Timeout;
 
+/// IME の変換確定フラグ。
+///
+/// WebKit(WKWebView) は変換を確定した時、`compositionend` を先に発火させてから
+/// `keydown`(key="Enter", isComposing=false) を送ってくる。そのため
+/// `KeyboardEvent::is_composing()` だけでは弾けず、日本語の変換を確定した Enter が
+/// そのままダイアログの確定として扱われてしまう（名前を最後まで入力できない）。
+/// `compositionend` の直後に来た Enter を 1 回だけ無視することで防ぐ。
+type ImeFlag = std::rc::Rc<std::cell::RefCell<bool>>;
+
+/// `oncompositionend` から呼ぶ。
+fn ime_mark_committed(flag: &ImeFlag) {
+    *flag.borrow_mut() = true;
+    // Enter が続かなかった場合に後の入力へ影響を残さないよう、短時間で解除する
+    let flag = flag.clone();
+    Timeout::new(100, move || {
+        *flag.borrow_mut() = false;
+    })
+    .forget();
+}
+
+/// `onkeydown` の先頭で呼ぶ。true を返したらそのキーは処理しない。
+fn ime_should_ignore(flag: &ImeFlag, e: &KeyboardEvent) -> bool {
+    // 変換中（Chrome 系はこちらで弾ける）
+    if e.is_composing() || e.key_code() == 229 {
+        return true;
+    }
+    let just_committed = *flag.borrow();
+    // 変換確定以外のキーが来たらガードを解除する
+    *flag.borrow_mut() = false;
+    just_committed && e.key() == "Enter"
+}
+
+/// ダイアログのルート要素に `compositionend` のリスナーを付ける。
+///
+/// yew の `html!` は `oncompositionend` をイベントとして扱わず文字列属性にしてしまい
+/// コンパイルが通らないため、`use_effect_with` から呼んで DOM に直接登録する。
+/// 変換は内側の `<input>` で起きるが、`compositionend` はバブルするのでルートで拾える。
+/// 戻り値を effect の後始末で drop するとリスナーが外れる。
+fn ime_attach_listener(root: &NodeRef, flag: &ImeFlag) -> Option<gloo::events::EventListener> {
+    let el = root.cast::<web_sys::HtmlElement>()?;
+    let flag = flag.clone();
+    Some(gloo::events::EventListener::new(&el, "compositionend", move |_| {
+        ime_mark_committed(&flag)
+    }))
+}
+
 #[derive(Clone, PartialEq)]
 pub struct DialogOption {
     pub id: usize,
@@ -194,6 +240,8 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
     let root_ref = use_node_ref();
     let input_ref = use_node_ref();
     let focused = use_state(|| InputDialogFocus::Input);
+    // IME の変換確定 Enter をダイアログの確定と誤認しないためのフラグ
+    let ime_flag: ImeFlag = use_mut_ref(|| false);
 
     {
         let input_r = input_ref.clone();
@@ -201,6 +249,16 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
             let r = input_r.clone();
             Timeout::new(10, move || { if let Some(el) = r.cast::<web_sys::HtmlElement>() { let _ = el.focus(); } }).forget();
             || ()
+        });
+    }
+
+    // IME の変換確定を検知する（html! の属性では登録できないため DOM に直接付ける）
+    {
+        let root = root_ref.clone();
+        let ime_flag = ime_flag.clone();
+        use_effect_with((), move |_| {
+            let listener = ime_attach_listener(&root, &ime_flag);
+            move || drop(listener)
         });
     }
 
@@ -233,9 +291,10 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
         let on_cxl = on_cancel.clone();
         let focused = focused.clone();
         let input_r = input_ref.clone();
+        let ime_flag = ime_flag.clone();
         Callback::from(move |e: KeyboardEvent| {
             e.stop_propagation();
-            if e.is_composing() { return; }
+            if ime_should_ignore(&ime_flag, &e) { return; }
             match e.key().as_str() {
                 "Tab" => {
                     e.prevent_default();
@@ -265,7 +324,8 @@ pub fn input_dialog(props: &InputDialogProps) -> Html {
 
     html! {
         <div
-            ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()}
+            ref={root_ref} tabindex="0" onkeydown={on_keydown}
+            onclick={|e: MouseEvent| e.stop_propagation()}
             class="fixed inset-0 z-[200] flex items-center justify-center p-4 outline-none pointer-events-auto"
         >
             <div class={classes!(
@@ -465,6 +525,8 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
     let is_fading_out = use_state(|| false);
     let root_ref = use_node_ref();
     let input_ref = use_node_ref();
+    // IME の変換確定 Enter をダイアログの確定と誤認しないためのフラグ
+    let ime_flag: ImeFlag = use_mut_ref(|| false);
 
     {
         let root = root_ref.clone();
@@ -472,6 +534,16 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
             let r = root.clone();
             Timeout::new(10, move || { if let Some(el) = r.cast::<web_sys::HtmlElement>() { let _ = el.focus(); } }).forget();
             || ()
+        });
+    }
+
+    // IME の変換確定を検知する（html! の属性では登録できないため DOM に直接付ける）
+    {
+        let root = root_ref.clone();
+        let ime_flag = ime_flag.clone();
+        use_effect_with((), move |_| {
+            let listener = ime_attach_listener(&root, &ime_flag);
+            move || drop(listener)
         });
     }
 
@@ -505,8 +577,10 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
         let on_cfm = on_confirm.clone();
         let on_cxl = on_cancel.clone();
         let input_r = input_ref.clone();
+        let ime_flag = ime_flag.clone();
         Callback::from(move |e: KeyboardEvent| {
             e.stop_propagation();
+            if ime_should_ignore(&ime_flag, &e) { return; }
             match e.key().as_str() {
                 "ArrowUp" => {
                     e.prevent_default();
@@ -555,7 +629,8 @@ pub fn name_conflict_dialog(props: &NameConflictDialogProps) -> Html {
 
     html! {
         <div
-            ref={root_ref} tabindex="0" onkeydown={on_keydown} onclick={|e: MouseEvent| e.stop_propagation()}
+            ref={root_ref} tabindex="0" onkeydown={on_keydown}
+            onclick={|e: MouseEvent| e.stop_propagation()}
             class="fixed inset-0 z-[200] flex items-center justify-center p-4 outline-none pointer-events-auto"
         >
             <div class={classes!(

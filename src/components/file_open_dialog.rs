@@ -2374,10 +2374,6 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                     <div class={classes!("flex", if *is_wide_layout { vec!["flex-row", "space-x-2", "w-full", "items-center"] } else { vec!["flex-col", "space-y-2", "w-full"] })}>
                         if *is_wide_layout {
                             <div class="flex-1 flex items-center gap-3 select-none">
-                                <button onclick={let ic = props.on_create_category_toggle.clone(); move |_| ic.emit(true)} class="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 transition-all">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" /></svg>
-                                    <span>{ i18n::t("new_category", lang) }</span>
-                                </button>
                                 <button onclick={let on_ref = props.on_refresh.clone(); move |_| on_ref.emit(())} class="flex items-center gap-1 px-2 py-1 rounded text-[11px] font-bold text-gray-400 hover:bg-white/5 transition-all border border-white/10">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                                     <span>{ i18n::t("refresh_categories", lang) }</span>

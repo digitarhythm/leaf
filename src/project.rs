@@ -35,6 +35,13 @@ pub struct Project {
     /// 所属シートの `Sheet.guid`。追加順を保持し、タブを開く順序になる。
     #[serde(default)]
     pub sheets: Vec<String>,
+    /// タブとして開いている所属シートの guid。
+    ///
+    /// 設定ファイルに保存し、プロジェクトを開いた時や起動時の復元では
+    /// ここに入っているシートだけを Drive から読み込む（端末をまたいで同じになる）。
+    /// 旧形式のファイルには無いため、欠けていれば空として読む。
+    #[serde(default)]
+    pub open_sheets: Vec<String>,
     #[serde(default)]
     pub created_at: u64,
     #[serde(default)]
@@ -62,6 +69,18 @@ impl Project {
             .collect()
     }
 
+    /// 復元で開くべき guid を `sheets` の登録順で返す。
+    /// `open_sheets` に残っていても所属から外れている guid は無視する。
+    pub fn open_sheets_to_restore(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        self.sheets
+            .iter()
+            .filter(|guid| self.open_sheets.iter().any(|open| open == *guid))
+            // 同じ guid が二重に登録されていても 1 回だけ返す
+            .filter(|guid| seen.insert((*guid).clone()))
+            .cloned()
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -175,6 +194,7 @@ impl ProjectStore {
             name,
             memo: memo.trim().to_string(),
             sheets: Vec::new(),
+            open_sheets: Vec::new(),
             created_at: now,
             updated_at: now,
         };
@@ -210,6 +230,7 @@ impl ProjectStore {
                 name: String::new(),
                 memo: String::new(),
                 sheets: Vec::new(),
+                open_sheets: Vec::new(),
                 created_at: now,
                 updated_at: now,
             },
@@ -240,6 +261,8 @@ impl ProjectStore {
         let project = self.find_mut(project_id)?;
         if let Some(pos) = project.sheets.iter().position(|s| s == sheet_guid) {
             project.sheets.remove(pos);
+            // 所属から外れたシートは「開いている」状態も持てない
+            project.open_sheets.retain(|s| s != sheet_guid);
             project.updated_at = now;
             Some(false)
         } else {
@@ -257,12 +280,42 @@ impl ProjectStore {
                 project.sheets.retain(|s| s != sheet_guid);
                 let changed = project.sheets.len() != before;
                 if changed {
+                    // 所属から外れたシートは「開いている」状態も持てない
+                    project.open_sheets.retain(|s| s != sheet_guid);
                     project.updated_at = now;
                 }
                 changed
             }
             None => false,
         }
+    }
+
+    /// シートを「開いている」状態にする／外す。
+    ///
+    /// 変化があれば `Some(true)`、無ければ `Some(false)`、プロジェクトが無ければ `None`。
+    /// `open = true` は所属シートにしか付けない（所属していない guid は無視する）。
+    /// 変化があった時だけ `updated_at` を更新する。
+    ///
+    pub fn set_sheet_open(&mut self, project_id: &str, sheet_guid: &str, open: bool, now: u64) -> Option<bool> {
+        let project = self.find_mut(project_id)?;
+        let changed = if open {
+            let is_member = project.sheets.iter().any(|s| s == sheet_guid);
+            let already = project.open_sheets.iter().any(|s| s == sheet_guid);
+            if is_member && !already {
+                project.open_sheets.push(sheet_guid.to_string());
+                true
+            } else {
+                false
+            }
+        } else {
+            let before = project.open_sheets.len();
+            project.open_sheets.retain(|s| s != sheet_guid);
+            project.open_sheets.len() != before
+        };
+        if changed {
+            project.updated_at = now;
+        }
+        Some(changed)
     }
 
     /// 本文プレビューのキャッシュを更新する。
@@ -295,7 +348,9 @@ impl ProjectStore {
         for project in self.projects.iter_mut() {
             let before = project.sheets.len();
             project.sheets.retain(|s| existing.contains(s));
-            if project.sheets.len() != before {
+            let before_open = project.open_sheets.len();
+            project.open_sheets.retain(|s| existing.contains(s));
+            if project.sheets.len() != before || project.open_sheets.len() != before_open {
                 project.updated_at = now;
                 changed = true;
             }
@@ -739,5 +794,119 @@ mod tests {
         assert!(ProjectStore::from_json("").projects.is_empty());
         assert!(ProjectStore::from_json("{ broken").projects.is_empty());
         assert!(ProjectStore::from_json("[]").projects.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // 開いているシートの保持（docs/PROJECT_SHEET_ON_DEMAND_SPEC.md §4-2）
+    // -----------------------------------------------------------------------
+
+    fn store_with_sheets(id: &str, sheets: &[&str]) -> ProjectStore {
+        let mut store = store_with(&[(id, "Alpha")]);
+        for guid in sheets {
+            store.toggle_sheet(id, guid, T0);
+        }
+        store
+    }
+
+    fn open_sheets_of(store: &ProjectStore, id: &str) -> Vec<String> {
+        store.find(id).unwrap().open_sheets.clone()
+    }
+
+    // 規則 1
+    #[test]
+    fn open_sheets_default_to_empty_when_missing_in_json() {
+        let json = r#"{ "projects": [ { "id": "id-1", "name": "Alpha", "sheets": ["guid-a"] } ] }"#;
+        let store = ProjectStore::from_json(json);
+        assert!(open_sheets_of(&store, "id-1").is_empty());
+    }
+
+    // 規則 2
+    #[test]
+    fn set_sheet_open_marks_a_member_sheet_once() {
+        let mut store = store_with_sheets("id-1", &["guid-a"]);
+        assert_eq!(store.set_sheet_open("id-1", "guid-a", true, T1), Some(true));
+        assert_eq!(store.set_sheet_open("id-1", "guid-a", true, T1), Some(false), "二重には付かない");
+        assert_eq!(open_sheets_of(&store, "id-1"), vec!["guid-a"]);
+    }
+
+    // 規則 3
+    #[test]
+    fn set_sheet_open_ignores_sheets_not_in_the_project() {
+        let mut store = store_with_sheets("id-1", &["guid-a"]);
+        assert_eq!(store.set_sheet_open("id-1", "guid-x", true, T1), Some(false));
+        assert!(open_sheets_of(&store, "id-1").is_empty());
+    }
+
+    // 規則 4
+    #[test]
+    fn set_sheet_open_false_clears_the_state() {
+        let mut store = store_with_sheets("id-1", &["guid-a"]);
+        store.set_sheet_open("id-1", "guid-a", true, T0);
+        assert_eq!(store.set_sheet_open("id-1", "guid-a", false, T1), Some(true));
+        assert!(open_sheets_of(&store, "id-1").is_empty());
+        assert_eq!(store.set_sheet_open("id-1", "guid-a", false, T1), Some(false), "無いものを外しても変化なし");
+    }
+
+    // 規則 5
+    #[test]
+    fn set_sheet_open_touches_updated_at_only_on_change() {
+        let mut store = store_with_sheets("id-1", &["guid-a"]);
+        store.set_sheet_open("id-1", "guid-a", true, T1);
+        assert_eq!(store.find("id-1").unwrap().updated_at, T1);
+        store.set_sheet_open("id-1", "guid-a", true, T1 + 1);
+        assert_eq!(store.find("id-1").unwrap().updated_at, T1, "変化が無ければ更新しない");
+    }
+
+    // 規則 2（プロジェクト不在）
+    #[test]
+    fn set_sheet_open_returns_none_for_unknown_project() {
+        let mut store = store_with_sheets("id-1", &["guid-a"]);
+        assert_eq!(store.set_sheet_open("nope", "guid-a", true, T1), None);
+    }
+
+    // 規則 6
+    #[test]
+    fn removing_a_sheet_from_the_project_also_clears_its_open_state() {
+        let mut store = store_with_sheets("id-1", &["guid-a", "guid-b"]);
+        store.set_sheet_open("id-1", "guid-a", true, T0);
+        store.set_sheet_open("id-1", "guid-b", true, T0);
+        // toggle_sheet で所属を外す
+        assert_eq!(store.toggle_sheet("id-1", "guid-a", T1), Some(false));
+        assert_eq!(open_sheets_of(&store, "id-1"), vec!["guid-b"]);
+        // remove_sheet で所属を外す
+        assert!(store.remove_sheet("id-1", "guid-b", T1));
+        assert!(open_sheets_of(&store, "id-1").is_empty());
+    }
+
+    // 規則 6
+    #[test]
+    fn pruning_missing_sheets_also_clears_their_open_state() {
+        let mut store = store_with_sheets("id-1", &["guid-a", "guid-b"]);
+        store.set_sheet_open("id-1", "guid-a", true, T0);
+        store.set_sheet_open("id-1", "guid-b", true, T0);
+        let existing: HashSet<String> = ["guid-b".to_string()].into_iter().collect();
+        assert!(store.prune_missing_sheets(&existing, T1));
+        assert_eq!(open_sheets_of(&store, "id-1"), vec!["guid-b"]);
+    }
+
+    // 規則 7
+    #[test]
+    fn open_sheets_to_restore_follows_registration_order_and_skips_stale_entries() {
+        let mut store = store_with_sheets("id-1", &["g1", "g2", "g3"]);
+        // g3 → g1 の順で開いても、復元は登録順 g1 → g3
+        store.set_sheet_open("id-1", "g3", true, T0);
+        store.set_sheet_open("id-1", "g1", true, T0);
+        // 設定ファイルが手で編集された等で所属に無い guid が混ざっていても無視する
+        store.find_mut("id-1").unwrap().open_sheets.push("stale".to_string());
+        assert_eq!(store.find("id-1").unwrap().open_sheets_to_restore(), vec!["g1", "g3"]);
+    }
+
+    // 規則 8
+    #[test]
+    fn open_state_round_trips_through_json() {
+        let mut store = store_with_sheets("id-1", &["guid-a"]);
+        store.set_sheet_open("id-1", "guid-a", true, T0);
+        let restored = ProjectStore::from_json(&store.to_json());
+        assert_eq!(open_sheets_of(&restored, "id-1"), vec!["guid-a"]);
     }
 }

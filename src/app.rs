@@ -2,6 +2,7 @@ use yew::prelude::*;
 use crate::components::button_bar::ButtonBar;
 use crate::components::status_bar::StatusBar;
 use crate::components::tab_bar::{TabBar, TabInfo, SheetListPanel, ReorderEvent};
+use crate::components::project_sheet_switcher::{build_switcher_items, OpenSheetInput, SwitcherSelection};
 use crate::components::dialog::{CustomDialog, DialogOption, ConfirmDialog, NameConflictDialog, LoadingOverlay};
 use crate::components::file_open_dialog::FileOpenDialog;
 use crate::components::settings_dialog::{SettingsDialog, EmptySaveBehavior};
@@ -821,6 +822,10 @@ fn attach_sheet_to_project(
             changed = true;
         }
     }
+    // 開いた（または初回保存した）シートは、そのプロジェクトで「開いている」状態として保持する
+    if next.set_sheet_open(project_id, sheet_guid, true, now) == Some(true) {
+        changed = true;
+    }
     if next.set_sheet_preview(sheet_guid, content) {
         changed = true;
     }
@@ -1299,6 +1304,12 @@ pub fn app() -> Html {
     // 保存コールバックは長命な effect に捕捉されるため project_store のハンドルが
     // 古くなりうる。ここを経由して、常に最新のストアに対して登録する。
     let pending_project_attach = use_state(|| None::<(String, String, String)>);
+    // 単発の通知ダイアログ（タイトル, 本文）。Alt+R で選んだシートが Drive に無かった時などに使う
+    let notice_dialog = use_state(|| None::<(String, String)>);
+    // 直前の描画でタブとして開いていた所属シートの guid 候補。
+    // ここから消えた guid は「タブが閉じられた」とみなし、設定ファイルの open_sheets から外す。
+    // 起動直後は空なので、復元でタブが増える方向では何も起きない。
+    let open_guid_snapshot = use_mut_ref(|| std::collections::HashSet::<String>::new());
     {
         let apr = active_project_ref.clone();
         let current = workspace.active().to_string();
@@ -4924,12 +4935,18 @@ pub fn app() -> Html {
         let last_sheet = project_last_sheet.clone();
         let os = on_save_cb.clone();
         let switch_cb = on_switch_project_cb.clone();
+        let snapshot_close = open_guid_snapshot.clone();
         Callback::from(move |project_id: String| {
             let project = match ps.find(&project_id) {
                 // デフォルトプロジェクトは閉じられない
                 Some(p) if !p.is_default() => p.clone(),
                 _ => return,
             };
+            // プロジェクトを閉じる＝タブを片付けるだけで「何を開いていたか」は覚えておく。
+            // タブが消えても閉じた扱いにならないよう、先にスナップショットから外しておく
+            snapshot_close
+                .borrow_mut()
+                .retain(|g| !project.sheets.iter().any(|s| s == g));
 
             // 所属シートのうち未保存のものを保存する
             let current = (*rs.borrow()).clone();
@@ -5236,7 +5253,10 @@ pub fn app() -> Html {
                 let mut missing: Vec<String> = Vec::new();
                 for pid in open_ids.iter() {
                     if let Some(project) = store.find(pid) {
-                        for guid in project.missing_sheets(&open_guids) {
+                        // 「開いていた」シートのうち、まだタブになっていないものだけを対象にする
+                        let restore: std::collections::HashSet<String> =
+                            project.open_sheets_to_restore().into_iter().collect();
+                        for guid in project.missing_sheets(&open_guids).into_iter().filter(|g| restore.contains(g)) {
                             if !missing.contains(&guid) {
                                 missing.push(guid);
                             }
@@ -5379,7 +5399,13 @@ pub fn app() -> Html {
             // 未オープン: まだ開いていない所属シートを Drive から読み込む
             let open_guids: std::collections::HashSet<String> =
                 rs.borrow().iter().flat_map(sheet_project_keys_of).collect();
-            let missing = target.missing_sheets(&open_guids);
+            // 所属シート全てではなく、「開いていた」シートのうちまだタブになっていないものだけを読み込む
+            let restore: std::collections::HashSet<String> = target.open_sheets_to_restore().into_iter().collect();
+            let missing: Vec<String> = target
+                .missing_sheets(&open_guids)
+                .into_iter()
+                .filter(|g| restore.contains(g))
+                .collect();
             if missing.is_empty() {
                 // 読み込むものが無い（空のプロジェクト等）場合もここで表示を切り替える
                 activate_project_sheet(
@@ -5519,6 +5545,206 @@ pub fn app() -> Html {
             }
         }
         items
+    };
+
+    // 開いていた所属シートのタブが閉じられたら、設定ファイルの open_sheets からも外す。
+    // 閉じる経路は複数ある（Alt+W / × / ダイアログ経由）ため、個別に処理せず
+    // 「タブとして開いている guid の集合」の変化から検出する。
+    {
+        let snapshot = open_guid_snapshot.clone();
+        let ps_sync = project_store.clone();
+        let folder_sync = (*leaf_data_folder_id).clone();
+        let open_now: Vec<String> = {
+            let mut v: Vec<String> = sheets_ref.borrow().iter().flat_map(sheet_project_keys_of).collect();
+            v.sort();
+            v.dedup();
+            v
+        };
+        use_effect_with(open_now, move |open_now| {
+            let now_set: std::collections::HashSet<String> = open_now.iter().cloned().collect();
+            let closed: Vec<String> = snapshot
+                .borrow()
+                .iter()
+                .filter(|g| !now_set.contains(*g))
+                .cloned()
+                .collect();
+            *snapshot.borrow_mut() = now_set;
+            if !closed.is_empty() {
+                if let Some(app_folder) = folder_sync {
+                    let mut store = (*ps_sync).clone();
+                    let now = js_sys::Date::now() as u64;
+                    let ids: Vec<String> = store.projects.iter().map(|p| p.id.clone()).collect();
+                    let mut changed = false;
+                    for guid in closed.iter() {
+                        for pid in ids.iter() {
+                            if store.set_sheet_open(pid, guid, false, now) == Some(true) {
+                                changed = true;
+                            }
+                        }
+                    }
+                    if changed {
+                        persist_project_store(&ps_sync, store, app_folder);
+                    }
+                }
+            }
+            || ()
+        });
+    }
+
+    // Alt+R で未オープンの所属シートを選んだ時: その 1 件だけ Drive から読み込んで開く
+    let on_open_project_sheet_cb = {
+        let ps = project_store.clone();
+        let cats = categories.clone();
+        let rs = sheets_ref.clone();
+        let s_state = sheets.clone();
+        let aid = active_sheet_id.clone();
+        let aid_ref = active_id_ref.clone();
+        let atid = active_terminal_id.clone();
+        let atref = active_terminal_ref.clone();
+        let il = is_loading.clone();
+        let ifo = is_fading_out.clone();
+        let lmk = loading_message_key.clone();
+        let sp = is_suppressing_changes.clone();
+        let ip = is_preview_visible.clone();
+        let pop = preview_overlay_opacity.clone();
+        let ssf = skip_split_fade.clone();
+        let ts = terminal_split_enabled.clone();
+        let ts_ref = terminal_split_ref.clone();
+        let folder = (*leaf_data_folder_id).clone();
+        let apr = active_project_ref.clone();
+        let sp_map = sheet_project_map.clone();
+        let notice = notice_dialog.clone();
+        Callback::from(move |guid: String| {
+            let project_id = (*apr.borrow()).clone();
+            lmk.set("synchronizing");
+            il.set(true);
+            ifo.set(false);
+            sp.set(true);
+
+            let ps = ps.clone();
+            let cats = (*cats).clone();
+            let rs = rs.clone();
+            let s_state = s_state.clone();
+            let aid = aid.clone();
+            let aid_ref = aid_ref.clone();
+            let atid = atid.clone();
+            let atref = atref.clone();
+            let il = il.clone();
+            let ifo = ifo.clone();
+            let sp = sp.clone();
+            let ip = ip.clone();
+            let pop = pop.clone();
+            let ssf = ssf.clone();
+            let ts = ts.clone();
+            let ts_ref = ts_ref.clone();
+            let folder = folder.clone();
+            let sp_map = sp_map.clone();
+            let notice = notice.clone();
+            spawn_local(async move {
+                // どの経路で抜けても必ずローディングを閉じる
+                let finish_loading = {
+                    let il = il.clone();
+                    let ifo = ifo.clone();
+                    let sp = sp.clone();
+                    move || {
+                        ifo.set(true);
+                        let ifo_final = ifo.clone();
+                        Timeout::new(300, move || {
+                            il.set(false);
+                            sp.set(false);
+                            ifo_final.set(false);
+                        })
+                        .forget();
+                    }
+                };
+                let now = js_sys::Date::now() as u64;
+
+                let by_guid = collect_drive_sheets_by_guid(&cats).await;
+                let loaded = match by_guid.get(&guid) {
+                    Some((drive_id, title, cat_id)) => load_sheet_from_drive(drive_id, title, cat_id).await,
+                    None => None,
+                };
+                let sheet = match loaded {
+                    Some(sheet) => sheet,
+                    None => {
+                        // Drive 上に無い: 通知して、設定ファイルからも外す
+                        let lang = crate::i18n::Language::detect();
+                        notice.set(Some((
+                            i18n::t("file_not_found", lang),
+                            i18n::t("missing_file_message", lang).replace("{}", &guid),
+                        )));
+                        if let Some(app_folder) = folder.clone() {
+                            let existing: std::collections::HashSet<String> = by_guid.keys().cloned().collect();
+                            let mut store = (*ps).clone();
+                            if store.prune_missing_sheets(&existing, now) {
+                                persist_project_store(&ps, store, app_folder);
+                            }
+                        }
+                        finish_loading();
+                        return;
+                    }
+                };
+
+                // 取得中に同じシートが開かれていた場合は、そのタブを使う（二重に開かない）
+                let mut current = (*rs.borrow()).clone();
+                let new_keys = sheet_project_keys_of(&sheet);
+                let existing_id = current
+                    .iter()
+                    .find(|s| {
+                        (s.drive_id.is_some() && s.drive_id == sheet.drive_id)
+                            || sheet_project_keys_of(s).iter().any(|k| new_keys.contains(k))
+                    })
+                    .map(|s| s.id.clone());
+                let target_id = match existing_id {
+                    Some(id) => id,
+                    None => {
+                        current.push(sheet.clone());
+                        *rs.borrow_mut() = current.clone();
+                        s_state.set(current.clone());
+                        let js = sheet.to_js();
+                        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                        if let Ok(v) = js.serialize(&ser) {
+                            let _ = save_sheet(v).await;
+                        }
+                        sheet.id.clone()
+                    }
+                };
+                let (title, content) = current
+                    .iter()
+                    .find(|s| s.id == target_id)
+                    .map(|s| (s.title.clone(), s.content.clone()))
+                    .unwrap_or((sheet.title.clone(), sheet.content.clone()));
+
+                // 所属の対応表と、設定ファイルの「開いている」状態を更新する
+                sp_map.borrow_mut().insert(target_id.clone(), project_id.clone());
+                if let Some(app_folder) = folder.clone() {
+                    let mut store = (*ps).clone();
+                    let mut changed = store.set_sheet_open(&project_id, &guid, true, now) == Some(true);
+                    if store.set_sheet_preview(&guid, &content) {
+                        changed = true;
+                    }
+                    if changed {
+                        persist_project_store(&ps, store, app_folder);
+                    }
+                }
+
+                // 開いたシートを表示する（ファイル選択ダイアログから開いた時と同じ手順）
+                atid.set(None);
+                *atref.borrow_mut() = None;
+                crate::js_interop::activate_sheet_session(&target_id, &content, &title);
+                set_gutter_status("none");
+                aid.set(Some(target_id.clone()));
+                *aid_ref.borrow_mut() = Some(target_id);
+                let title_lc = title.to_lowercase();
+                let is_md_default_preview = title_lc.ends_with(".md") || title_lc.ends_with(".markdown");
+                apply_preview_visibility(&ip, &pop, is_md_default_preview);
+                *ssf.borrow_mut() = true;
+                ts.set(false);
+                *ts_ref.borrow_mut() = false;
+                finish_loading();
+                Timeout::new(150, || focus_editor()).forget();
+            });
+        })
     };
 
     let tab_infos: Vec<TabInfo> = {
@@ -6899,6 +7125,16 @@ pub fn app() -> Html {
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if *is_install_manual_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_manual_title", lang)} message={i18n::t("install_manual_message", lang)} ok_label={i18n::t("ok", lang)} on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)} on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)} /></div> }
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category { let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang); let pending = pending_delete_category.clone(); let on_cfm = on_delete_category_cfm.clone(); Some(html! { <ConfirmDialog title={title} message={message} on_confirm={move |_| { on_cfm.emit(1); }} on_cancel={move |_| { pending.set(None); }} /> }) } else { None } { <div class="pointer-events-auto">{ del_diag }</div> }
+                if let Some((title, message)) = (*notice_dialog).clone() {
+                    <div class="pointer-events-auto">
+                        <CustomDialog
+                            title={title}
+                            message={message}
+                            options={vec![DialogOption { id: 0, label: i18n::t("ok", lang) }]}
+                            on_confirm={let nd = notice_dialog.clone(); Callback::from(move |_: usize| nd.set(None))}
+                        />
+                    </div>
+                }
                 if let Some(conf_diag) = if !conflict_queue.is_empty() { let conflict = conflict_queue.first().unwrap(); let title = if conflict.is_missing_on_drive { i18n::t("file_not_found", lang) } else { i18n::t("conflict_detected", lang) }; let message = if conflict.is_missing_on_drive { i18n::t("missing_file_message", lang).replace("{}", &conflict.title) } else { i18n::t("conflict_message", lang).replace("{}", &conflict.title) }; let options = if conflict.is_missing_on_drive { vec![DialogOption { id: 1, label: i18n::t("opt_reupload", lang) }, DialogOption { id: 3, label: i18n::t("opt_delete_local", lang) }] } else { vec![DialogOption { id: 0, label: i18n::t("opt_load_drive", lang) }, DialogOption { id: 1, label: i18n::t("opt_overwrite_drive", lang) }, DialogOption { id: 2, label: i18n::t("opt_save_new", lang) }] }; let on_cfm = on_conf_cfm.clone(); Some(html! { <CustomDialog title={title} message={message} options={options} on_confirm={on_cfm} /> }) } else { None } { <div class="pointer-events-auto">{ conf_diag }</div> }
                 if let Some(fb_alert) = if let Some(_) = fallback_queue.first() { let on_cfm = on_fallback_cfm.clone(); Some(html! { <CustomDialog title={i18n::t("category_not_found_title", lang)} message={i18n::t("category_not_found_fallback", lang)} options={vec![DialogOption { id: 0, label: i18n::t("ok", lang) }]} on_confirm={on_cfm} on_cancel={let fq = fallback_queue.clone(); Some(Callback::from(move |_| { fq.set(Vec::new()); }))} /> }) } else { None } { <div class="pointer-events-auto">{ fb_alert }</div> }
                 if let Some(nc_diag) = if !name_conflict_queue.is_empty() { let conflict = name_conflict_queue.first().unwrap(); let title = i18n::t("filename_conflict", lang); let message = i18n::t("filename_conflict_message", lang).replace("{}", &conflict.filename); let on_cfm = on_name_conflict_cfm.clone(); let ncq = name_conflict_queue.clone(); let labels = vec![i18n::t("opt_nc_overwrite", lang), i18n::t("opt_nc_new_guid", lang), i18n::t("opt_nc_rename", lang)]; Some(html! { <NameConflictDialog title={title} message={message} current_name={conflict.filename.clone()} labels={labels} on_confirm={on_cfm} on_cancel={move |_| { ncq.set(Vec::new()); }} /> }) } else { None } { <div class="pointer-events-auto">{ nc_diag }</div> }
@@ -7024,35 +7260,43 @@ pub fn app() -> Html {
                     <div class="pointer-events-auto">
                         <crate::components::project_sheet_switcher::ProjectSheetSwitcher
                             // 左上にターミナル、続けて現在のプロジェクトのシートを並べる
-                            sheets={
-                                terminal_tabs.iter()
-                                    .map(|t| crate::components::project_sheet_switcher::SwitcherSheet {
-                                        id: t.id.clone(),
-                                        title: t.title.clone(),
-                                        content: String::new(),
-                                        tab_color: String::new(),
-                                        is_terminal: true,
+                            sheets={{
+                                // ターミナル → オープン済み → 未オープン → 非所属（未保存の新規・ローカル）
+                                let terminals: Vec<(String, String)> =
+                                    terminal_tabs.iter().map(|t| (t.id.clone(), t.title.clone())).collect();
+                                let project_guids: Vec<String> =
+                                    active_project.as_ref().map(|p| p.sheets.clone()).unwrap_or_default();
+                                let open: Vec<OpenSheetInput> = sheets
+                                    .iter()
+                                    // タブに出ているもの（プロジェクトのシート＋ローカルシート）
+                                    .filter(|s| project_tab_ids.contains(&s.id))
+                                    .map(|s| OpenSheetInput {
+                                        id: s.id.clone(),
+                                        guid: s.guid.clone(),
+                                        title: s.title.clone(),
+                                        content: s.content.clone(),
+                                        tab_color: s.tab_color.clone(),
                                     })
-                                    .chain(sheets.iter()
-                                        // タブに出ているもの（プロジェクトのシート＋ローカルシート）
-                                        .filter(|s| project_tab_ids.contains(&s.id))
-                                        .map(|s| crate::components::project_sheet_switcher::SwitcherSheet {
-                                            id: s.id.clone(),
-                                            title: s.title.clone(),
-                                            content: s.content.clone(),
-                                            tab_color: s.tab_color.clone(),
-                                            is_terminal: false,
-                                        }))
-                                    .collect::<Vec<_>>()
-                            }
+                                    .collect();
+                                build_switcher_items(&terminals, &project_guids, &project_store.previews, &open)
+                            }}
                             active_sheet_id={(*active_sheet_id).clone()}
                             close_trigger={*project_switcher_close_trigger}
                             on_select={{
                                 let sv = is_project_switcher_visible.clone();
                                 let ots = on_tab_select_cb.clone();
+                                let open_closed = on_open_project_sheet_cb.clone();
                                 let atref_sel = active_terminal_ref.clone();
-                                Callback::from(move |id: String| {
+                                Callback::from(move |selection: SwitcherSelection| {
                                     sv.set(false);
+                                    let id = match selection {
+                                        // 未オープンの所属シート: Drive から読み込んで開く（フォーカスもそちらで行う）
+                                        SwitcherSelection::Load { guid } => {
+                                            open_closed.emit(guid);
+                                            return;
+                                        }
+                                        SwitcherSelection::Tab(id) => id,
+                                    };
                                     // 表示状態の復元は既存のタブ切り替え処理に任せる
                                     ots.emit(id);
                                     // 選択したシート／ターミナルへ必ずフォーカスを移す。
