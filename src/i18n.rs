@@ -896,6 +896,17 @@ pub fn t(key: &str, lang: Language) -> String {
             Language::Nl => "Actief",
             _ => "Current",
         }.to_string(),
+        "editing_sheet" => match lang {
+            Language::Ja => "編集中",
+            Language::Zh => "编辑中",
+            Language::Ko => "편집 중",
+            Language::Es => "Editando",
+            Language::De => "In Bearbeitung",
+            Language::Fr => "En cours d'édition",
+            Language::It => "In modifica",
+            Language::Nl => "Bewerken",
+            _ => "Editing",
+        }.to_string(),
         "project_name" => match lang {
             Language::Ja => "プロジェクト名",
             Language::Zh => "项目名称",

@@ -3983,6 +3983,7 @@ pub fn app() -> Html {
                 let is_settings_ev = is_settings_visible.clone();
                 let is_fd_sub = is_file_dialog_sub_active.clone(); let is_creating_cat_ev = is_creating_category.clone();
                 let is_ld_ev = is_loading.clone(); let is_fo_ev = is_fading_out.clone();
+                let lmk_ev = loading_message_key.clone();
                 let os_cb_ev = on_save_cb.clone(); let sheets_ev = sheets.clone();
                 let aid_ev = active_sheet_id.clone();
                 let file_close_trigger_ev = file_close_trigger.clone();
@@ -4054,6 +4055,9 @@ pub fn app() -> Html {
                     let oi_c = oi_cb.clone(); let is_drop_c = is_drop_ev.clone();
                     let is_creating_cat_c = is_creating_cat_ev.clone();
                     let os_c = os_cb_ev.clone(); let sheets_c = sheets_ev.clone();
+                    // Alt+Shift+R（Drive からの再読み込み）で既存の同期チェックを呼ぶためのハンドル
+                    let ild_reload = is_ld_ev.clone(); let ifo_reload = is_fo_ev.clone();
+                    let lmk_reload = lmk_ev.clone(); let cq_reload = conflicts.clone();
                     let aid_c = aid_ev.clone();
                     let las_c = local_auto_save_ref_ev.clone();
                     let file_close_trigger_c = file_close_trigger_ev.clone();
@@ -4598,9 +4602,39 @@ pub fn app() -> Html {
                             return;
                         }
 
+                        // Alt + Shift + R: アクティブなシートを Drive から再読み込み。
+                        // 既存の同期チェック（起動時・オンライン復帰時と同じ）を手動で走らせる。
+                        // Drive の方が新しければ置き換え、未保存の編集があれば競合ダイアログ、
+                        // 新しくなければ何もしない。ターミナル／ローカル／未保存の新規シートは対象外。
+                        if modifier_active && is_r_key && ke.shift_key() && !is_overlay_active {
+                            e.prevent_default(); e.stop_immediate_propagation();
+                            let terminal_active = atref_c.borrow().is_some();
+                            let aid_now = (*aid_ref_c.borrow()).clone();
+                            let can_reload = {
+                                let sheets_now = rs_c.borrow();
+                                aid_now
+                                    .as_ref()
+                                    .and_then(|id| sheets_now.iter().find(|s| &s.id == id))
+                                    .map(|s| crate::sheet_reload::can_reload_from_drive(&crate::sheet_reload::ReloadTarget {
+                                        terminal_active,
+                                        drive_id: s.drive_id.as_deref(),
+                                        category: &s.category,
+                                    }))
+                                    .unwrap_or(false)
+                            };
+                            if can_reload {
+                                trigger_conflict_check(
+                                    aid_ref_c.clone(), rs_c.clone(), sheets_c.clone(),
+                                    ild_reload.clone(), ifo_reload.clone(), lmk_reload.clone(),
+                                    None, os_c.clone(), cq_reload.clone(),
+                                );
+                            }
+                            return;
+                        }
+
                         // Alt + R: プロジェクトのシート切り替えダイアログ。
                         // プロジェクトを開いている時だけ有効。
-                        if modifier_active && is_r_key && (!is_overlay_active || switcher_open) {
+                        if modifier_active && is_r_key && !ke.shift_key() && (!is_overlay_active || switcher_open) {
                             e.prevent_default(); e.stop_immediate_propagation();
                             if switcher_open {
                                 // 直接消すとアニメーションが飛ぶため、Esc と同じ

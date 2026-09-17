@@ -7,6 +7,7 @@ mod drive_interop;
 mod i18n;
 mod project;
 mod project_store;
+mod sheet_reload;
 mod tabs;
 mod workspace;
 

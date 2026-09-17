@@ -54,7 +54,7 @@ flowchart TD
 
 1. 現在のプロジェクトの**ターミナル**（現行どおり先頭）
 2. **オープン済み**の所属シートを登録順で（本文を書類カードに描画）
-3. **未オープン**の所属シートを登録順で（プレビューを描画。**タイトルバーの文字をグレー**にする）
+3. **未オープン**の所属シートを登録順で（プレビューを描画。右下のバッジを出さないことで区別する。バッジの規則は `docs/SHEET_RELOAD_AND_SWITCHER_BADGE_SPEC.md` §2）
 4. プロジェクトに属さないが表示中のシート（**未保存の新規シート**、**ローカルシート**）を末尾に
 
 選択時の挙動:
@@ -208,7 +208,7 @@ impl ProjectStore {
 | ファイル | 変更 |
 |---|---|
 | `src/project.rs` | `Project.open_sheets` を追加。`set_sheet_open` / `open_sheets_to_restore`。所属を外す処理（`toggle_sheet` / `remove_sheet` / `prune_missing_sheets`）で `open_sheets` も整理。`missing_sheets` は「まだタブになっていないもの」の抽出に引き続き使い、`open_sheets_to_restore()` と組み合わせて対象を絞る |
-| `src/components/project_sheet_switcher.rs` | `SwitcherItem` / `SwitcherSelection` / `build_switcher_items` を追加。未オープンのカードはタイトルバーの文字をグレーに。`on_select` を `Callback<SwitcherSelection>` へ |
+| `src/components/project_sheet_switcher.rs` | `SwitcherItem` / `SwitcherSelection` / `build_switcher_items` を追加。未オープンのカードは右下のバッジ無し。`on_select` を `Callback<SwitcherSelection>` へ |
 | `src/app.rs` | プロジェクトを開く処理と起動時復元の取得対象を `sheets` → `open_sheets_to_restore()` に変更。Alt+R の `Load` を `on_open_project_sheet_cb` で処理（`collect_drive_sheets_by_guid` + `load_sheet_from_drive` を 1 件に対して使う）。開く経路（Alt+R / Alt+M / 初回保存）は `attach_sheet_to_project` と `on_open_project_sheet_cb` で `set_sheet_open(true)`。タブが閉じられた検出は、描画ごとに「タブとして開いている guid の集合」を控えておき、消えた guid に対して `set_sheet_open(false)` する effect で一元化（閉じる経路が複数あるため）。プロジェクトを閉じる時は先にその集合から外し、閉じた扱いにしない。Drive に無い時の通知は `notice_dialog`（`CustomDialog` の OK 1 択） |
 | `docs/PROJECT_WORKSPACE_SPEC.md` | §6「起動時の復元」の取得対象を `open_sheets` に更新 |
 
@@ -252,7 +252,7 @@ i18n の追加キーは無い（未オープンの表現はバッジではなく
 
 - [ ] プロジェクトを開くと `open_sheets` のシートだけが読み込まれ、それ以外は開かない
 - [ ] `open_sheets` が空のプロジェクトを開くと新規 Untitled が出る
-- [ ] Alt+R に所属シートが全て並び、オープン済み → 未オープンの順。未オープンはタイトルバーの文字がグレー
+- [ ] Alt+R に所属シートが全て並び、オープン済み → 未オープンの順。未オープンは右下のバッジ無し
 - [ ] 未オープンを選ぶと「同期中」→ タブに追加 → アクティブ → フォーカス。設定ファイルに `open_sheets` が書かれる
 - [ ] 所属シートのタブを閉じると `open_sheets` から外れる（別端末で開いた時に戻らない）
 - [ ] プロジェクトを閉じて開き直すと、閉じる前に開いていたシートが戻る

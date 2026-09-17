@@ -124,6 +124,15 @@ pub struct SwitcherItem {
     pub tab_color: String,
 }
 
+/// カードの右下に出すバッジ（docs/SHEET_RELOAD_AND_SWITCHER_BADGE_SPEC.md §2）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwitcherBadge {
+    /// 今アクティブなシート／ターミナル（オレンジ「編集中」）
+    Editing,
+    /// タブで開いているがアクティブではない（緑「表示中」）
+    Open,
+}
+
 /// 選択結果
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SwitcherSelection {
@@ -151,6 +160,16 @@ impl SwitcherItem {
             SwitcherItemKind::ClosedSheet => SwitcherSelection::Load { guid: self.id.clone() },
             SwitcherItemKind::Terminal | SwitcherItemKind::OpenSheet => {
                 SwitcherSelection::Tab(self.id.clone())
+            }
+        }
+    }
+
+    /// カードに出すバッジ。未オープンの所属シートには出さない。
+    pub fn badge(&self, is_active: bool) -> Option<SwitcherBadge> {
+        match self.kind {
+            SwitcherItemKind::ClosedSheet => None,
+            SwitcherItemKind::OpenSheet | SwitcherItemKind::Terminal => {
+                Some(if is_active { SwitcherBadge::Editing } else { SwitcherBadge::Open })
             }
         }
     }
@@ -273,6 +292,8 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
     // ブラウザ版はこのサイズがちょうど良いので変えず、デスクトップ版だけ大きくする
     let head_text_class = if is_desktop { "text-sm" } else { "text-[9px]" };
     let badge_text_class = if is_desktop { "text-[11px]" } else { "text-[8px]" };
+    // 右下の状態バッジ（「編集中」「表示中」）は拡張子バッジより一回り大きくして目に付くようにする
+    let state_badge_text_class = if is_desktop { "text-xs" } else { "text-[10px]" };
     // タイトルバーの高さもデスクトップ版だけ広げる
     let head_pad_class = if is_desktop { "py-1.5" } else { "py-1" };
     // カード内のプレビューの描画は重い（marked / highlight.js）。
@@ -505,8 +526,6 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                             { for props.sheets.iter().enumerate().map(|(i, sheet)| {
                                 let is_sel = i == *selected;
                                 let is_active = props.active_sheet_id.as_deref() == Some(sheet.id.as_str());
-                                // 未オープン（まだタブになっていない所属シート）はタイトルの文字をグレーにする
-                                let is_closed = sheet.kind == SwitcherItemKind::ClosedSheet;
                                 let ext = display_extension(&sheet.title);
                                 let style = DocStyle::from_extension(&ext);
                                 let sel_click = selected.clone();
@@ -535,7 +554,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                             <span class="w-2 h-2 rounded-full flex-shrink-0" style={format!("background-color: {};", sheet.tab_color)}></span>
                                             // 1行目を可能な限り表示する（入り切らない分は省略）
                                             <span class={classes!("flex-1", "min-w-0", "truncate", head_text_class, "font-bold",
-                                                if is_closed { "text-gray-500" } else if is_sel { "text-white" } else { "text-gray-300" })}
+                                                if is_sel { "text-white" } else { "text-gray-300" })}
                                                 title={first_line(sheet)}
                                             >
                                                 { first_line(sheet) }
@@ -583,10 +602,19 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                                 }
                                             }
                                         </div>
-                                        // 現在開いているシートの印
-                                        if is_active {
-                                            <div class={classes!("absolute", "bottom-1", "right-1", "px-1", "py-0.5", "rounded", "bg-emerald-600", "text-white", badge_text_class, "font-black", "uppercase", "tracking-tighter")}>
-                                                { i18n::t("active_sheet", lang) }
+                                        // 右下のバッジ: アクティブは「編集中」（オレンジ）、タブで開いているものは
+                                        // 「表示中」（緑）、未オープンは無し
+                                        if let Some(badge) = sheet.badge(is_active) {
+                                            <div class={classes!("absolute", "bottom-1", "right-1", "px-1.5", "py-1", "rounded", "text-white",
+                                                state_badge_text_class, "font-black", "uppercase", "tracking-tighter",
+                                                match badge {
+                                                    SwitcherBadge::Editing => "bg-orange-500",
+                                                    SwitcherBadge::Open => "bg-emerald-600",
+                                                })}>
+                                                { match badge {
+                                                    SwitcherBadge::Editing => i18n::t("editing_sheet", lang),
+                                                    SwitcherBadge::Open => i18n::t("active_sheet", lang),
+                                                } }
                                             </div>
                                         }
                                     </div>
@@ -971,5 +999,47 @@ mod tests {
         assert_eq!(items[0].selection(), SwitcherSelection::Tab("__TERM__1".to_string()));
         assert_eq!(items[1].selection(), SwitcherSelection::Tab("s1".to_string()));
         assert_eq!(items[2].selection(), SwitcherSelection::Load { guid: "closed".to_string() });
+    }
+
+    // -----------------------------------------------------------------------
+    // バッジ表示（docs/SHEET_RELOAD_AND_SWITCHER_BADGE_SPEC.md §2-3）
+    // -----------------------------------------------------------------------
+
+    fn item(kind: SwitcherItemKind) -> SwitcherItem {
+        SwitcherItem {
+            kind,
+            id: "x".to_string(),
+            title: "x.txt".to_string(),
+            content: String::new(),
+            tab_color: String::new(),
+        }
+    }
+
+    // 規則 1
+    #[test]
+    fn closed_sheet_has_no_badge() {
+        let closed = item(SwitcherItemKind::ClosedSheet);
+        assert_eq!(closed.badge(false), None);
+        // 未オープンがアクティブになることは無いが、万一でもバッジは出さない
+        assert_eq!(closed.badge(true), None);
+    }
+
+    // 規則 2
+    #[test]
+    fn active_open_sheet_shows_editing_badge() {
+        assert_eq!(item(SwitcherItemKind::OpenSheet).badge(true), Some(SwitcherBadge::Editing));
+    }
+
+    // 規則 3
+    #[test]
+    fn inactive_open_sheet_shows_open_badge() {
+        assert_eq!(item(SwitcherItemKind::OpenSheet).badge(false), Some(SwitcherBadge::Open));
+    }
+
+    // 規則 2, 3（ターミナルも同じ扱い）
+    #[test]
+    fn terminals_follow_the_same_badge_rule() {
+        assert_eq!(item(SwitcherItemKind::Terminal).badge(true), Some(SwitcherBadge::Editing));
+        assert_eq!(item(SwitcherItemKind::Terminal).badge(false), Some(SwitcherBadge::Open));
     }
 }

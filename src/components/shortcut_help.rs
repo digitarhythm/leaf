@@ -39,8 +39,15 @@ const CAT_SHEET: &[ShortcutRow] = &[
     ShortcutRow { key: "Opt/Alt + m",         action_ja: "シート選択ダイアログ",      action_en: "Sheet Selection Dialog",  cloud_only: true  },
 ];
 
+const CAT_PROJECT: &[ShortcutRow] = &[
+    ShortcutRow { key: "Opt/Alt + p",         action_ja: "プロジェクトダイアログ（作成・開く・シートの所属）", action_en: "Project Dialog (Create / Open / Membership)", cloud_only: true },
+    ShortcutRow { key: "Opt/Alt + r",         action_ja: "プロジェクトのシート一覧（選んだシートを開く）",     action_en: "Project Sheets (Open Selected Sheet)",       cloud_only: true },
+    ShortcutRow { key: "Opt/Alt + Shift + r", action_ja: "表示中のシートを Google ドライブから再読み込み",   action_en: "Reload Current Sheet from Drive",            cloud_only: true },
+];
+
 const COL1: &[ShortcutCategory] = &[
-    ShortcutCategory { label_ja: "シート操作", label_en: "Sheet", rows: CAT_SHEET },
+    ShortcutCategory { label_ja: "シート操作",       label_en: "Sheet",   rows: CAT_SHEET },
+    ShortcutCategory { label_ja: "プロジェクト",     label_en: "Project", rows: CAT_PROJECT },
 ];
 
 // ── カラム 2 ──────────────────────────────────────
@@ -49,10 +56,14 @@ const CAT_VIEW: &[ShortcutRow] = &[
     ShortcutRow { key: "Opt/Alt + l", action_ja: "プレビュー切り替え（シート）/ スプリット切り替え（ターミナル）", action_en: "Toggle Preview (Sheet) / Split (Terminal)",        cloud_only: false },
     ShortcutRow { key: "Opt/Alt + e", action_ja: "スプリットプレビュー（シート）/ 右ペイン編集（ターミナルスプリット）", action_en: "Split Preview (Sheet) / Edit Pane (Terminal Split)", cloud_only: false },
     ShortcutRow { key: "Opt/Alt + f", action_ja: "検索ダイアログ表示",   action_en: "Show Search Dialog", cloud_only: false },
+    ShortcutRow { key: "↑ / ↓",       action_ja: "プレビューをスクロール（プレビュー表示中）",        action_en: "Scroll Preview (while previewing)",        cloud_only: false },
+    ShortcutRow { key: "PgUp / PgDn / Space", action_ja: "プレビューを半画面ずつスクロール（プレビュー表示中）", action_en: "Scroll Preview by Half Page (while previewing)", cloud_only: false },
+    ShortcutRow { key: "Home / End",  action_ja: "プレビューの先頭 / 末尾へ（プレビュー表示中）",     action_en: "Jump to Top / Bottom of Preview",          cloud_only: false },
 ];
 
 const CAT_TERMINAL: &[ShortcutRow] = &[
-    ShortcutRow { key: "Opt/Alt + t", action_ja: "新規ターミナルを開く（デスクトップ版のみ）", action_en: "New Terminal (Desktop only)", cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + t",         action_ja: "ターミナルを表示 / 次のターミナルへ切り替え（無ければ起動。デスクトップ版のみ）", action_en: "Show / Cycle Terminals (starts one if none; Desktop only)", cloud_only: false },
+    ShortcutRow { key: "Opt/Alt + Shift + t", action_ja: "新規ターミナルを起動（デスクトップ版のみ）",                                    action_en: "New Terminal (Desktop only)",                              cloud_only: false },
 ];
 
 const CAT_SETTINGS: &[ShortcutRow] = &[
