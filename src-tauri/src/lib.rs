@@ -405,6 +405,19 @@ async fn refresh_google_token(refreshToken: String) -> Result<String, String> {
     Err("Failed to refresh token".to_string())
 }
 
+/// Alt+Shift+R: 開いているローカルファイルをパスから読み直す。
+/// 文字コードの扱いは open_local_file_native と同じ（BOM を剥がし、UTF-8 として読む）。
+#[tauri::command]
+async fn read_local_file_native(path: String) -> Result<Value, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("Failed to read file: {}", e))?;
+    let content_slice: &[u8] = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) { &bytes[3..] } else { &bytes[..] };
+    let content = match std::str::from_utf8(content_slice) {
+        Ok(s) => s.to_string(),
+        Err(_) => String::from_utf8_lossy(content_slice).to_string(),
+    };
+    Ok(serde_json::json!({ "content": content }))
+}
+
 #[tauri::command]
 async fn open_local_file_native(app: tauri::AppHandle) -> Result<Value, String> {
     use std::sync::mpsc;
@@ -593,6 +606,7 @@ pub fn run() {
             refresh_google_token,
             log_from_js,
             open_local_file_native,
+            read_local_file_native,
             save_local_file_native,
             open_url_in_browser,
             open_local_page,

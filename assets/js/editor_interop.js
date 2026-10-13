@@ -186,6 +186,42 @@ export async function open_local_file() {
     }
 }
 
+// Alt+Shift+R: 開いているローカルファイルを読み直して本文を返す。読めなければ null。
+// デスクトップ版はパスから、Web 版は保持しているファイルハンドルから読む
+// （ブラウザは最後に開いた／保存したローカルファイルのハンドルを 1 つだけ持つ）。
+export async function reload_local_file(path) {
+    try {
+        if (is_tauri()) {
+            if (!path) return null;
+            const result = await window.__TAURI__.core.invoke('read_local_file_native', { path });
+            return result.content;
+        }
+        if (!localFileHandle) return null;
+        const options = { mode: 'read' };
+        if (await localFileHandle.queryPermission(options) !== 'granted') {
+            if (await localFileHandle.requestPermission(options) !== 'granted') return null;
+        }
+        const file = await localFileHandle.getFile();
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        // open_local_file と同じく UTF-8 を試し、だめなら Shift_JIS
+        let text;
+        try {
+            text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        } catch (e) {
+            text = new TextDecoder('shift-jis').decode(bytes);
+        }
+        return text.replace(/^\uFEFF/, '');
+    } catch (e) {
+        console.error("[Leaf-SYSTEM] Local reload failed:", e);
+        return null;
+    }
+}
+
+// Web 版で保持しているファイルハンドルのファイル名（無ければ空文字）
+export function local_handle_name() {
+    return localFileHandle ? localFileHandle.name : "";
+}
+
 // シート切り替え時などに、アクティブなローカルシートのパスをセットする
 export function set_local_file_path(path) {
     localFilePath = path || null;

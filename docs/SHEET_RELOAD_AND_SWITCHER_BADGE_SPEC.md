@@ -4,67 +4,89 @@
 - 関連仕様: `docs/PROJECT_SHEET_ON_DEMAND_SPEC.md`
 - 状態: **実装済み（2026-09-17）**。テスト 8 件は緑。実機での動作確認待ち（§5）
 
-## 1. Alt+Shift+R: アクティブなシートを Drive から再読み込み
+## 1. Alt+Shift+R: アクティブなシートを読み直す
 
 ### 1-1. 目的
 
-開いているシートが別の端末やブラウザで更新された時、タブを閉じずにその場で
-最新の内容へ更新できるようにする。
+開いているシートが別の場所で更新された時、タブを閉じずにその場で最新の内容へ更新する。
+Google ドライブのシートと、ローカルファイルのシートの両方が対象。
 
 ### 1-2. 動作
 
-既存の同期チェック（`trigger_conflict_check`）を、アクティブなシートに対して手動で走らせる。
-起動時・オンライン復帰時・タブ復帰時と同じ判定なので、挙動は既存と揃う。
-
 ```mermaid
 flowchart TD
-  A["Alt+Shift+R"] --> B{"アクティブなのは<br/>Drive のシート?"}
-  B -->|"ターミナル / ローカル / 未保存"| Z["何もしない"]
-  B -->|"はい"| C["Drive の更新時刻を取得"]
-  C --> D{"Drive の方が新しい?"}
-  D -->|"いいえ（同じ / ローカルが新しい）"| E["何もしない<br/>（ローカルが新しければ既存どおり自動保存）"]
-  D -->|"はい"| F{"ローカルに未保存の編集がある?"}
-  F -->|"ある"| G["競合ダイアログ（既存）<br/>Drive を読む / 上書き / 別名保存"]
-  F -->|"ない"| H["「同期中」を表示して Drive の内容で置き換え<br/>タブは開いたまま、カーソル位置は既存どおり"]
+  A["Alt+Shift+R"] --> B{"どこから読み直せる?<br/>(reload_source)"}
+  B -->|"None"| Z["何もしない"]
+  B -->|"Drive"| C["Drive の本文を取得<br/>（「同期中」を表示）"]
+  B -->|"LocalPath<br/>（デスクトップ版）"| L["パスからファイルを読む"]
+  B -->|"LocalHandle<br/>（Web 版）"| H["保持しているファイルハンドルから読む"]
+  C --> D{"今の本文と比べる<br/>(decide_reload)"}
+  L --> D
+  H --> D
+  D -->|"同じ"| E["何もしない"]
+  D -->|"違う・未保存の編集なし"| F["置き換える"]
+  D -->|"違う・未保存の編集あり"| G["Drive: 既存の競合ダイアログ<br/>ローカル: 確認ダイアログ（読み直す／キャンセル）"]
 ```
 
-| 状態 | 動作 |
-|---|---|
-| ターミナルがアクティブ | 何もしない |
-| ローカルファイルのシート（`__LOCAL__`） | 何もしない（Drive に無い） |
-| 未保存の新規シート（`drive_id` 無し） | 何もしない |
-| Drive のシート、Drive の方が新しい、未保存の編集なし | **「同期中」を出して置き換える** |
-| Drive のシート、Drive の方が新しい、未保存の編集あり | **既存の競合ダイアログ** |
-| Drive のシート、Drive が新しくない | 何もしない（見た目の変化なし） |
+| 状態 | どこから | 動作 |
+|---|---|---|
+| ターミナルがアクティブ | — | 何もしない |
+| 未保存の新規シート（`drive_id` 無し、ローカルでもない） | — | 何もしない |
+| Drive のシート | Drive | 本文を比べて置き換え／競合ダイアログ／何もしない |
+| ローカルファイル、パスあり（デスクトップ版で開いたもの） | パス | 本文を比べて置き換え／確認ダイアログ／何もしない |
+| ローカルファイル、Web 版でハンドルのファイル名がタイトルと一致 | ファイルハンドル | 同上 |
+| ローカルファイル、パスもハンドルも無い | — | 何もしない |
 
-- 「何もしない」ケースでは通知を出さない（既存の自動同期と同じ。必要なら後で追加する）
-- キー判定は既存の Alt+R と同じ `code == "KeyR"` を使い、**Shift の有無で分ける**。
-  macOS で Option+Shift+R が `‰` 等の文字を出しても `code` で拾える
-- Alt+R（Shift なし）の挙動は変えない
-- プレビュー表示中でも有効（Alt+R と同じ扱い）。Alt+R のダイアログ表示中は無効
+- 「何もしない」ケースでは通知を出さない（表示を更新する必要が無いため。レビューで決定）
+- キー判定は既存の Alt+R と同じ `code == "KeyR"` を使い、**Shift の有無で分ける**
+- Alt+R（Shift なし）の挙動は変えない。Alt+R のダイアログ表示中は無効
 
-### 1-3. 判定の純粋関数（`src/sheet_reload.rs`、新規）
+**制約**
+
+- **デスクトップ版**: パス（`Sheet.local_path`）はメモリ上だけの値で IndexedDB に保存していない。
+  **アプリを再起動して復元されたローカルシートはパスが無いため読み直せない**（開き直せば読み直せる）
+- **Web 版**: ブラウザが持つファイルハンドルは**最後に開いた（または保存した）ローカルファイルの 1 つだけ**。
+  それ以外のローカルシートは読み直せない。ハンドルの読み取り権限が切れていれば、ブラウザが許可を求める
+
+**経緯**: v0.31.0 の時点では、私（Claude）の判断でローカルファイルを対象外にしていた。
+レビューで確認していなかったため、v0.31.1 の後に対応した（2026-10-13）。
+
+### 1-3. 判定の純粋関数（`src/sheet_reload.rs`）
 
 ```rust
 pub struct ReloadTarget<'a> {
-    /// ターミナルがアクティブか
     pub terminal_active: bool,
-    /// アクティブなシートの Drive ID
     pub drive_id: Option<&'a str>,
-    /// アクティブなシートのカテゴリ（`__LOCAL__` はローカルファイル）
-    pub category: &'a str,
+    pub category: &'a str,              // `__LOCAL__` はローカルファイル
+    pub local_path: Option<&'a str>,    // デスクトップ版で開いたローカルファイルのパス
+    pub title: &'a str,                 // ローカルファイルではファイル名
+    pub web_handle_name: Option<&'a str>, // Web 版で保持しているハンドルのファイル名
 }
 
-/// Drive から再読み込みできるシートか
-pub fn can_reload_from_drive(target: &ReloadTarget) -> bool;
+pub enum ReloadSource { None, Drive, LocalPath, LocalHandle }
+
+pub fn reload_source(target: &ReloadTarget) -> ReloadSource;
 ```
 
 | # | 規則 |
 |---|---|
-| 1 | ターミナルがアクティブなら false |
-| 2 | `drive_id` が無ければ false（未保存の新規シート） |
-| 3 | カテゴリが `__LOCAL__` なら false（ローカルファイル） |
-| 4 | それ以外（Drive のシート）は true |
+| 1 | ターミナルがアクティブなら None |
+| 2 | ローカルファイル（カテゴリ `__LOCAL__` かパスあり）でパスがあれば LocalPath |
+| 3 | ローカルファイルで、Web 版のハンドルのファイル名がタイトルと一致すれば LocalHandle |
+| 4 | ローカルファイルで、どちらも無ければ None。`drive_id` があっても Drive からは読まない |
+| 5 | ローカルファイルでなく `drive_id` があれば Drive |
+| 6 | それ以外（未保存の新規シート）は None |
+
+テスト: `drive_sheet_reloads_from_drive` / `terminal_active_cannot_reload` /
+`unsaved_sheet_without_drive_id_cannot_reload` / `local_file_with_path_reloads_from_path` /
+`local_file_reloads_from_matching_web_handle` / `local_file_with_other_web_handle_cannot_reload` /
+`local_file_without_path_or_handle_cannot_reload` / `local_file_never_reloads_from_drive`
+
+実装:
+- デスクトップ版の読み込みは Tauri コマンド `read_local_file_native(path)`（`open_local_file_native` と同じ文字コード処理）
+- Web 版の読み込みと両者の振り分けは JS の `reload_local_file(path)`、ハンドル名は `local_handle_name()`
+- Rust 側の本体は `reload_local_sheet`、置き換えは `apply_reloaded_local`、確認ダイアログは `pending_local_reload`
+- 確認ダイアログの文言は i18n キー `reload_local_title` / `reload_local_message` / `opt_reload_from_file`（9 言語）
 
 ### 1-4. 判定の変更（v0.31.0 の不具合修正）
 
@@ -160,7 +182,10 @@ impl SwitcherItem {
 - [ ] 別の端末で更新したシートを開いたまま Alt+Shift+R → 「同期中」が出て内容が置き換わる
 - [ ] 未保存の編集がある状態で Alt+Shift+R → 競合ダイアログが出る
 - [ ] Drive が新しくない時の Alt+Shift+R → 何も起きない（内容が消えたりしない）
-- [ ] ターミナル / ローカルファイル / 未保存の新規シートで Alt+Shift+R → 何も起きない
+- [ ] ターミナル / 未保存の新規シートで Alt+Shift+R → 何も起きない
+- [ ] （デスクトップ版）開いたローカルファイルを外部のエディタで書き換えて Alt+Shift+R → 置き換わる
+- [ ] （デスクトップ版）未保存の編集がある状態で Alt+Shift+R → 確認ダイアログ。「読み直す」で置き換わり、「キャンセル」で何も変わらない
+- [ ] （Web 版）最後に開いたローカルファイルで同様に置き換わる。別のローカルシートでは何も起きない
 - [ ] Alt+R（Shift なし）は従来どおりダイアログが開閉する
 - [ ] Alt+R のカード: アクティブは大きめのオレンジ「編集中」、他の開いているタブは同じ大きさの緑「表示中」、未オープンはバッジ無し（タイトルのグレー表示は無くなっている）
 - [ ] ターミナルのカードも同じ規則

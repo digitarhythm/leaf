@@ -979,6 +979,66 @@ async fn apply_moved_file_stamps(rs: &Rc<RefCell<Vec<Sheet>>>, s_state: &UseStat
     s_state.set(us);
 }
 
+/// ローカルファイルから読み直した本文でシートを置き換える
+fn apply_reloaded_local(
+    s_ref: &Rc<RefCell<Vec<Sheet>>>,
+    s_state: &UseStateHandle<Vec<Sheet>>,
+    sheet_id: &str,
+    content: String,
+) {
+    let len = content.len() as u64;
+    let mut us = (*s_ref.borrow()).clone();
+    if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) {
+        s.content = content.clone();
+        s.temp_content = None;
+        s.temp_timestamp = None;
+        s.is_modified = false;
+        s.loaded_bytes = len;
+        s.total_size = len;
+        let ser = serde_wasm_bindgen::Serializer::json_compatible();
+        if let Ok(v) = s.to_js().serialize(&ser) {
+            spawn_local(async move { let _ = save_sheet(v).await; });
+        }
+    }
+    *s_ref.borrow_mut() = us.clone();
+    s_state.set(us);
+    crate::js_interop::update_sheet_content_external(sheet_id, &content);
+    set_gutter_status("local");
+}
+
+/// Alt+Shift+R: アクティブなローカルファイルのシートを読み直す。
+/// デスクトップ版はパスから、Web 版は保持しているファイルハンドルから読む。
+/// 本文が同じなら何もしない。違っていて未保存の編集が無ければ置き換え、あれば確認ダイアログ。
+async fn reload_local_sheet(
+    sheet_id: String,
+    path: Option<String>,
+    s_ref: Rc<RefCell<Vec<Sheet>>>,
+    s_state: UseStateHandle<Vec<Sheet>>,
+    pending: UseStateHandle<Option<(String, String, String)>>,
+) {
+    use crate::sheet_reload::{decide_reload, ReloadDecision};
+    let sheet = match (*s_ref.borrow()).iter().find(|s| s.id == sheet_id).cloned() {
+        Some(s) => s,
+        None => return,
+    };
+    let local = get_editor_content().as_string().unwrap_or_else(|| sheet.content.clone());
+    let has_local_edit = sheet.is_modified || local != sheet.content;
+    let fetched = match crate::js_interop::reload_local_file(path.as_deref().unwrap_or("")).await.as_string() {
+        Some(c) => c,
+        None => {
+            gloo::console::warn!("[Leaf-SYSTEM] Local reload: could not read the file.");
+            return;
+        }
+    };
+    let decision = decide_reload(&local, &fetched, has_local_edit);
+    gloo::console::log!(format!("[Leaf-SYSTEM] Local reload: decision={:?}, has_local_edit={}", decision, has_local_edit));
+    match decision {
+        ReloadDecision::NoChange => {}
+        ReloadDecision::Replace => apply_reloaded_local(&s_ref, &s_state, &sheet_id, fetched),
+        ReloadDecision::Conflict => pending.set(Some((sheet_id, sheet.title.clone(), fetched))),
+    }
+}
+
 /// Alt+Shift+R: アクティブなシートを Drive から読み直す。
 ///
 /// バックグラウンドの同期チェック（`trigger_conflict_check`）は更新時刻とファイルサイズで
@@ -1406,6 +1466,8 @@ pub fn app() -> Html {
     let pending_project_attach = use_state(|| None::<(String, String, String)>);
     // 単発の通知ダイアログ（タイトル, 本文）。Alt+R で選んだシートが Drive に無かった時などに使う
     let notice_dialog = use_state(|| None::<(String, String)>);
+    // ローカルファイルの再読み込みで未保存の編集と食い違った時の確認（シートID, タイトル, 読み直した本文）
+    let pending_local_reload = use_state(|| None::<(String, String, String)>);
     // 直前の描画でタブとして開いていた所属シートの guid 候補。
     // ここから消えた guid は「タブが閉じられた」とみなし、設定ファイルの open_sheets から外す。
     // 起動直後は空なので、復元でタブが増える方向では何も起きない。
@@ -4084,6 +4146,7 @@ pub fn app() -> Html {
                 let is_fd_sub = is_file_dialog_sub_active.clone(); let is_creating_cat_ev = is_creating_category.clone();
                 let is_ld_ev = is_loading.clone(); let is_fo_ev = is_fading_out.clone();
                 let lmk_ev = loading_message_key.clone();
+                let plr_ev = pending_local_reload.clone();
                 let os_cb_ev = on_save_cb.clone(); let sheets_ev = sheets.clone();
                 let aid_ev = active_sheet_id.clone();
                 let file_close_trigger_ev = file_close_trigger.clone();
@@ -4158,6 +4221,7 @@ pub fn app() -> Html {
                     // Alt+Shift+R（Drive からの再読み込み）で既存の同期チェックを呼ぶためのハンドル
                     let ild_reload = is_ld_ev.clone(); let ifo_reload = is_fo_ev.clone();
                     let lmk_reload = lmk_ev.clone(); let cq_reload = conflicts.clone();
+                    let plr_reload = plr_ev.clone();
                     let aid_c = aid_ev.clone();
                     let las_c = local_auto_save_ref_ev.clone();
                     let file_close_trigger_c = file_close_trigger_ev.clone();
@@ -4702,32 +4766,50 @@ pub fn app() -> Html {
                             return;
                         }
 
-                        // Alt + Shift + R: アクティブなシートを Drive から再読み込み。
-                        // 既存の同期チェック（起動時・オンライン復帰時と同じ）を手動で走らせる。
-                        // Drive の方が新しければ置き換え、未保存の編集があれば競合ダイアログ、
-                        // 新しくなければ何もしない。ターミナル／ローカル／未保存の新規シートは対象外。
+                        // Alt + Shift + R: アクティブなシートを読み直す。
+                        // Drive のシートは Drive から、ローカルファイルはパス（デスクトップ版）か
+                        // 保持しているファイルハンドル（Web 版）から読み、今の本文と比べる。
+                        // 同じなら何もしない、違っていて未保存の編集が無ければ置き換え、あれば確認。
                         if modifier_active && is_r_key && ke.shift_key() && !is_overlay_active {
                             e.prevent_default(); e.stop_immediate_propagation();
+                            use crate::sheet_reload::{reload_source, ReloadSource, ReloadTarget};
                             let terminal_active = atref_c.borrow().is_some();
                             let aid_now = (*aid_ref_c.borrow()).clone();
-                            let can_reload = {
+                            let web_handle = if crate::js_interop::is_tauri() { String::new() } else { crate::js_interop::local_handle_name() };
+                            let (source, local_path) = {
                                 let sheets_now = rs_c.borrow();
-                                aid_now
-                                    .as_ref()
-                                    .and_then(|id| sheets_now.iter().find(|s| &s.id == id))
-                                    .map(|s| crate::sheet_reload::can_reload_from_drive(&crate::sheet_reload::ReloadTarget {
-                                        terminal_active,
-                                        drive_id: s.drive_id.as_deref(),
-                                        category: &s.category,
-                                    }))
-                                    .unwrap_or(false)
+                                match aid_now.as_ref().and_then(|id| sheets_now.iter().find(|s| &s.id == id)) {
+                                    Some(s) => (
+                                        reload_source(&ReloadTarget {
+                                            terminal_active,
+                                            drive_id: s.drive_id.as_deref(),
+                                            category: &s.category,
+                                            local_path: s.local_path.as_deref(),
+                                            title: &s.title,
+                                            web_handle_name: if web_handle.is_empty() { None } else { Some(web_handle.as_str()) },
+                                        }),
+                                        s.local_path.clone(),
+                                    ),
+                                    None => (ReloadSource::None, None),
+                                }
                             };
-                            gloo::console::log!(format!("[Leaf-SYSTEM] Reload requested: can_reload={}, terminal_active={}", can_reload, terminal_active));
-                            if let (true, Some(sheet_id)) = (can_reload, aid_now) {
-                                spawn_local(reload_sheet_from_drive(
-                                    sheet_id, rs_c.clone(), sheets_c.clone(),
-                                    ild_reload.clone(), ifo_reload.clone(), lmk_reload.clone(), cq_reload.clone(),
-                                ));
+                            gloo::console::log!(format!(
+                                "[Leaf-SYSTEM] Reload requested: source={:?}, terminal_active={}, local_path={:?}, web_handle={:?}",
+                                source, terminal_active, local_path, web_handle,
+                            ));
+                            match (source, aid_now) {
+                                (ReloadSource::Drive, Some(sheet_id)) => {
+                                    spawn_local(reload_sheet_from_drive(
+                                        sheet_id, rs_c.clone(), sheets_c.clone(),
+                                        ild_reload.clone(), ifo_reload.clone(), lmk_reload.clone(), cq_reload.clone(),
+                                    ));
+                                }
+                                (ReloadSource::LocalPath | ReloadSource::LocalHandle, Some(sheet_id)) => {
+                                    spawn_local(reload_local_sheet(
+                                        sheet_id, local_path, rs_c.clone(), sheets_c.clone(), plr_reload.clone(),
+                                    ));
+                                }
+                                _ => {}
                             }
                             return;
                         }
@@ -7259,6 +7341,30 @@ pub fn app() -> Html {
                 if *is_install_confirm_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_title", lang)} message={i18n::t("install_confirm", lang)} on_confirm={let ic = is_install_confirm_visible.clone(); move |_| { ic.set(false); spawn_local(async move { crate::js_interop::trigger_pwa_install().await; }); }} on_cancel={let ic = is_install_confirm_visible.clone(); move |_| ic.set(false)} /></div> }
                 if *is_install_manual_visible { <div class="pointer-events-auto"><ConfirmDialog title={i18n::t("install_manual_title", lang)} message={i18n::t("install_manual_message", lang)} ok_label={i18n::t("ok", lang)} on_confirm={let im = is_install_manual_visible.clone(); move |_| im.set(false)} on_cancel={let im = is_install_manual_visible.clone(); move |_| im.set(false)} /></div> }
                 if let Some(del_diag) = if let Some(_) = *pending_delete_category { let title = i18n::t("delete", lang); let message = i18n::t("confirm_delete_category", lang); let pending = pending_delete_category.clone(); let on_cfm = on_delete_category_cfm.clone(); Some(html! { <ConfirmDialog title={title} message={message} on_confirm={move |_| { on_cfm.emit(1); }} on_cancel={move |_| { pending.set(None); }} /> }) } else { None } { <div class="pointer-events-auto">{ del_diag }</div> }
+                if let Some((sid, title, content)) = (*pending_local_reload).clone() {
+                    <div class="pointer-events-auto">
+                        <CustomDialog
+                            title={i18n::t("reload_local_title", lang)}
+                            message={i18n::t("reload_local_message", lang).replace("{}", &title)}
+                            options={vec![
+                                DialogOption { id: 0, label: i18n::t("opt_reload_from_file", lang) },
+                                DialogOption { id: 1, label: i18n::t("cancel", lang) },
+                            ]}
+                            on_confirm={{
+                                let plr = pending_local_reload.clone();
+                                let rs = sheets_ref.clone();
+                                let ss = sheets.clone();
+                                Callback::from(move |opt: usize| {
+                                    plr.set(None);
+                                    if opt == 0 {
+                                        apply_reloaded_local(&rs, &ss, &sid, content.clone());
+                                    }
+                                })
+                            }}
+                            on_cancel={Some({ let plr = pending_local_reload.clone(); Callback::from(move |_: ()| plr.set(None)) })}
+                        />
+                    </div>
+                }
                 if let Some((title, message)) = (*notice_dialog).clone() {
                     <div class="pointer-events-auto">
                         <CustomDialog
