@@ -41,6 +41,7 @@ const CAT_SHEET: &[ShortcutRow] = &[
 
 const CAT_PROJECT: &[ShortcutRow] = &[
     ShortcutRow { key: "Opt/Alt + p",         action_ja: "プロジェクトダイアログ（作成・開く・シートの所属）", action_en: "Project Dialog (Create / Open / Membership)", cloud_only: true },
+    ShortcutRow { key: "Opt/Alt + Shift + p", action_ja: "プロジェクトダイアログ（Opt + p が OS に取られる環境向け）", action_en: "Project Dialog (when Opt + p is taken by the OS)", cloud_only: true },
     ShortcutRow { key: "Opt/Alt + r",         action_ja: "プロジェクトのシート一覧（選んだシートを開く）",     action_en: "Project Sheets (Open Selected Sheet)",       cloud_only: true },
     ShortcutRow { key: "Opt/Alt + Shift + r", action_ja: "表示中のシートを Google ドライブから再読み込み",   action_en: "Reload Current Sheet from Drive",            cloud_only: true },
 ];

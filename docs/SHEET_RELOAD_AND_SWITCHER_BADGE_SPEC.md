@@ -66,6 +66,28 @@ pub fn can_reload_from_drive(target: &ReloadTarget) -> bool;
 | 3 | カテゴリが `__LOCAL__` なら false（ローカルファイル） |
 | 4 | それ以外（Drive のシート）は true |
 
+### 1-4. 判定の変更（v0.31.0 の不具合修正）
+
+v0.31.0 では既存の同期チェック（`trigger_conflict_check`）を流用していたが、これは
+バックグラウンド用の推測で判定するため、手動の再読み込みでは取りこぼしが出た。
+
+- Drive のファイルサイズが前回同期時と同じなら「名前変更などのメタデータ変更」とみなして読み込まない
+  → 1 文字の書き換えなど、**バイト数が変わらない編集が反映されない**
+- 更新時刻の比較（Drive の時刻 > 最終同期 + 1 秒）にも依存する
+
+手動の再読み込みは専用の `reload_sheet_from_drive`（`src/app.rs`）で行い、**Drive の本文を実際に取得して
+今の本文（エディタの内容）と比べる**。判定は `sheet_reload::decide_reload`。
+
+| # | 規則 |
+|---|---|
+| 1 | 本文が同じなら NoChange（同期時刻だけ追従する） |
+| 2 | 違っていて、未保存の編集が無ければ Replace（「同期中」を出して置き換える） |
+| 3 | 違っていて、未保存の編集があれば Conflict（既存の競合ダイアログ） |
+
+未保存の編集の有無は `is_modified` / `temp_timestamp` / エディタの内容とシートの内容の差で判定する。
+テスト: `same_content_needs_no_change` / `different_content_without_local_edit_is_replaced` /
+`same_size_edit_is_still_detected` / `different_content_with_local_edit_goes_to_conflict`
+
 ## 2. Alt+R ダイアログのバッジ表示
 
 ### 2-1. 目的

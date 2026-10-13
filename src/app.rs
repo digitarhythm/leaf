@@ -979,6 +979,106 @@ async fn apply_moved_file_stamps(rs: &Rc<RefCell<Vec<Sheet>>>, s_state: &UseStat
     s_state.set(us);
 }
 
+/// Alt+Shift+R: アクティブなシートを Drive から読み直す。
+///
+/// バックグラウンドの同期チェック（`trigger_conflict_check`）は更新時刻とファイルサイズで
+/// 推測するため、サイズが変わらない編集を「名前変更などのメタデータ変更」とみなして
+/// 取りこぼす。手動の時は Drive の本文を実際に取得し、今の本文と比べて決める。
+async fn reload_sheet_from_drive(
+    sheet_id: String,
+    s_ref: Rc<RefCell<Vec<Sheet>>>,
+    s_state: UseStateHandle<Vec<Sheet>>,
+    ild: UseStateHandle<bool>,
+    ifo: UseStateHandle<bool>,
+    lmk: UseStateHandle<&'static str>,
+    conflict_queue: UseStateHandle<Vec<ConflictData>>,
+) {
+    use crate::sheet_reload::{decide_reload, ReloadDecision};
+    let sheet = match (*s_ref.borrow()).iter().find(|s| s.id == sheet_id).cloned() {
+        Some(s) => s,
+        None => return,
+    };
+    let drive_id = match sheet.drive_id.clone() {
+        Some(d) => d,
+        None => return,
+    };
+    // エディタの内容が最新（シートの content は保存時にしか更新されないことがある）
+    let local = get_editor_content().as_string().unwrap_or_else(|| sheet.content.clone());
+    let has_local_edit = sheet.is_modified || sheet.temp_timestamp.is_some() || local != sheet.content;
+
+    lmk.set("synchronizing");
+    ild.set(true);
+    ifo.set(false);
+    let finish = {
+        let ild = ild.clone();
+        let ifo = ifo.clone();
+        move || {
+            ifo.set(true);
+            let ifo_final = ifo.clone();
+            Timeout::new(300, move || { ild.set(false); ifo_final.set(false); }).forget();
+        }
+    };
+
+    let time_str = match get_file_metadata(&drive_id).await {
+        Ok(meta) => js_sys::Reflect::get(&meta, &JsValue::from_str("modifiedTime"))
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default(),
+        Err(_) => {
+            gloo::console::warn!("[Leaf-SYSTEM] Reload: failed to get metadata.");
+            finish();
+            return;
+        }
+    };
+    let drive_time = crate::drive_interop::parse_date(&time_str) as u64;
+    let bytes = match download_file(&drive_id, None, None).await {
+        Ok(cv) => js_sys::Uint8Array::new(&cv).to_vec(),
+        Err(_) => {
+            gloo::console::warn!("[Leaf-SYSTEM] Reload: failed to download.");
+            finish();
+            return;
+        }
+    };
+    let drive_content = String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string();
+    let decision = decide_reload(&local, &drive_content, has_local_edit);
+    gloo::console::log!(format!("[Leaf-SYSTEM] Reload: decision={:?}, has_local_edit={}", decision, has_local_edit));
+
+    match decision {
+        ReloadDecision::NoChange => {
+            update_sync_timestamp(&s_ref, &s_state, &sheet_id, drive_time).await;
+        }
+        ReloadDecision::Replace => {
+            let content_len = drive_content.len() as u64;
+            let mut us = (*s_ref.borrow()).clone();
+            if let Some(s) = us.iter_mut().find(|x| x.id == sheet_id) {
+                s.content = drive_content.clone();
+                s.temp_content = None;
+                s.temp_timestamp = None;
+                s.last_sync_timestamp = Some(drive_time);
+                s.is_modified = false;
+                s.loaded_bytes = content_len;
+                s.total_size = content_len;
+                let ser = serde_wasm_bindgen::Serializer::json_compatible();
+                if let Ok(v) = s.to_js().serialize(&ser) { let _ = save_sheet(v).await; }
+            }
+            *s_ref.borrow_mut() = us.clone();
+            s_state.set(us);
+            crate::js_interop::update_sheet_content_external(&sheet_id, &drive_content);
+        }
+        ReloadDecision::Conflict => {
+            let mut q = (*conflict_queue).clone();
+            if !q.iter().any(|c| c.sheet_id == sheet_id) {
+                q.push(ConflictData {
+                    sheet_id: sheet_id.clone(), title: sheet.title.clone(), drive_id: drive_id.clone(),
+                    local_content: local, drive_time, time_str, is_missing_on_drive: false,
+                });
+                conflict_queue.set(q);
+            }
+        }
+    }
+    finish();
+}
+
 fn trigger_conflict_check(
     aid_ref: Rc<RefCell<Option<String>>>,
     s_ref: Rc<RefCell<Vec<Sheet>>>,
@@ -4622,12 +4722,12 @@ pub fn app() -> Html {
                                     }))
                                     .unwrap_or(false)
                             };
-                            if can_reload {
-                                trigger_conflict_check(
-                                    aid_ref_c.clone(), rs_c.clone(), sheets_c.clone(),
-                                    ild_reload.clone(), ifo_reload.clone(), lmk_reload.clone(),
-                                    None, os_c.clone(), cq_reload.clone(),
-                                );
+                            gloo::console::log!(format!("[Leaf-SYSTEM] Reload requested: can_reload={}, terminal_active={}", can_reload, terminal_active));
+                            if let (true, Some(sheet_id)) = (can_reload, aid_now) {
+                                spawn_local(reload_sheet_from_drive(
+                                    sheet_id, rs_c.clone(), sheets_c.clone(),
+                                    ild_reload.clone(), ifo_reload.clone(), lmk_reload.clone(), cq_reload.clone(),
+                                ));
                             }
                             return;
                         }
