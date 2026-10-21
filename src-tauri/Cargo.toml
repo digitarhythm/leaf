@@ -1,6 +1,6 @@
 [package]
 name = "leaf-app"
-version = "0.31.2"
+version = "0.31.3"
 description = "Leaf - A Minimal Text Editor"
 authors = ["you"]
 license = ""
@@ -44,6 +44,8 @@ portable-pty = "0.8"
 once_cell = "1"
 base64 = "0.22"
 dirs = "6"
+# ターミナルの OSC 52（tmux のコピー）を OS のクリップボードへ書き込むため
+arboard = "3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

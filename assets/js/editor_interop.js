@@ -1009,7 +1009,33 @@ function xtermAsset(path) {
     return new URL(path, document.baseURI).href;
 }
 
+// OSC 52（tmux / vim からのクリップボード書き込み要求）の解釈。assets/js/osc52.js
+let _parseOsc52 = null;
+
+// OSC 52 の受け口。書き込み要求の本文を OS のクリップボードへ渡す。
+// WebView の navigator.clipboard は、ユーザー操作の直後でないと拒否されるため
+// （端末の出力として届く OSC 52 は操作に紐付かない）、Rust 側で書き込む。
+// 読み出し要求（?）には応じない。docs/TERMINAL_OSC52_SPEC.md
+function registerOsc52(terminal) {
+    if (!_parseOsc52 || !terminal.parser) return;
+    terminal.parser.registerOscHandler(52, (data) => {
+        const result = _parseOsc52(data);
+        if (result.action === 'write') {
+            window.__TAURI__?.core?.invoke('write_clipboard_native', { text: result.text })
+                .catch((e) => console.error('[Leaf-SYSTEM] OSC 52 clipboard write failed:', e));
+        }
+        return true;
+    });
+}
+
 async function ensureXtermLoaded() {
+    if (!_parseOsc52) {
+        try {
+            _parseOsc52 = (await import(xtermAsset('assets/js/osc52.js'))).parseOsc52;
+        } catch (e) {
+            console.error('[Leaf-SYSTEM] Failed to load OSC 52 parser:', e);
+        }
+    }
     if (window.Terminal) return;
     await new Promise((resolve, reject) => {
         const link = document.createElement('link');
@@ -1158,6 +1184,7 @@ export async function terminal_open(id, containerId, cols, rows) {
         terminal.loadAddon(fitAddon);
     }
     terminal.open(wrapper);
+    registerOsc52(terminal);
     if (fitAddon) setTimeout(() => fitAddon.fit(), 100);
 
     const fitCols = terminal.cols || cols || 80;

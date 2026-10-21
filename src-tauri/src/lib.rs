@@ -405,6 +405,14 @@ async fn refresh_google_token(refreshToken: String) -> Result<String, String> {
     Err("Failed to refresh token".to_string())
 }
 
+/// ターミナルの OSC 52（tmux / vim からのコピー）を OS のクリップボードへ書き込む。
+/// WebView の navigator.clipboard はユーザー操作の直後でないと拒否されるため Rust 側で行う。
+#[tauri::command]
+fn write_clipboard_native(text: String) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| format!("Clipboard unavailable: {}", e))?;
+    clipboard.set_text(text).map_err(|e| format!("Failed to write clipboard: {}", e))
+}
+
 /// Alt+Shift+R: 開いているローカルファイルをパスから読み直す。
 /// 文字コードの扱いは open_local_file_native と同じ（BOM を剥がし、UTF-8 として読む）。
 #[tauri::command]
@@ -607,6 +615,7 @@ pub fn run() {
             log_from_js,
             open_local_file_native,
             read_local_file_native,
+            write_clipboard_native,
             save_local_file_native,
             open_url_in_browser,
             open_local_page,
