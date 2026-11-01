@@ -1,11 +1,15 @@
 [package]
 name = "leaf"
-version = "0.31.4"
+version = "0.31.5"
 edition = "2021"
 
 [dependencies]
 yew = { version = "0.21", features = ["csr"] }
-wasm-bindgen = "0.2"
+# 版を固定する理由: Cargo.lock を git に入れていないため CI は常に最新版を取りに行く。
+# 0.2.130 の Linux ARM64 用 CLI は glibc 2.38 以上を要求し、ubuntu-22.04-arm(2.35)で
+# 実行できず Linux ARM64 のリリースビルドが失敗する。trunk は Cargo.lock と同じ版の
+# CLI を取得するので、ここで固定すれば CI の CLI も固定される。
+wasm-bindgen = "=0.2.129"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 serde-wasm-bindgen = "0.6"
