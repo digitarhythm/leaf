@@ -189,7 +189,8 @@ impl SwitcherItem {
 ///
 /// * `terminals`: 現在のプロジェクトのターミナル（タブ ID, 表示名）。渡された順で先頭に置く
 /// * `project_sheet_guids`: `Project.sheets`（登録順）
-/// * `previews`: `ProjectStore.previews`（guid → 先頭 5 行）
+/// * `previews`: `ProjectStore.previews`（guid → 先頭 20 行）
+/// * `extensions`: `ProjectStore.extensions`（guid → 拡張子）
 /// * `open_sheets`: 現在のプロジェクトのタブとして表示中のシート
 ///
 /// 並び順と突き合わせの規則は仕様書 §4 を参照。
@@ -197,6 +198,7 @@ pub fn build_switcher_items(
     terminals: &[(String, String)],
     project_sheet_guids: &[String],
     previews: &BTreeMap<String, String>,
+    extensions: &BTreeMap<String, String>,
     open_sheets: &[OpenSheetInput],
 ) -> Vec<SwitcherItem> {
     let mut items: Vec<SwitcherItem> = terminals
@@ -235,8 +237,12 @@ pub fn build_switcher_items(
             None => closed.push(SwitcherItem {
                 kind: SwitcherItemKind::ClosedSheet,
                 id: guid.clone(),
-                // ファイル名（拡張子）は設定ファイルに無いため guid をそのまま使う
-                title: guid.clone(),
+                // 拡張子が記録済みなら付けて、開いているシートと同じ描画にする
+                // （docs/PREVIEW_THUMBNAIL_RENDERING_SPEC.md §4.4）
+                title: match extensions.get(guid) {
+                    Some(ext) => format!("{}.{}", guid, ext),
+                    None => guid.clone(),
+                },
                 content: previews.get(guid).cloned().unwrap_or_default(),
                 tab_color: String::new(),
             }),
@@ -573,8 +579,11 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                         // 選択中のカードだけスクロールできるようにする。
                                         // overscroll-contain で、端まで来てもグリッド側へスクロールが
                                         // 波及しないようにしている。
+                                        // シートは最後の 2 行をフェードアウトする（背景ごと消えないよう、マスクは内側の枠に掛ける）
                                         <div class={classes!("flex-1", "min-h-0",
-                                            if sheet.kind == SwitcherItemKind::Terminal { "bg-[#1d2021]" } else { "bg-[#fdf6e3]" },
+                                            if sheet.kind == SwitcherItemKind::Terminal { "bg-[#1d2021]" } else { "bg-[#fdf6e3]" })}>
+                                        <div class={classes!("h-full",
+                                            if sheet.kind == SwitcherItemKind::Terminal { vec![] } else { vec!["leaf-fade-tail", "leaf-fade-switcher"] },
                                             if is_sel { vec!["overflow-y-auto", "overscroll-contain", "custom-scrollbar"] }
                                             else { vec!["overflow-hidden"] })}>
                                             {
@@ -601,6 +610,7 @@ pub fn project_sheet_switcher(props: &ProjectSheetSwitcherProps) -> Html {
                                                 }
                                                 }
                                             }
+                                        </div>
                                         </div>
                                         // 右下のバッジ: アクティブは「編集中」（オレンジ）、タブで開いているものは
                                         // 「表示中」（緑）、未オープンは無し
@@ -832,6 +842,10 @@ mod tests {
         list.iter().map(|(g, p)| (g.to_string(), p.to_string())).collect()
     }
 
+    fn exts(list: &[(&str, &str)]) -> BTreeMap<String, String> {
+        list.iter().map(|(g, e)| (g.to_string(), e.to_string())).collect()
+    }
+
     fn kinds(items: &[SwitcherItem]) -> Vec<SwitcherItemKind> {
         items.iter().map(|i| i.kind.clone()).collect()
     }
@@ -846,7 +860,7 @@ mod tests {
         let items = build_switcher_items(
             &[term("__TERM__2", "Terminal 1"), term("__TERM__5", "Terminal 2")],
             &guids(&["abc"]),
-            &previews(&[]),
+            &previews(&[]), &exts(&[]),
             &[open("s1", Some("abc"), "abc.md", "# body")],
         );
         assert_eq!(ids(&items), vec!["__TERM__2", "__TERM__5", "s1"]);
@@ -862,7 +876,7 @@ mod tests {
         let items = build_switcher_items(
             &[],
             &guids(&["abc"]),
-            &previews(&[("abc", "古いプレビュー")]),
+            &previews(&[("abc", "古いプレビュー")]), &exts(&[]),
             &[open("s1", Some("abc"), "abc.md", "# 最新の本文\n2行目")],
         );
         assert_eq!(items.len(), 1);
@@ -881,7 +895,7 @@ mod tests {
         let items = build_switcher_items(
             &[],
             &guids(&["abc"]),
-            &previews(&[("abc", "会議メモ\n2行目")]),
+            &previews(&[("abc", "会議メモ\n2行目")]), &exts(&[]),
             &[],
         );
         assert_eq!(items.len(), 1);
@@ -892,10 +906,41 @@ mod tests {
         assert_eq!(item.content, "会議メモ\n2行目");
     }
 
+    // 拡張子の記録（docs/PREVIEW_THUMBNAIL_RENDERING_SPEC.md §4.4）
+    #[test]
+    fn closed_sheet_title_carries_recorded_extension() {
+        let items = build_switcher_items(
+            &[],
+            &guids(&["abc"]),
+            &previews(&[("abc", "# 会議メモ")]),
+            &exts(&[("abc", "md")]),
+            &[],
+        );
+        assert_eq!(items[0].kind, SwitcherItemKind::ClosedSheet);
+        // id は guid のまま（開く時に使う）。title だけ拡張子付きにする
+        assert_eq!(items[0].id, "abc");
+        assert_eq!(items[0].title, "abc.md");
+        assert_eq!(display_extension(&items[0].title), "MD");
+    }
+
+    #[test]
+    fn closed_sheet_without_extension_keeps_guid_title() {
+        let items = build_switcher_items(
+            &[],
+            &guids(&["abc", "def"]),
+            &previews(&[]),
+            &exts(&[("def", "rs")]),
+            &[],
+        );
+        assert_eq!(items[0].title, "abc");
+        assert_eq!(display_extension(&items[0].title), "");
+        assert_eq!(items[1].title, "def.rs");
+    }
+
     // 規則 7
     #[test]
     fn closed_sheet_without_preview_has_empty_content() {
-        let items = build_switcher_items(&[], &guids(&["abc"]), &previews(&[]), &[]);
+        let items = build_switcher_items(&[], &guids(&["abc"]), &previews(&[]), &exts(&[]), &[]);
         assert_eq!(items[0].kind, SwitcherItemKind::ClosedSheet);
         assert_eq!(items[0].content, "");
     }
@@ -906,7 +951,7 @@ mod tests {
         let items = build_switcher_items(
             &[],
             &guids(&["g1", "g2", "g3", "g4"]),
-            &previews(&[("g2", "p2"), ("g4", "p4")]),
+            &previews(&[("g2", "p2"), ("g4", "p4")]), &exts(&[]),
             // g3 → g1 の順で開いていても、オープン済みは登録順 g1 → g3
             &[open("s3", Some("g3"), "g3.txt", "c3"), open("s1", Some("g1"), "g1.txt", "c1")],
         );
@@ -929,7 +974,7 @@ mod tests {
         let items = build_switcher_items(
             &[],
             &guids(&["abc", "xyz"]),
-            &previews(&[]),
+            &previews(&[]), &exts(&[]),
             &[
                 open("s1", Some("abc.md"), "abc.md", "c1"),
                 open("s2", None, "xyz.txt", "c2"),
@@ -945,7 +990,7 @@ mod tests {
         let items = build_switcher_items(
             &[],
             &guids(&["abc", "abc", "def", "abc"]),
-            &previews(&[]),
+            &previews(&[]), &exts(&[]),
             &[],
         );
         assert_eq!(ids(&items), vec!["abc", "def"]);
@@ -957,7 +1002,7 @@ mod tests {
         let items = build_switcher_items(
             &[],
             &guids(&["abc"]),
-            &previews(&[]),
+            &previews(&[]), &exts(&[]),
             &[open("s1", Some("abc"), "abc.md", "c1")],
         );
         // 所属シートとして 1 回出るだけで、末尾の非所属グループには出ない
@@ -970,7 +1015,7 @@ mod tests {
         let items = build_switcher_items(
             &[term("__TERM__1", "Terminal 1")],
             &guids(&["abc"]),
-            &previews(&[]),
+            &previews(&[]), &exts(&[]),
             &[
                 // 未保存の新規シート（guid 無し）
                 open("new1", None, "Untitled.txt", ""),
@@ -993,7 +1038,7 @@ mod tests {
         let items = build_switcher_items(
             &[term("__TERM__1", "Terminal 1")],
             &guids(&["abc", "closed"]),
-            &previews(&[]),
+            &previews(&[]), &exts(&[]),
             &[open("s1", Some("abc"), "abc.md", "c1")],
         );
         assert_eq!(items[0].selection(), SwitcherSelection::Tab("__TERM__1".to_string()));

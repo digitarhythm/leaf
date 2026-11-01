@@ -137,7 +137,8 @@ pub struct FileOpenDialogProps {
     /// (プロジェクトID, シートguid, シート本文) — 所属の切り替え。
     /// 本文は一覧表示用プレビューの更新に使う。
     #[prop_or_default]
-    pub on_toggle_project: Option<Callback<(String, String, String)>>,
+    /// (プロジェクト ID, guid, 本文, Drive 上のファイル名)
+    pub on_toggle_project: Option<Callback<(String, String, String, String)>>,
 }
 
 #[derive(PartialEq, Clone, Copy)]
@@ -1666,9 +1667,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                                 </button>
                                             </div>
                                         </div>
-                                        // コンテンツプレビュー（冒頭5行を表示）
+                                        // コンテンツプレビュー（冒頭5行を表示し、最後の2行はフェードアウト）
                                         <div class={classes!(
-                                            "px-3", "pb-2", "text-xs", "font-bold", "line-clamp-5", "leading-snug", "break-all", "overflow-hidden", "whitespace-pre-wrap",
+                                            "mx-3", "mb-2", "text-xs", "font-bold", "leaf-preview-box-5", "leaf-fade-tail", "leading-snug", "break-all", "whitespace-pre-wrap",
                                             if !file.is_loaded { "opacity-70" } else if is_sel { "text-emerald-50" } else { "text-gray-300" }
                                         )}>
                                             if !file.is_loaded { 
@@ -2061,8 +2062,9 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                         <div class="flex-shrink-0">
                                             { make_card(i, file, false, false) }
                                         </div>
-                                        // アイコンの高さ(h-28=7rem)に収まるだけの行を表示。はみ出しは隠す。
-                                        <div class={classes!("flex-1","min-w-0","max-h-28","overflow-hidden","text-xs","leading-snug","break-all","whitespace-pre-wrap", if is_sel { "text-emerald-50" } else { "text-gray-300" })}>
+                                        // アイコンの高さ(h-28=7rem)に収まるだけの行を表示。はみ出しは隠し、最後の2行はフェードアウト。
+                                        // 高さを固定しないと短い本文まで薄くなるため h-28 にする。
+                                        <div class={classes!("flex-1","min-w-0","h-28","overflow-hidden","leaf-fade-tail","text-xs","leading-snug","break-all","whitespace-pre-wrap", if is_sel { "text-emerald-50" } else { "text-gray-300" })}>
                                             { lines }
                                         </div>
                                         // 行の右端: カテゴリー選択 / ファイルタイプ選択 / 削除 を縦に並べる
@@ -2223,6 +2225,7 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
             })
             .unwrap_or_default();
         let sheet_content = target.map(|f| f.content.clone()).unwrap_or_default();
+        let sheet_name = target.map(|f| f.name.clone()).unwrap_or_default();
         let store = props.project_store.clone();
         let on_toggle = props.on_toggle_project.clone();
         html! {
@@ -2242,12 +2245,13 @@ pub fn file_open_dialog(props: &FileOpenDialogProps) -> Html {
                                 let pid = p.id.clone();
                                 let guid = sheet_guid.clone();
                                 let content = sheet_content.clone();
+                                let name = sheet_name.clone();
                                 let cb = on_toggle.clone();
                                 html! {
                                     <button
                                         onclick={move |e: MouseEvent| {
                                             e.stop_propagation();
-                                            if let Some(cb) = cb.as_ref() { cb.emit((pid.clone(), guid.clone(), content.clone())); }
+                                            if let Some(cb) = cb.as_ref() { cb.emit((pid.clone(), guid.clone(), content.clone(), name.clone())); }
                                         }}
                                         class={classes!("w-full","text-left","px-4","py-2","text-xs","transition-colors","flex","items-center","gap-2",
                                             if belongs { vec!["bg-emerald-600/30","text-emerald-300","font-bold"] } else { vec!["text-gray-300","hover:bg-emerald-600","hover:text-white"] })}

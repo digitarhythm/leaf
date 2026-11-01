@@ -129,6 +129,28 @@
   -webkit-mask-image: linear-gradient(to right, black 80%, transparent 100%);
 }
 
+/* --- プレビューの末尾 2 行のフェードアウト ---
+   表示枠の下端 2 行分を、不透明度 1.0 → 0.0 のグラデーションで消す。
+   2 行分の高さは --leaf-fade-height で場所ごとに変える
+   （既定は text-xs + leading-snug の 1.375em × 2）。
+   枠の高さが本文の行数で決まると短い本文まで薄くなるため、
+   枠の高さは固定して使う（.leaf-preview-box-5 など）。
+   仕様: docs/PREVIEW_THUMBNAIL_RENDERING_SPEC.md §5 */
+.leaf-fade-tail {
+  --leaf-fade-height: 2.75em;
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--leaf-fade-height)), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - var(--leaf-fade-height)), transparent 100%);
+}
+/* 5 行分に高さを固定した表示枠（leading-snug 前提） */
+.leaf-preview-box-5 {
+  height: calc(1.375em * 5);
+  overflow: hidden;
+}
+/* Alt+R のカード: 中身は 0.2 倍に縮小しているので、縮小後の 2 行分（13px × 1.6 × 0.2 × 2） */
+.leaf-fade-tail.leaf-fade-switcher {
+  --leaf-fade-height: 8.32px;
+}
+
 /* --- Mermaid フォールバック配色 ---
    Mermaid は図ごとに id でスコープした配色スタイルを SVG に注入するが、
    同一内容を複数箇所で描画して id が衝突すると、後発の図にスタイルが効かず

@@ -89,26 +89,33 @@ pub struct ProjectStore {
     pub version: u32,
     #[serde(default)]
     pub projects: Vec<Project>,
-    /// guid → 本文プレビュー（先頭 5 行）の**キャッシュ**。
+    /// guid → 本文プレビュー（先頭 20 行）の**キャッシュ**。
     ///
     /// Drive 上のファイル名は `{guid}.{拡張子}` で内容が分からないため、
-    /// シート選択ダイアログが取得済みの本文から先頭 5 行を控えておき、
+    /// シート選択ダイアログが取得済みの本文から先頭 20 行を控えておき、
     /// プロジェクトダイアログの一覧表示に使う。正本はあくまで `sheets` の guid で、
     /// ここが欠けていても機能に影響はない。
     #[serde(default)]
     pub previews: BTreeMap<String, String>,
+    /// guid → 拡張子（小文字、ドット無し。例: "md"）の**キャッシュ**。
+    ///
+    /// 未オープンのシートを Alt+R の一覧で拡張子に応じて描画するために使う。
+    /// 古い設定ファイルには無いので、足りない分は Drive の一覧から補う
+    /// （docs/PREVIEW_THUMBNAIL_RENDERING_SPEC.md §4）。
+    #[serde(default)]
+    pub extensions: BTreeMap<String, String>,
 }
 
 impl Default for ProjectStore {
     fn default() -> Self {
-        Self { version: SCHEMA_VERSION, projects: Vec::new(), previews: BTreeMap::new() }
+        Self { version: SCHEMA_VERSION, projects: Vec::new(), previews: BTreeMap::new(), extensions: BTreeMap::new() }
     }
 }
 
-/// 本文から一覧表示用のプレビュー（先頭 5 行）を作る。
+/// 本文から一覧表示用のプレビュー（先頭 20 行）を作る。
 /// 行数だけでなく 1 行の長さも抑え、設定ファイルが肥大化しないようにする。
 pub fn preview_from_content(content: &str) -> String {
-    const MAX_LINES: usize = 5;
+    const MAX_LINES: usize = 20;
     const MAX_CHARS_PER_LINE: usize = 80;
     content
         .lines()
@@ -118,6 +125,15 @@ pub fn preview_from_content(content: &str) -> String {
         .join("\n")
         .trim_end()
         .to_string()
+}
+
+/// ファイル名から拡張子（小文字、ドット無し）を取り出す。
+/// 拡張子が無い・末尾がドット・先頭のドットだけ（`.env`）の場合は None。
+pub fn extension_from_name(name: &str) -> Option<String> {
+    match name.rfind('.') {
+        Some(pos) if pos > 0 && pos + 1 < name.len() => Some(name[pos + 1..].to_lowercase()),
+        _ => None,
+    }
 }
 
 /// プロジェクト名の検証エラー
@@ -333,6 +349,45 @@ impl ProjectStore {
         true
     }
 
+    /// 拡張子のキャッシュを更新する。`name` はシートの表示名（`{guid}.{拡張子}`）。
+    /// 拡張子が取れない場合と、既に同じ値の場合は false を返す（無駄な保存を避ける）。
+    pub fn set_sheet_extension(&mut self, sheet_guid: &str, name: &str) -> bool {
+        let Some(ext) = extension_from_name(name) else {
+            return false;
+        };
+        if self.extensions.get(sheet_guid) == Some(&ext) {
+            return false;
+        }
+        self.extensions.insert(sheet_guid.to_string(), ext);
+        true
+    }
+
+    /// いずれかのプロジェクトに所属していて、拡張子が未記録の guid（登録順、重複無し）
+    pub fn guids_missing_extension(&self) -> Vec<String> {
+        let mut seen = HashSet::new();
+        self.projects
+            .iter()
+            .flat_map(|p| p.sheets.iter())
+            .filter(|guid| !self.extensions.contains_key(*guid))
+            .filter(|guid| seen.insert((*guid).clone()))
+            .cloned()
+            .collect()
+    }
+
+    /// 未記録の guid だけ `names`（guid → 表示名）から拡張子を補う。記録済みは上書きしない。
+    /// 1 件でも補えたら true。
+    pub fn fill_missing_extensions(&mut self, names: &BTreeMap<String, String>) -> bool {
+        let mut changed = false;
+        for guid in self.guids_missing_extension() {
+            if let Some(name) = names.get(&guid) {
+                if self.set_sheet_extension(&guid, name) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
     /// そのシートが所属している全プロジェクト
     pub fn projects_for_sheet(&self, sheet_guid: &str) -> Vec<&Project> {
         self.projects
@@ -361,6 +416,11 @@ impl ProjectStore {
         let before_previews = self.previews.len();
         self.previews.retain(|guid, _| referenced.contains(guid));
         if self.previews.len() != before_previews {
+            changed = true;
+        }
+        let before_extensions = self.extensions.len();
+        self.extensions.retain(|guid, _| referenced.contains(guid));
+        if self.extensions.len() != before_extensions {
             changed = true;
         }
         changed
@@ -689,9 +749,107 @@ mod tests {
     }
 
     #[test]
-    fn preview_keeps_only_first_five_lines() {
-        let content = "1行目\n2行目\n3行目\n4行目\n5行目\n6行目\n7行目";
-        assert_eq!(preview_from_content(content), "1行目\n2行目\n3行目\n4行目\n5行目");
+    fn preview_keeps_only_first_twenty_lines() {
+        let content: String = (1..=25).map(|i| format!("{}行目", i)).collect::<Vec<_>>().join("\n");
+        let expected: String = (1..=20).map(|i| format!("{}行目", i)).collect::<Vec<_>>().join("\n");
+        assert_eq!(preview_from_content(&content), expected);
+    }
+
+    // --- 拡張子の記録（docs/PREVIEW_THUMBNAIL_RENDERING_SPEC.md §4） ---
+
+    #[test]
+    fn extension_is_taken_from_name_in_lower_case() {
+        assert_eq!(extension_from_name("abc.MD").as_deref(), Some("md"));
+        assert_eq!(extension_from_name("a.b.rs").as_deref(), Some("rs"));
+    }
+
+    #[test]
+    fn name_without_extension_has_no_extension() {
+        assert_eq!(extension_from_name("abc"), None);
+        assert_eq!(extension_from_name("abc."), None);
+        assert_eq!(extension_from_name(".env"), None);
+        assert_eq!(extension_from_name(""), None);
+    }
+
+    #[test]
+    fn set_sheet_extension_reports_changes_only() {
+        let mut store = ProjectStore::new();
+        assert!(store.set_sheet_extension("guid-a", "guid-a.md"));
+        assert_eq!(store.extensions.get("guid-a").map(|s| s.as_str()), Some("md"));
+        // 同じ値なら保存不要
+        assert!(!store.set_sheet_extension("guid-a", "guid-a.MD"));
+        assert!(store.set_sheet_extension("guid-a", "guid-a.txt"));
+        // 拡張子が取れない名前では記録も上書きもしない
+        assert!(!store.set_sheet_extension("guid-a", "guid-a"));
+        assert_eq!(store.extensions.get("guid-a").map(|s| s.as_str()), Some("txt"));
+        assert!(!store.set_sheet_extension("guid-b", "guid-b"));
+        assert_eq!(store.extensions.get("guid-b"), None);
+    }
+
+    #[test]
+    fn guids_missing_extension_lists_unrecorded_project_sheets() {
+        let mut store = store_with(&[("id-1", "Alpha"), ("id-2", "Beta")]);
+        store.toggle_sheet("id-1", "guid-a", T0);
+        store.toggle_sheet("id-1", "guid-b", T0);
+        store.toggle_sheet("id-2", "guid-c", T0);
+        // 別プロジェクトにも所属している guid は 1 回だけ
+        store.toggle_sheet("id-2", "guid-a", T0);
+        store.set_sheet_extension("guid-b", "guid-b.md");
+        // どのプロジェクトにも所属していない guid は対象外
+        store.set_sheet_preview("guid-x", "所属外");
+
+        assert_eq!(store.guids_missing_extension(), vec!["guid-a", "guid-c"]);
+    }
+
+    #[test]
+    fn fill_missing_extensions_does_not_overwrite_recorded() {
+        let mut store = store_with(&[("id-1", "Alpha")]);
+        store.toggle_sheet("id-1", "guid-a", T0);
+        store.toggle_sheet("id-1", "guid-b", T0);
+        store.set_sheet_extension("guid-a", "guid-a.md");
+
+        let names: BTreeMap<String, String> = [
+            ("guid-a", "guid-a.txt"),
+            ("guid-b", "guid-b.rs"),
+        ]
+        .iter()
+        .map(|(g, n)| (g.to_string(), n.to_string()))
+        .collect();
+        assert!(store.fill_missing_extensions(&names));
+        assert_eq!(store.extensions.get("guid-a").map(|s| s.as_str()), Some("md"));
+        assert_eq!(store.extensions.get("guid-b").map(|s| s.as_str()), Some("rs"));
+        // 補うものが無ければ false（無駄な保存を避ける）
+        assert!(!store.fill_missing_extensions(&names));
+    }
+
+    #[test]
+    fn prune_drops_extensions_no_longer_referenced() {
+        let mut store = store_with(&[("id-1", "Alpha")]);
+        store.toggle_sheet("id-1", "guid-a", T0);
+        store.toggle_sheet("id-1", "guid-gone", T0);
+        store.set_sheet_extension("guid-a", "guid-a.md");
+        store.set_sheet_extension("guid-gone", "guid-gone.md");
+
+        let existing: HashSet<String> = ["guid-a"].iter().map(|s| s.to_string()).collect();
+        assert!(store.prune_missing_sheets(&existing, T1));
+
+        assert_eq!(store.extensions.get("guid-a").map(|s| s.as_str()), Some("md"));
+        assert_eq!(store.extensions.get("guid-gone"), None);
+    }
+
+    #[test]
+    fn store_without_extensions_field_still_loads() {
+        let json = r##"{
+            "version": 2,
+            "projects": [
+                { "id": "id-1", "name": "Alpha", "sheets": ["guid-a"] }
+            ],
+            "previews": { "guid-a": "本文" }
+        }"##;
+        let store = ProjectStore::from_json(json);
+        assert_eq!(store.find("id-1").unwrap().sheets, vec!["guid-a"]);
+        assert!(store.extensions.is_empty());
+        assert_eq!(store.guids_missing_extension(), vec!["guid-a"]);
     }
 
     #[test]

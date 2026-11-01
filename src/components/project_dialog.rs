@@ -488,8 +488,8 @@ pub fn project_dialog(props: &ProjectDialogProps) -> Html {
                                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
                                                     </button>
                                                 </div>
-                                                // 本文の先頭5行
-                                                <div class="px-3 pb-2 text-xs font-bold leading-snug line-clamp-5 break-all whitespace-pre-wrap text-gray-300">
+                                                // 本文の先頭5行（最後の2行はフェードアウト）
+                                                <div class="mx-3 mb-2 text-xs font-bold leading-snug leaf-preview-box-5 leaf-fade-tail break-all whitespace-pre-wrap text-gray-300">
                                                     { body }
                                                 </div>
                                             </div>

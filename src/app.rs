@@ -804,6 +804,7 @@ fn attach_sheet_to_project(
     project_id: &str,
     sheet_guid: &str,
     content: &str,
+    name: &str,
     app_folder_id: Option<String>,
 ) {
     let app_folder = match app_folder_id {
@@ -827,6 +828,9 @@ fn attach_sheet_to_project(
         changed = true;
     }
     if next.set_sheet_preview(sheet_guid, content) {
+        changed = true;
+    }
+    if next.set_sheet_extension(sheet_guid, name) {
         changed = true;
     }
     if changed {
@@ -1463,7 +1467,7 @@ pub fn app() -> Html {
     // effect 側へ引き渡すための受け皿。(プロジェクトID, guid, 本文)
     // 保存コールバックは長命な effect に捕捉されるため project_store のハンドルが
     // 古くなりうる。ここを経由して、常に最新のストアに対して登録する。
-    let pending_project_attach = use_state(|| None::<(String, String, String)>);
+    let pending_project_attach = use_state(|| None::<(String, String, String, String)>);
     // 単発の通知ダイアログ（タイトル, 本文）。Alt+R で選んだシートが Drive に無かった時などに使う
     let notice_dialog = use_state(|| None::<(String, String)>);
     // ローカルファイルの再読み込みで未保存の編集と食い違った時の確認（シートID, タイトル, 読み直した本文）
@@ -1493,13 +1497,14 @@ pub fn app() -> Html {
         let folder_attach = leaf_data_folder_id.clone();
         let ppa = pending_project_attach.clone();
         use_effect_with((*pending_project_attach).clone(), move |pending| {
-            if let Some((project_id, guid, content)) = pending.clone() {
+            if let Some((project_id, guid, content, name)) = pending.clone() {
                 ppa.set(None);
                 attach_sheet_to_project(
                     &ps_attach,
                     &project_id,
                     &guid,
                     &content,
+                    &name,
                     (*folder_attach).clone(),
                 );
             }
@@ -1516,6 +1521,48 @@ pub fn app() -> Html {
     // 未保存のシートは guid を持たず設定ファイルに書けないため、ここで覚えておく。
     let sheet_project_map = use_mut_ref(|| std::collections::HashMap::<String, String>::new());
     let is_project_switcher_visible = use_state(|| false);
+    // Alt+R を開いた時、拡張子が未記録の所属シートがあれば Drive の一覧から補う
+    // （docs/PREVIEW_THUMBNAIL_RENDERING_SPEC.md §4.3）。
+    // 取得は非同期なので、結果は一旦ここへ置き、反映は次の描画時点の最新ストアに対して行う
+    // （取得中に他の変更があっても古いストアで上書きしないため）。
+    let drive_names_for_ext = use_state(|| None::<std::collections::BTreeMap<String, String>>);
+    {
+        let ps = project_store.clone();
+        let cats = categories.clone();
+        let folder = leaf_data_folder_id.clone();
+        let dn = drive_names_for_ext.clone();
+        use_effect_with(*is_project_switcher_visible, move |visible| {
+            if *visible && folder.is_some() && !ps.guids_missing_extension().is_empty() {
+                let cats = (*cats).clone();
+                spawn_local(async move {
+                    let by_guid = collect_drive_sheets_by_guid(&cats).await;
+                    let names: std::collections::BTreeMap<String, String> = by_guid
+                        .into_iter()
+                        .map(|(guid, (_, title, _))| (guid, title))
+                        .collect();
+                    dn.set(Some(names));
+                });
+            }
+            || ()
+        });
+    }
+    {
+        let ps = project_store.clone();
+        let folder = leaf_data_folder_id.clone();
+        let dn = drive_names_for_ext.clone();
+        use_effect_with((*drive_names_for_ext).clone(), move |names| {
+            if let Some(names) = names.clone() {
+                dn.set(None);
+                if let Some(app_folder) = (*folder).clone() {
+                    let mut store = (*ps).clone();
+                    if store.fill_missing_extensions(&names) {
+                        persist_project_store(&ps, store, app_folder);
+                    }
+                }
+            }
+            || ()
+        });
+    }
     // Alt+R の再押下でダイアログ自身の閉じる処理（スライドアップ）を走らせるためのトリガー
     let project_switcher_close_trigger = use_state(|| 0u32);
     // Alt+P の再押下でプロジェクトダイアログを閉じる（アニメーション付き）ためのトリガー
@@ -2043,7 +2090,7 @@ pub fn app() -> Html {
                                 .get(&id)
                                 .cloned()
                                 .unwrap_or_else(|| (*apr_async.borrow()).clone());
-                            ppa_async.set(Some((attach_pid, new_guid.clone(), cur_c.clone())));
+                            ppa_async.set(Some((attach_pid, new_guid.clone(), cur_c.clone(), sheet.title.clone())));
                         }
                         
                         if sheet.category == "__LOCAL__" {
@@ -2764,6 +2811,7 @@ pub fn app() -> Html {
                             ws_sel.active(),
                             &crate::tabs::guid_from_drive_name(&existing.title),
                             &existing.content,
+                            &existing.title,
                             folder_sel.clone(),
                         ),
                         _ => {}
@@ -2861,6 +2909,7 @@ pub fn app() -> Html {
                         ws_sel_inner.active(),
                         &crate::tabs::guid_from_drive_name(&title),
                         &c,
+                        &title,
                         folder_sel_inner.clone(),
                     );
                     aid_inner.set(Some(nid.clone()));
@@ -5939,6 +5988,9 @@ pub fn app() -> Html {
                     if store.set_sheet_preview(&guid, &content) {
                         changed = true;
                     }
+                    if store.set_sheet_extension(&guid, &title) {
+                        changed = true;
+                    }
                     if changed {
                         persist_project_store(&ps, store, app_folder);
                     }
@@ -7318,12 +7370,15 @@ pub fn app() -> Html {
                                     let ps = project_store.clone();
                                     let folder = (*leaf_data_folder_id).clone();
                                     folder.map(|app_folder| {
-                                        Callback::from(move |(pid, guid, content): (String, String, String)| {
+                                        Callback::from(move |(pid, guid, content, name): (String, String, String, String)| {
                                             let mut store = (*ps).clone();
                                             let now = js_sys::Date::now() as u64;
                                             match store.toggle_sheet(&pid, &guid, now) {
                                                 // 追加時のみ一覧表示用のプレビューを控える
-                                                Some(true) => { store.set_sheet_preview(&guid, &content); }
+                                                Some(true) => {
+                                                    store.set_sheet_preview(&guid, &content);
+                                                    store.set_sheet_extension(&guid, &name);
+                                                }
                                                 Some(false) => {}
                                                 None => return,
                                             }
@@ -7518,7 +7573,7 @@ pub fn app() -> Html {
                                         tab_color: s.tab_color.clone(),
                                     })
                                     .collect();
-                                build_switcher_items(&terminals, &project_guids, &project_store.previews, &open)
+                                build_switcher_items(&terminals, &project_guids, &project_store.previews, &project_store.extensions, &open)
                             }}
                             active_sheet_id={(*active_sheet_id).clone()}
                             close_trigger={*project_switcher_close_trigger}
